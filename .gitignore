@@ -7,3 +7,6 @@ __pycache__/
 packages/ezjww/dist/
 packages/ezjww/node_modules/
 packages/ezjww/wasm/
+packages/ezjww/examples/browser/dist/
+packages/ezjww/examples/browser/public/samples/
+packages/ezjww/examples/browser/src/wasm/
