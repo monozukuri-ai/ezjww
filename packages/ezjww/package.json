@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "JWW parser and DXF converter for TypeScript, powered by Rust WebAssembly.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monozukuri-ai/ezjww.git",
+    "directory": "packages/ezjww"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

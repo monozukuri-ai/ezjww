@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   verify-python:
@@ -83,3 +84,98 @@ jobs:
           command: publish
           args: ${{ matrix.args }}
           manylinux: ${{ matrix.manylinux }}
+
+  publish-npm:
+    name: Publish npm package
+    needs: verify-python
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Install npm and pnpm
+        run: npm install -g npm@^11.5.1 pnpm@9.15.1
+
+      - name: Install Python dependencies
+        run: |
+          uv sync --extra plot
+          uv pip install maturin
+
+      - name: Install TypeScript dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/ezjww
+
+      - name: Check wasm target
+        run: |
+          cargo build -p ezjww-wasm --target wasm32-unknown-unknown
+          cargo clippy -p ezjww-wasm --target wasm32-unknown-unknown -- -D warnings
+
+      - name: Build Python extension
+        run: uv run maturin develop
+
+      - name: Test TypeScript package
+        run: pnpm run test
+        working-directory: packages/ezjww
+
+      - name: Build browser example
+        run: pnpm run example:browser:build
+        working-directory: packages/ezjww
+
+      - name: Check Python/TypeScript parity
+        run: pnpm run test:parity
+        working-directory: packages/ezjww
+
+      - name: Pack npm package
+        id: pack-npm
+        run: |
+          pack_file="$(pnpm pack --pack-destination /tmp | tail -n 1)"
+          echo "pack-file=${pack_file}" >> "${GITHUB_OUTPUT}"
+        working-directory: packages/ezjww
+
+      - name: Smoke packed npm package
+        run: |
+          mkdir -p /tmp/ezjww-pack-smoke
+          npm install "${{ steps.pack-npm.outputs.pack-file }}" --prefix /tmp/ezjww-pack-smoke
+          node -e "const fs=require('fs'); const ez=require('/tmp/ezjww-pack-smoke/node_modules/ezjww'); const data=fs.readFileSync('jww_samples/Test1.jww'); const doc=ez.readDocument(data); if (doc.header.version !== 600 || !ez.toDxfString(data).includes('SECTION')) process.exit(1);"
+
+      - name: Check npm version
+        id: npm-version
+        run: |
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "published=true" >> "${GITHUB_OUTPUT}"
+            echo "${name}@${version} is already published"
+          else
+            echo "published=false" >> "${GITHUB_OUTPUT}"
+            echo "${name}@${version} is not published yet"
+          fi
+        working-directory: packages/ezjww
+
+      - name: Publish npm package
+        if: steps.npm-version.outputs.published != 'true'
+        run: npm publish
+        working-directory: packages/ezjww
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
