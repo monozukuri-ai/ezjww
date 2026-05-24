@@ -139,11 +139,14 @@ jobs:
         working-directory: packages/ezjww
 
       - name: Pack npm package
-        run: pnpm pack --pack-destination /tmp
+        id: pack-npm
+        run: |
+          pack_file="$(pnpm pack --pack-destination /tmp | tail -n 1)"
+          echo "pack-file=${pack_file}" >> "${GITHUB_OUTPUT}"
         working-directory: packages/ezjww
 
       - name: Smoke packed npm package
         run: |
           mkdir -p /tmp/ezjww-pack-smoke
-          npm install /tmp/ezjww-0.1.0.tgz --prefix /tmp/ezjww-pack-smoke
+          npm install "${{ steps.pack-npm.outputs.pack-file }}" --prefix /tmp/ezjww-pack-smoke
           node -e "const fs=require('fs'); const ez=require('/tmp/ezjww-pack-smoke/node_modules/ezjww'); const data=fs.readFileSync('jww_samples/Test1.jww'); const doc=ez.readDocument(data); if (doc.header.version !== 600 || !ez.toDxfString(data).includes('SECTION')) process.exit(1);"
