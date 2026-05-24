@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::Path;
 
+use serde::Serialize;
+
 use crate::error::JwwError;
 use crate::header::parse_header;
 use crate::model::{
@@ -363,14 +365,14 @@ pub fn block_def_name_map(block_defs: &[BlockDef]) -> HashMap<u32, String> {
     map
 }
 
-pub fn resolve_block_name<'a>(def_number: u32, block_defs: &'a [BlockDef]) -> Option<&'a str> {
+pub fn resolve_block_name(def_number: u32, block_defs: &[BlockDef]) -> Option<&str> {
     block_defs
         .iter()
         .find(|def| def.number == def_number)
         .map(|def| def.name.as_str())
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlockReferenceValidation {
     pub total_references: usize,
     pub resolved_references: usize,
@@ -432,7 +434,7 @@ mod tests {
     };
 
     fn jww_samples_dir() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("jww_samples")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
     }
 
     #[test]

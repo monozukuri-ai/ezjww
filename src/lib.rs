@@ -1,35 +1,24 @@
-mod dxf;
-mod error;
-mod header;
-mod model;
-mod parser;
-mod reader;
+// PyO3's proc macros can trigger this lint on `PyResult` signatures.
+#![allow(clippy::useless_conversion)]
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 
+pub use ezjww_core::{
+    block_def_name_map, collect_entity_coordinates, convert_document,
+    convert_document_with_options, coordinates_bbox, document_to_string, entity_counts,
+    is_jww_signature, jww_document_to_dto, parse_document, parse_header, read_document_from_file,
+    read_header_from_file, resolve_block_name, validate_block_references, write_document_to_file,
+    Arc, Block, BlockDef, BlockReferenceValidation, BlockReferenceValidationDto, ConvertOptions,
+    Coord2D, Dimension, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfDocumentDto, DxfEllipse,
+    DxfEntity, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfText, Entity, EntityBase,
+    JwwDocument, JwwDocumentDto, JwwError, JwwHeader, LayerGroupHeader, LayerHeader, Line, Point,
+    Solid, Text,
+};
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
-
-pub use dxf::{
-    convert_document, convert_document_with_options, document_to_string, write_document_to_file,
-    ConvertOptions, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfEllipse, DxfEntity, DxfInsert,
-    DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfText,
-};
-pub use error::JwwError;
-pub use header::{
-    is_jww_signature, parse_header, read_header_from_file, JwwHeader, LayerGroupHeader, LayerHeader,
-};
-pub use model::{
-    collect_entity_coordinates, coordinates_bbox, Arc, Block, BlockDef, Coord2D, Dimension, Entity,
-    EntityBase, JwwDocument, Line, Point, Solid, Text,
-};
-pub use parser::{
-    block_def_name_map, entity_counts, parse_document, read_document_from_file, resolve_block_name,
-    validate_block_references, BlockReferenceValidation,
-};
 
 #[pyfunction]
 fn hello_from_bin() -> String {

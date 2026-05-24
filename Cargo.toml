@@ -1,3 +1,8 @@
+[workspace]
+members = ["crates/ezjww-core", "crates/ezjww-wasm"]
+default-members = [".", "crates/ezjww-core"]
+resolver = "2"
+
 [package]
 name = "ezjww"
 version = "0.1.0"
@@ -9,7 +14,7 @@ name = "_core"
 crate-type = ["cdylib"]
 
 [dependencies]
+ezjww-core = { path = "crates/ezjww-core" }
 # "extension-module" tells pyo3 we want to build an extension module (skips linking against libpython.so)
 # "abi3-py39" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.9
 pyo3 = { version = "0.22.4", features = ["extension-module", "abi3-py39"] }
-encoding_rs = "0.8.35"

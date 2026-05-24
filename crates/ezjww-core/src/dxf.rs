@@ -5,9 +5,12 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use serde::Serialize;
+use serde::Serializer;
+
 use crate::model::{Arc, Block, BlockDef, Entity, JwwDocument, Text};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfLayer {
     pub name: String,
     pub color: i32,
@@ -16,7 +19,7 @@ pub struct DxfLayer {
     pub locked: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfLine {
     pub layer: String,
     pub color: i32,
@@ -27,7 +30,7 @@ pub struct DxfLine {
     pub y2: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfCircle {
     pub layer: String,
     pub color: i32,
@@ -37,7 +40,7 @@ pub struct DxfCircle {
     pub radius: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfArc {
     pub layer: String,
     pub color: i32,
@@ -49,7 +52,7 @@ pub struct DxfArc {
     pub end_angle: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfEllipse {
     pub layer: String,
     pub color: i32,
@@ -63,7 +66,7 @@ pub struct DxfEllipse {
     pub end_param: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfPoint {
     pub layer: String,
     pub color: i32,
@@ -72,7 +75,7 @@ pub struct DxfPoint {
     pub y: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfText {
     pub layer: String,
     pub color: i32,
@@ -85,7 +88,7 @@ pub struct DxfText {
     pub style: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfSolid {
     pub layer: String,
     pub color: i32,
@@ -100,7 +103,7 @@ pub struct DxfSolid {
     pub y4: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfInsert {
     pub layer: String,
     pub color: i32,
@@ -125,6 +128,64 @@ pub enum DxfEntity {
     Insert(DxfInsert),
 }
 
+#[derive(Serialize)]
+struct TaggedDxfPayload<'a, T: Serialize + ?Sized> {
+    #[serde(rename = "type")]
+    entity_type: &'static str,
+    #[serde(flatten)]
+    payload: &'a T,
+}
+
+impl Serialize for DxfEntity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Line(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Circle(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Arc(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Ellipse(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Point(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Text(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Solid(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Insert(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+        }
+    }
+}
+
 impl DxfEntity {
     pub fn entity_type(&self) -> &'static str {
         match self {
@@ -140,7 +201,7 @@ impl DxfEntity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfBlock {
     pub name: String,
     pub base_x: f64,
@@ -148,7 +209,7 @@ pub struct DxfBlock {
     pub entities: Vec<DxfEntity>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfDocument {
     pub layers: Vec<DxfLayer>,
     pub entities: Vec<DxfEntity>,
@@ -156,7 +217,7 @@ pub struct DxfDocument {
     pub unsupported_entities: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ConvertOptions {
     pub explode_inserts: bool,
     pub max_block_nesting: usize,
@@ -182,15 +243,19 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
 
     let mut unsupported_entities = Vec::<String>::new();
     let entities = if options.explode_inserts {
-        convert_entities_exploded(
+        let mut expanding_stack = Vec::new();
+        let mut context = ExplodeContext {
             doc,
-            &doc.entities,
-            &block_name_map,
-            &block_defs,
-            &Transform2D::identity(),
-            &mut Vec::new(),
-            &mut unsupported_entities,
+            block_name_map: &block_name_map,
+            block_defs: &block_defs,
+            unsupported_entities: &mut unsupported_entities,
             options,
+        };
+        convert_entities_exploded(
+            &mut context,
+            &doc.entities,
+            &Transform2D::identity(),
+            &mut expanding_stack,
         )
     } else {
         convert_entities(
@@ -764,56 +829,64 @@ impl Transform2D {
     }
 }
 
+struct ExplodeContext<'a> {
+    doc: &'a JwwDocument,
+    block_name_map: &'a HashMap<u32, String>,
+    block_defs: &'a HashMap<u32, &'a BlockDef>,
+    unsupported_entities: &'a mut Vec<String>,
+    options: ConvertOptions,
+}
+
 fn convert_entities_exploded(
-    doc: &JwwDocument,
+    context: &mut ExplodeContext<'_>,
     entities: &[Entity],
-    block_name_map: &HashMap<u32, String>,
-    block_defs: &HashMap<u32, &BlockDef>,
     transform: &Transform2D,
     expanding_stack: &mut Vec<u32>,
-    unsupported_entities: &mut Vec<String>,
-    options: ConvertOptions,
 ) -> Vec<DxfEntity> {
     let mut out = Vec::<DxfEntity>::new();
     for entity in entities {
         match entity {
             Entity::Block(block) => {
-                if expanding_stack.len() >= options.max_block_nesting {
-                    unsupported_entities.push(format!("BLOCK_DEPTH_LIMIT({})", block.def_number));
+                if expanding_stack.len() >= context.options.max_block_nesting {
+                    context
+                        .unsupported_entities
+                        .push(format!("BLOCK_DEPTH_LIMIT({})", block.def_number));
                     continue;
                 }
                 if expanding_stack.contains(&block.def_number) {
-                    unsupported_entities.push(format!("BLOCK_CYCLE({})", block.def_number));
+                    context
+                        .unsupported_entities
+                        .push(format!("BLOCK_CYCLE({})", block.def_number));
                     continue;
                 }
 
-                let Some(block_def) = block_defs.get(&block.def_number).copied() else {
-                    unsupported_entities.push(format!("UNRESOLVED_BLOCK({})", block.def_number));
+                let Some(block_def) = context.block_defs.get(&block.def_number).copied() else {
+                    context
+                        .unsupported_entities
+                        .push(format!("UNRESOLVED_BLOCK({})", block.def_number));
                     continue;
                 };
 
                 expanding_stack.push(block.def_number);
                 let child_transform = transform.compose(&Transform2D::from_insert(block));
                 let expanded = convert_entities_exploded(
-                    doc,
+                    context,
                     &block_def.entities,
-                    block_name_map,
-                    block_defs,
                     &child_transform,
                     expanding_stack,
-                    unsupported_entities,
-                    options,
                 );
                 expanding_stack.pop();
                 out.extend(expanded);
             }
-            _ => match convert_entity(doc, entity, block_name_map) {
+            _ => match convert_entity(context.doc, entity, context.block_name_map) {
                 Some(converted) => {
                     for dxf_entity in converted {
                         out.extend(transform_entity_for_explode(&dxf_entity, transform));
                     }
                 }
-                None => unsupported_entities.push(entity.entity_type().to_string()),
+                None => context
+                    .unsupported_entities
+                    .push(entity.entity_type().to_string()),
             },
         }
     }
@@ -1358,7 +1431,7 @@ mod tests {
     }
 
     fn jww_samples_dir() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("jww_samples")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
     }
 
     #[test]

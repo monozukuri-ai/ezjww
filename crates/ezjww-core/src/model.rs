@@ -1,6 +1,9 @@
+use serde::ser::{SerializeStruct, Serializer};
+use serde::Serialize;
+
 use crate::header::JwwHeader;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct EntityBase {
     pub group: u32,
     pub pen_style: u8,
@@ -11,7 +14,7 @@ pub struct EntityBase {
     pub flag: u16,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct Coord2D {
     pub x: f64,
     pub y: f64,
@@ -40,7 +43,7 @@ pub fn coordinates_bbox(points: &[Coord2D]) -> Option<(Coord2D, Coord2D)> {
     Some((Coord2D::new(min_x, min_y), Coord2D::new(max_x, max_y)))
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Line {
     pub base: EntityBase,
     pub start_x: f64,
@@ -49,7 +52,7 @@ pub struct Line {
     pub end_y: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Arc {
     pub base: EntityBase,
     pub center_x: f64,
@@ -62,7 +65,7 @@ pub struct Arc {
     pub is_full_circle: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Point {
     pub base: EntityBase,
     pub x: f64,
@@ -73,7 +76,7 @@ pub struct Point {
     pub scale: f64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Text {
     pub base: EntityBase,
     pub start_x: f64,
@@ -89,7 +92,7 @@ pub struct Text {
     pub content: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Solid {
     pub base: EntityBase,
     pub point1_x: f64,
@@ -103,7 +106,7 @@ pub struct Solid {
     pub color: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Block {
     pub base: EntityBase,
     pub ref_x: f64,
@@ -124,7 +127,7 @@ pub struct Dimension {
     pub aux_points: Vec<Point>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BlockDef {
     pub base: EntityBase,
     pub number: u32,
@@ -142,6 +145,161 @@ pub enum Entity {
     Solid(Solid),
     Block(Block),
     Dimension(Dimension),
+}
+
+#[derive(Serialize)]
+struct TaggedPayload<'a, T: Serialize + ?Sized> {
+    #[serde(rename = "type")]
+    entity_type: &'static str,
+    #[serde(flatten)]
+    payload: &'a T,
+}
+
+impl Serialize for Entity {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Line(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Arc(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Point(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Text(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Solid(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Block(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::Dimension(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+        }
+    }
+}
+
+impl Serialize for Dimension {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let aux_lines = self
+            .aux_lines
+            .iter()
+            .map(LinePayload::from)
+            .collect::<Vec<_>>();
+        let aux_points = self
+            .aux_points
+            .iter()
+            .map(PointPayload::from)
+            .collect::<Vec<_>>();
+
+        let mut state = serializer.serialize_struct("Dimension", 6)?;
+        state.serialize_field("base", &self.base)?;
+        state.serialize_field("line", &LinePayload::from(&self.line))?;
+        state.serialize_field("text", &TextPayload::from(&self.text))?;
+        state.serialize_field("sxf_mode", &self.sxf_mode)?;
+        state.serialize_field("aux_lines", &aux_lines)?;
+        state.serialize_field("aux_points", &aux_points)?;
+        state.end()
+    }
+}
+
+#[derive(Serialize)]
+struct LinePayload {
+    start_x: f64,
+    start_y: f64,
+    end_x: f64,
+    end_y: f64,
+}
+
+impl From<&Line> for LinePayload {
+    fn from(value: &Line) -> Self {
+        Self {
+            start_x: value.start_x,
+            start_y: value.start_y,
+            end_x: value.end_x,
+            end_y: value.end_y,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct PointPayload {
+    x: f64,
+    y: f64,
+    is_temporary: bool,
+    code: u32,
+    angle: f64,
+    scale: f64,
+}
+
+impl From<&Point> for PointPayload {
+    fn from(value: &Point) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+            is_temporary: value.is_temporary,
+            code: value.code,
+            angle: value.angle,
+            scale: value.scale,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct TextPayload<'a> {
+    start_x: f64,
+    start_y: f64,
+    end_x: f64,
+    end_y: f64,
+    text_type: u32,
+    size_x: f64,
+    size_y: f64,
+    spacing: f64,
+    angle: f64,
+    font_name: &'a str,
+    content: &'a str,
+}
+
+impl<'a> From<&'a Text> for TextPayload<'a> {
+    fn from(value: &'a Text) -> Self {
+        Self {
+            start_x: value.start_x,
+            start_y: value.start_y,
+            end_x: value.end_x,
+            end_y: value.end_y,
+            text_type: value.text_type,
+            size_x: value.size_x,
+            size_y: value.size_y,
+            spacing: value.spacing,
+            angle: value.angle,
+            font_name: &value.font_name,
+            content: &value.content,
+        }
+    }
 }
 
 impl Entity {
@@ -224,7 +382,7 @@ impl Entity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwwDocument {
     pub header: JwwHeader,
     pub entities: Vec<Entity>,

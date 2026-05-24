@@ -1,0 +1,46 @@
+{
+  "name": "ezjww",
+  "version": "0.1.0",
+  "description": "JWW parser and DXF converter for TypeScript, powered by Rust WebAssembly.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "wasm"
+  ],
+  "scripts": {
+    "build:wasm": "wasm-pack build ../../crates/ezjww-wasm --target nodejs --out-dir ../../packages/ezjww/wasm --out-name ezjww_wasm --release && node -e \"require('node:fs').rmSync('wasm/.gitignore', { force: true })\"",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "pnpm run build:wasm && pnpm run build:ts",
+    "test": "pnpm run build && vitest run",
+    "test:parity": "node ../../scripts/check-python-ts-parity.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "pnpm run build"
+  },
+  "keywords": [
+    "jww",
+    "jw-cad",
+    "jwcad",
+    "dxf",
+    "cad",
+    "parser",
+    "webassembly",
+    "wasm"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.7",
+    "wasm-pack": "^0.15.0"
+  }
+}

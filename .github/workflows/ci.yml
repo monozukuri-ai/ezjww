@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  python-rust:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -31,6 +31,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -56,7 +58,8 @@ jobs:
       - name: Rust checks
         run: |
           cargo fmt --all --check
-          cargo test --all --quiet
+          cargo test --workspace --quiet
+          cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Python tests (maturin develop)
         shell: bash
@@ -75,3 +78,66 @@ jobs:
           rm -f src/ezjww/_core.pyd src/ezjww/_core.so src/ezjww/_core.abi3.so src/ezjww/_core.dll src/ezjww/_core.dylib
           "${VENV_PY}" -m maturin build --release --out dist
           "${VENV_PY}" -c "from pathlib import Path; wheels = list(Path('dist').glob('*.whl')); assert wheels, 'no wheel produced'; print(wheels[0].name)"
+
+  typescript-parity:
+    name: TypeScript package parity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9.15.1
+
+      - name: Install Python dependencies
+        run: uv sync --extra plot
+
+      - name: Install TypeScript dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: packages/ezjww
+
+      - name: Check wasm target
+        run: |
+          cargo build -p ezjww-wasm --target wasm32-unknown-unknown
+          cargo clippy -p ezjww-wasm --target wasm32-unknown-unknown -- -D warnings
+
+      - name: Build Python extension
+        run: uv run maturin develop
+
+      - name: Test TypeScript package
+        run: pnpm run test
+        working-directory: packages/ezjww
+
+      - name: Check Python/TypeScript parity
+        run: pnpm run test:parity
+        working-directory: packages/ezjww
+
+      - name: Pack npm package
+        run: pnpm pack --pack-destination /tmp
+        working-directory: packages/ezjww
+
+      - name: Smoke packed npm package
+        run: |
+          mkdir -p /tmp/ezjww-pack-smoke
+          npm install /tmp/ezjww-0.1.0.tgz --prefix /tmp/ezjww-pack-smoke
+          node -e "const fs=require('fs'); const ez=require('/tmp/ezjww-pack-smoke/node_modules/ezjww'); const data=fs.readFileSync('jww_samples/Test1.jww'); const doc=ez.readDocument(data); if (doc.header.version !== 600 || !ez.toDxfString(data).includes('SECTION')) process.exit(1);"

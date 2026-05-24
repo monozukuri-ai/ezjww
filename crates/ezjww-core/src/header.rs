@@ -1,19 +1,21 @@
 use std::fs;
 use std::path::Path;
 
+use serde::Serialize;
+
 use crate::error::JwwError;
 use crate::reader::Reader;
 
 pub const JWW_SIGNATURE: &[u8; 8] = b"JwwData.";
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct LayerHeader {
     pub state: u32,
     pub protect: u32,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct LayerGroupHeader {
     pub state: u32,
     pub write_layer: u32,
@@ -23,7 +25,7 @@ pub struct LayerGroupHeader {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwwHeader {
     pub version: u32,
     pub memo: String,
@@ -106,14 +108,13 @@ fn parse_layer_names(
     // memori origin x/y [16]
     reader.skip(16 + 8 + 4 + 4 + 8 + 16 + 16)?;
 
-    for g in 0..16 {
-        for l in 0..16 {
-            layer_groups[g].layers[l].name = reader.read_cstring()?;
+    for group in layer_groups.iter_mut() {
+        for layer in group.layers.iter_mut() {
+            layer.name = reader.read_cstring()?;
         }
     }
 
-    for (g, group) in layer_groups.iter_mut().enumerate() {
-        let _ = g;
+    for group in layer_groups.iter_mut() {
         group.name = reader.read_cstring()?;
     }
 
@@ -155,7 +156,7 @@ mod tests {
     use super::{is_jww_signature, parse_header, read_header_from_file, JwwError};
 
     fn jww_samples_dir() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("jww_samples")
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
     }
 
     #[test]
