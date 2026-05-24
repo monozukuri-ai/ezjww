@@ -110,7 +110,9 @@ jobs:
         run: npm install -g pnpm@9.15.1
 
       - name: Install Python dependencies
-        run: uv sync --extra plot
+        run: |
+          uv sync --extra plot
+          uv pip install maturin
 
       - name: Install TypeScript dependencies
         run: pnpm install --frozen-lockfile
