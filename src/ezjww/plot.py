@@ -234,6 +234,22 @@ def plot_dxf_document(
                 alpha=0.3,
             )
             ax.add_patch(patch)
+        elif entity_type == "FILLED_POLYGON":
+            points = [
+                (float(point["x"]), float(point["y"]))
+                for point in entity.get("points", [])
+                if "x" in point and "y" in point
+            ]
+            if len(points) >= 3:
+                patch = patches.Polygon(
+                    points,
+                    closed=True,
+                    facecolor=color,
+                    edgecolor=color,
+                    linewidth=max(0.3, linewidth * 0.8),
+                    alpha=1.0,
+                )
+                ax.add_patch(patch)
         elif entity_type == "INSERT":
             if draw_inserts:
                 x = float(entity.get("x", 0.0))

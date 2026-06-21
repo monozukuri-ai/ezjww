@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
-use crate::model::{Arc, Block, BlockDef, Entity, JwwDocument, Text};
+use crate::model::{Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Text};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfLayer {
@@ -103,6 +103,20 @@ pub struct DxfSolid {
     pub y4: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct DxfVertex {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DxfFilledPolygon {
+    pub layer: String,
+    pub color: i32,
+    pub line_type: String,
+    pub points: Vec<DxfVertex>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfInsert {
     pub layer: String,
@@ -125,6 +139,7 @@ pub enum DxfEntity {
     Point(DxfPoint),
     Text(DxfText),
     Solid(DxfSolid),
+    FilledPolygon(DxfFilledPolygon),
     Insert(DxfInsert),
 }
 
@@ -177,6 +192,11 @@ impl Serialize for DxfEntity {
                 payload: v,
             }
             .serialize(serializer),
+            Self::FilledPolygon(v) => TaggedDxfPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
             Self::Insert(v) => TaggedDxfPayload {
                 entity_type: self.entity_type(),
                 payload: v,
@@ -196,6 +216,7 @@ impl DxfEntity {
             Self::Point(_) => "POINT",
             Self::Text(_) => "TEXT",
             Self::Solid(_) => "SOLID",
+            Self::FilledPolygon(_) => "FILLED_POLYGON",
             Self::Insert(_) => "INSERT",
         }
     }
@@ -647,6 +668,9 @@ impl AsciiDxfWriter {
                 self.group_f64(23, v.y4);
                 self.group_f64(33, 0.0);
             }
+            DxfEntity::FilledPolygon(v) => {
+                self.write_filled_polygon(v, owner_handle);
+            }
             DxfEntity::Insert(v) => {
                 self.entity_header("INSERT", &v.layer, v.color, &v.line_type, owner_handle);
                 self.group_str(2, &escape_unicode(&v.block_name));
@@ -658,6 +682,43 @@ impl AsciiDxfWriter {
                 self.group_f64(43, 1.0);
                 self.group_f64(50, v.rotation);
             }
+        }
+    }
+
+    fn write_filled_polygon(&mut self, polygon: &DxfFilledPolygon, owner_handle: Option<&str>) {
+        let points = polygon
+            .points
+            .iter()
+            .copied()
+            .filter(|p| p.x.is_finite() && p.y.is_finite())
+            .collect::<Vec<_>>();
+        if points.len() < 3 {
+            return;
+        }
+
+        let anchor = points[0];
+        for pair in points[1..].windows(2) {
+            let p2 = pair[0];
+            let p3 = pair[1];
+            self.entity_header(
+                "SOLID",
+                &polygon.layer,
+                polygon.color,
+                &polygon.line_type,
+                owner_handle,
+            );
+            self.group_f64(10, anchor.x);
+            self.group_f64(20, anchor.y);
+            self.group_f64(30, 0.0);
+            self.group_f64(11, p2.x);
+            self.group_f64(21, p2.y);
+            self.group_f64(31, 0.0);
+            self.group_f64(12, p3.x);
+            self.group_f64(22, p3.y);
+            self.group_f64(32, 0.0);
+            self.group_f64(13, p3.x);
+            self.group_f64(23, p3.y);
+            self.group_f64(33, 0.0);
         }
     }
 
@@ -737,6 +798,7 @@ fn entity_line_type(entity: &DxfEntity) -> &str {
         DxfEntity::Point(v) => &v.line_type,
         DxfEntity::Text(v) => &v.line_type,
         DxfEntity::Solid(v) => &v.line_type,
+        DxfEntity::FilledPolygon(v) => &v.line_type,
         DxfEntity::Insert(v) => &v.line_type,
     }
 }
@@ -959,6 +1021,19 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
                 y4,
             })]
         }
+        DxfEntity::FilledPolygon(v) => vec![DxfEntity::FilledPolygon(DxfFilledPolygon {
+            layer: v.layer.clone(),
+            color: v.color,
+            line_type: v.line_type.clone(),
+            points: v
+                .points
+                .iter()
+                .map(|p| {
+                    let (x, y) = transform.apply_point(p.x, p.y);
+                    DxfVertex { x, y }
+                })
+                .collect(),
+        })],
         DxfEntity::Insert(v) => {
             let (x, y) = transform.apply_point(v.x, v.y);
             vec![DxfEntity::Insert(DxfInsert {
@@ -1229,6 +1304,7 @@ fn convert_entity(
             x4: v.point4_x,
             y4: v.point4_y,
         })]),
+        Entity::CircleSolid(v) => Some(convert_circle_solid(v, layer, color, line_type)),
         Entity::Block(v) => {
             let block_name = block_name_map
                 .get(&v.def_number)
@@ -1258,6 +1334,174 @@ fn convert_entity(
             }),
             DxfEntity::Text(convert_text(&v.text, layer, color, line_type)),
         ]),
+    }
+}
+
+fn convert_circle_solid(
+    solid: &CircleSolid,
+    layer: String,
+    color: i32,
+    line_type: String,
+) -> Vec<DxfEntity> {
+    if solid.radius.abs() <= 1e-12 {
+        return Vec::new();
+    }
+
+    if matches!(solid.base.pen_style, 105 | 106) {
+        return convert_ring_solid(solid, layer, color, line_type);
+    }
+
+    let mode = solid.solid_mode.round() as i32;
+    let is_full = mode == 100 || (solid.arc_angle.abs() - 2.0 * PI).abs() < 1e-6;
+    let boundary = ellipse_arc_points(
+        solid,
+        solid.radius.abs(),
+        if is_full { 0.0 } else { solid.start_angle },
+        if is_full { 2.0 * PI } else { solid.arc_angle },
+        is_full,
+    );
+
+    let points = match mode {
+        100 => boundary,
+        0 => {
+            let mut points = Vec::<DxfVertex>::with_capacity(boundary.len() + 1);
+            points.push(DxfVertex {
+                x: solid.center_x,
+                y: solid.center_y,
+            });
+            points.extend(boundary);
+            points
+        }
+        -1 | 5 => boundary,
+        _ if is_full => boundary,
+        _ => {
+            let mut points = Vec::<DxfVertex>::with_capacity(boundary.len() + 1);
+            points.push(DxfVertex {
+                x: solid.center_x,
+                y: solid.center_y,
+            });
+            points.extend(boundary);
+            points
+        }
+    };
+
+    filled_polygon(layer, color, line_type, points)
+}
+
+fn convert_ring_solid(
+    solid: &CircleSolid,
+    layer: String,
+    color: i32,
+    line_type: String,
+) -> Vec<DxfEntity> {
+    let outer_radius = solid.radius.abs();
+    let inner_radius = solid.solid_mode.abs();
+    if inner_radius <= 1e-12 || inner_radius >= outer_radius {
+        return filled_polygon(
+            layer,
+            color,
+            line_type,
+            ellipse_arc_points(solid, outer_radius, 0.0, 2.0 * PI, true),
+        );
+    }
+
+    let is_full = (solid.arc_angle.abs() - 2.0 * PI).abs() < 1e-6;
+    let start = if is_full { 0.0 } else { solid.start_angle };
+    let span = if is_full { 2.0 * PI } else { solid.arc_angle };
+    let steps = arc_segment_count(span, is_full);
+    let mut out = Vec::<DxfEntity>::with_capacity(steps);
+
+    for idx in 0..steps {
+        let t1 = start + span * (idx as f64 / steps as f64);
+        let t2 = start + span * ((idx + 1) as f64 / steps as f64);
+        let outer1 = ellipse_point(solid, outer_radius, t1);
+        let outer2 = ellipse_point(solid, outer_radius, t2);
+        let inner2 = ellipse_point(solid, inner_radius, t2);
+        let inner1 = ellipse_point(solid, inner_radius, t1);
+        out.extend(filled_polygon(
+            layer.clone(),
+            color,
+            line_type.clone(),
+            vec![outer1, outer2, inner2, inner1],
+        ));
+    }
+
+    out
+}
+
+fn filled_polygon(
+    layer: String,
+    color: i32,
+    line_type: String,
+    points: Vec<DxfVertex>,
+) -> Vec<DxfEntity> {
+    let points = points
+        .into_iter()
+        .filter(|p| p.x.is_finite() && p.y.is_finite())
+        .collect::<Vec<_>>();
+    if points.len() < 3 {
+        return Vec::new();
+    }
+
+    vec![DxfEntity::FilledPolygon(DxfFilledPolygon {
+        layer,
+        color,
+        line_type,
+        points,
+    })]
+}
+
+fn ellipse_arc_points(
+    solid: &CircleSolid,
+    radius: f64,
+    start_angle: f64,
+    arc_angle: f64,
+    is_full: bool,
+) -> Vec<DxfVertex> {
+    let steps = arc_segment_count(arc_angle, is_full);
+    let end = if is_full { steps } else { steps + 1 };
+    (0..end)
+        .map(|idx| {
+            let t = start_angle + arc_angle * (idx as f64 / steps as f64);
+            ellipse_point(solid, radius, t)
+        })
+        .collect()
+}
+
+fn arc_segment_count(arc_angle: f64, is_full: bool) -> usize {
+    let span = if is_full {
+        2.0 * PI
+    } else {
+        arc_angle.abs().max(PI / 32.0)
+    };
+    ((span / (2.0 * PI) * 96.0).ceil() as usize).clamp(8, 128)
+}
+
+fn ellipse_point(solid: &CircleSolid, radius: f64, angle: f64) -> DxfVertex {
+    let flatness = if solid.flatness.abs() <= 1e-12 {
+        1.0
+    } else {
+        solid.flatness.abs()
+    };
+    let mut major_radius = radius.abs();
+    let mut minor_ratio = flatness;
+    let mut tilt = solid.tilt_angle;
+
+    if minor_ratio > 1.0 {
+        major_radius *= minor_ratio;
+        minor_ratio = 1.0 / minor_ratio;
+        tilt += PI / 2.0;
+    }
+
+    let minor_radius = major_radius * minor_ratio;
+    let cos_tilt = tilt.cos();
+    let sin_tilt = tilt.sin();
+    let local_x = major_radius * angle.cos();
+    let local_y = minor_radius * angle.sin();
+
+    DxfVertex {
+        x: solid.center_x + local_x * cos_tilt - local_y * sin_tilt,
+        y: solid.center_y + local_x * sin_tilt + local_y * cos_tilt,
     }
 }
 
@@ -1409,7 +1653,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use crate::header::{JwwHeader, LayerGroupHeader, LayerHeader};
-    use crate::model::{Block, BlockDef, Entity, EntityBase, JwwDocument, Line, Text};
+    use crate::model::{Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Text};
     use crate::parser::read_document_from_file;
 
     use super::{
@@ -1460,6 +1704,41 @@ mod tests {
 
         for (pen_style, expected) in cases {
             assert_eq!(map_line_type(pen_style), expected);
+        }
+    }
+
+    #[test]
+    fn convert_document_turns_circle_solid_into_filled_polygon() {
+        let base = EntityBase {
+            pen_style: 101,
+            ..EntityBase::default()
+        };
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::CircleSolid(CircleSolid {
+                base,
+                center_x: 10.0,
+                center_y: 20.0,
+                radius: 3.0,
+                flatness: 1.0,
+                tilt_angle: 0.0,
+                start_angle: 0.0,
+                arc_angle: 2.0 * std::f64::consts::PI,
+                solid_mode: 100.0,
+                color: None,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        assert_eq!(dxf.entities.len(), 1);
+        match &dxf.entities[0] {
+            DxfEntity::FilledPolygon(polygon) => {
+                assert!(polygon.points.len() >= 24);
+                assert!(polygon.points.iter().all(|point| point.x.is_finite()));
+                assert!(polygon.points.iter().all(|point| point.y.is_finite()));
+            }
+            other => panic!("expected FILLED_POLYGON, got {:?}", other),
         }
     }
 

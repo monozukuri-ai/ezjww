@@ -100,6 +100,7 @@ class JwwEntity(TypedDict, total=False):
     point4_x: float
     point4_y: float
     color: int | None
+    solid_mode: float
     ref_x: float
     ref_y: float
     scale_x: float
@@ -146,6 +147,11 @@ class DxfLayer(TypedDict):
     locked: bool
 
 
+class DxfVertex(TypedDict):
+    x: float
+    y: float
+
+
 class DxfEntity(TypedDict, total=False):
     type: str
     layer: str
@@ -175,6 +181,7 @@ class DxfEntity(TypedDict, total=False):
     y3: float
     x4: float
     y4: float
+    points: list[DxfVertex]
     block_name: str
     scale_x: float
     scale_y: float

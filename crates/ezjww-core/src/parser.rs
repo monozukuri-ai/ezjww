@@ -7,7 +7,8 @@ use serde::Serialize;
 use crate::error::JwwError;
 use crate::header::parse_header;
 use crate::model::{
-    Arc, Block, BlockDef, Dimension, Entity, EntityBase, JwwDocument, Line, Point, Solid, Text,
+    Arc, Block, BlockDef, CircleSolid, Dimension, Entity, EntityBase, JwwDocument, Line, Point,
+    Solid, Text,
 };
 use crate::reader::Reader;
 
@@ -120,7 +121,7 @@ fn parse_entity_with_pid_tracking(
         "CDataEnko" => Some(Entity::Arc(parse_arc(reader, version)?)),
         "CDataTen" => Some(Entity::Point(parse_point(reader, version)?)),
         "CDataMoji" => Some(Entity::Text(parse_text(reader, version)?)),
-        "CDataSolid" => Some(Entity::Solid(parse_solid(reader, version)?)),
+        "CDataSolid" => Some(parse_solid(reader, version)?),
         "CDataBlock" => Some(Entity::Block(parse_block(reader, version)?)),
         "CDataSunpou" => Some(Entity::Dimension(parse_dimension(reader, version)?)),
         _ => return Err(JwwError::UnknownEntityClass(class_name)),
@@ -221,34 +222,49 @@ fn parse_text(reader: &mut Reader<'_>, version: u32) -> Result<Text, JwwError> {
     })
 }
 
-fn parse_solid(reader: &mut Reader<'_>, version: u32) -> Result<Solid, JwwError> {
+fn parse_solid(reader: &mut Reader<'_>, version: u32) -> Result<Entity, JwwError> {
     let base = parse_entity_base(reader, version)?;
-    let point1_x = reader.read_f64()?;
-    let point1_y = reader.read_f64()?;
-    let point4_x = reader.read_f64()?;
-    let point4_y = reader.read_f64()?;
-    let point2_x = reader.read_f64()?;
-    let point2_y = reader.read_f64()?;
-    let point3_x = reader.read_f64()?;
-    let point3_y = reader.read_f64()?;
+    let start_x = reader.read_f64()?;
+    let start_y = reader.read_f64()?;
+    let end_x = reader.read_f64()?;
+    let end_y = reader.read_f64()?;
+    let dpoint2_x = reader.read_f64()?;
+    let dpoint2_y = reader.read_f64()?;
+    let dpoint3_x = reader.read_f64()?;
+    let dpoint3_y = reader.read_f64()?;
     let color = if base.pen_color == 10 {
         Some(reader.read_u32()?)
     } else {
         None
     };
 
-    Ok(Solid {
+    if base.pen_style >= 101 {
+        return Ok(Entity::CircleSolid(CircleSolid {
+            base,
+            center_x: start_x,
+            center_y: start_y,
+            radius: end_x,
+            flatness: end_y,
+            tilt_angle: dpoint2_x,
+            start_angle: dpoint2_y,
+            arc_angle: dpoint3_x,
+            solid_mode: dpoint3_y,
+            color,
+        }));
+    }
+
+    Ok(Entity::Solid(Solid {
         base,
-        point1_x,
-        point1_y,
-        point2_x,
-        point2_y,
-        point3_x,
-        point3_y,
-        point4_x,
-        point4_y,
+        point1_x: start_x,
+        point1_y: start_y,
+        point2_x: dpoint2_x,
+        point2_y: dpoint2_y,
+        point3_x: dpoint3_x,
+        point3_y: dpoint3_y,
+        point4_x: end_x,
+        point4_y: end_y,
         color,
-    })
+    }))
 }
 
 fn parse_block(reader: &mut Reader<'_>, version: u32) -> Result<Block, JwwError> {
@@ -621,6 +637,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_circle_solid_from_cdata_solid_pen_style_101() {
+        let data = build_minimal_jww_with_circle_solid();
+        let doc = super::parse_document(&data).unwrap();
+        assert_eq!(doc.entities.len(), 1);
+
+        match &doc.entities[0] {
+            Entity::CircleSolid(solid) => {
+                assert_eq!(solid.center_x, 10.0);
+                assert_eq!(solid.center_y, 20.0);
+                assert_eq!(solid.radius, 3.0);
+                assert_eq!(solid.flatness, 1.0);
+                assert_eq!(solid.arc_angle, std::f64::consts::PI * 2.0);
+                assert_eq!(solid.solid_mode, 100.0);
+            }
+            other => panic!("expected CIRCLE_SOLID entity, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn validate_unresolved_block_reference() {
         let data = build_minimal_jww_with_unresolved_block_ref();
         let doc = super::parse_document(&data).unwrap();
@@ -821,10 +856,55 @@ mod tests {
         data
     }
 
+    fn build_minimal_jww_with_circle_solid() -> Vec<u8> {
+        let mut data = Vec::<u8>::new();
+        data.extend_from_slice(b"JwwData.");
+        data.extend_from_slice(&600u32.to_le_bytes());
+        data.push(0); // memo
+        data.extend_from_slice(&0u32.to_le_bytes()); // paper size
+        data.extend_from_slice(&0u32.to_le_bytes()); // write layer group
+
+        for _ in 0..16 {
+            data.extend_from_slice(&0u32.to_le_bytes()); // state
+            data.extend_from_slice(&0u32.to_le_bytes()); // write layer
+            data.extend_from_slice(&1.0f64.to_le_bytes()); // scale
+            data.extend_from_slice(&0u32.to_le_bytes()); // protect
+            for _ in 0..16 {
+                data.extend_from_slice(&0u32.to_le_bytes()); // layer state
+                data.extend_from_slice(&0u32.to_le_bytes()); // layer protect
+            }
+        }
+
+        data.extend_from_slice(&1u16.to_le_bytes()); // entity count
+        data.extend_from_slice(&0xFFFFu16.to_le_bytes()); // new class
+        data.extend_from_slice(&600u16.to_le_bytes()); // schema
+        let class_name = b"CDataSolid";
+        data.extend_from_slice(&(class_name.len() as u16).to_le_bytes());
+        data.extend_from_slice(class_name);
+
+        append_entity_base_with_style_and_color(&mut data, 101, 10);
+        data.extend_from_slice(&10.0f64.to_le_bytes()); // center x
+        data.extend_from_slice(&20.0f64.to_le_bytes()); // center y
+        data.extend_from_slice(&3.0f64.to_le_bytes()); // radius
+        data.extend_from_slice(&1.0f64.to_le_bytes()); // flatness
+        data.extend_from_slice(&0.0f64.to_le_bytes()); // tilt angle
+        data.extend_from_slice(&0.0f64.to_le_bytes()); // start angle
+        data.extend_from_slice(&(std::f64::consts::PI * 2.0).to_le_bytes()); // arc angle
+        data.extend_from_slice(&100.0f64.to_le_bytes()); // full circle solid
+        data.extend_from_slice(&0u32.to_le_bytes()); // solid RGB color
+
+        data.extend_from_slice(&0u32.to_le_bytes()); // block def count
+        data
+    }
+
     fn append_entity_base(data: &mut Vec<u8>) {
+        append_entity_base_with_style_and_color(data, 1, 1);
+    }
+
+    fn append_entity_base_with_style_and_color(data: &mut Vec<u8>, pen_style: u8, pen_color: u16) {
         data.extend_from_slice(&0u32.to_le_bytes()); // group
-        data.push(1); // pen_style
-        data.extend_from_slice(&1u16.to_le_bytes()); // pen_color
+        data.push(pen_style);
+        data.extend_from_slice(&pen_color.to_le_bytes());
         data.extend_from_slice(&1u16.to_le_bytes()); // pen_width
         data.extend_from_slice(&0u16.to_le_bytes()); // layer
         data.extend_from_slice(&0u16.to_le_bytes()); // layer_group

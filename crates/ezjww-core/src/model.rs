@@ -107,6 +107,20 @@ pub struct Solid {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CircleSolid {
+    pub base: EntityBase,
+    pub center_x: f64,
+    pub center_y: f64,
+    pub radius: f64,
+    pub flatness: f64,
+    pub tilt_angle: f64,
+    pub start_angle: f64,
+    pub arc_angle: f64,
+    pub solid_mode: f64,
+    pub color: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Block {
     pub base: EntityBase,
     pub ref_x: f64,
@@ -143,6 +157,7 @@ pub enum Entity {
     Point(Point),
     Text(Text),
     Solid(Solid),
+    CircleSolid(CircleSolid),
     Block(Block),
     Dimension(Dimension),
 }
@@ -182,6 +197,11 @@ impl Serialize for Entity {
             }
             .serialize(serializer),
             Self::Solid(v) => TaggedPayload {
+                entity_type: self.entity_type(),
+                payload: v,
+            }
+            .serialize(serializer),
+            Self::CircleSolid(v) => TaggedPayload {
                 entity_type: self.entity_type(),
                 payload: v,
             }
@@ -316,6 +336,7 @@ impl Entity {
             Self::Point(_) => "POINT",
             Self::Text(_) => "TEXT",
             Self::Solid(_) => "SOLID",
+            Self::CircleSolid(_) => "CIRCLE_SOLID",
             Self::Block(_) => "BLOCK",
             Self::Dimension(_) => "DIMENSION",
         }
@@ -328,6 +349,7 @@ impl Entity {
             Self::Point(v) => &v.base,
             Self::Text(v) => &v.base,
             Self::Solid(v) => &v.base,
+            Self::CircleSolid(v) => &v.base,
             Self::Block(v) => &v.base,
             Self::Dimension(v) => &v.base,
         }
@@ -353,6 +375,7 @@ impl Entity {
                 Coord2D::new(v.point3_x, v.point3_y),
                 Coord2D::new(v.point4_x, v.point4_y),
             ],
+            Self::CircleSolid(v) => vec![Coord2D::new(v.center_x, v.center_y)],
             Self::Block(v) => vec![Coord2D::new(v.ref_x, v.ref_y)],
             Self::Dimension(v) => {
                 let mut points =

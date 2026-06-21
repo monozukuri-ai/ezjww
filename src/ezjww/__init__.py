@@ -721,6 +721,12 @@ def _dxf_entity_points(entity: dict[str, Any]) -> list[tuple[float, float]]:
                 (_as_float(entity["x3"]), _as_float(entity["y3"])),
                 (_as_float(entity["x4"]), _as_float(entity["y4"])),
             ]
+        if entity_type == "FILLED_POLYGON":
+            return [
+                (_as_float(point["x"]), _as_float(point["y"]))
+                for point in entity.get("points", [])
+                if isinstance(point, dict) and "x" in point and "y" in point
+            ]
         if entity_type == "CIRCLE":
             cx = _as_float(entity["center_x"])
             cy = _as_float(entity["center_y"])

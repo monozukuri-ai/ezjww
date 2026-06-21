@@ -10,11 +10,11 @@ pub use ezjww_core::{
     convert_document_with_options, coordinates_bbox, document_to_string, entity_counts,
     is_jww_signature, jww_document_to_dto, parse_document, parse_header, read_document_from_file,
     read_header_from_file, resolve_block_name, validate_block_references, write_document_to_file,
-    Arc, Block, BlockDef, BlockReferenceValidation, BlockReferenceValidationDto, ConvertOptions,
-    Coord2D, Dimension, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfDocumentDto, DxfEllipse,
-    DxfEntity, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfText, Entity, EntityBase,
-    JwwDocument, JwwDocumentDto, JwwError, JwwHeader, LayerGroupHeader, LayerHeader, Line, Point,
-    Solid, Text,
+    Arc, Block, BlockDef, BlockReferenceValidation, BlockReferenceValidationDto, CircleSolid,
+    ConvertOptions, Coord2D, Dimension, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfDocumentDto,
+    DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid,
+    DxfText, DxfVertex, Entity, EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader,
+    LayerGroupHeader, LayerHeader, Line, Point, Solid, Text,
 };
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -244,6 +244,17 @@ fn entity_to_pydict<'py>(
             out.set_item("point4_y", v.point4_y)?;
             out.set_item("color", v.color)?;
         }
+        Entity::CircleSolid(v) => {
+            out.set_item("center_x", v.center_x)?;
+            out.set_item("center_y", v.center_y)?;
+            out.set_item("radius", v.radius)?;
+            out.set_item("flatness", v.flatness)?;
+            out.set_item("tilt_angle", v.tilt_angle)?;
+            out.set_item("start_angle", v.start_angle)?;
+            out.set_item("arc_angle", v.arc_angle)?;
+            out.set_item("solid_mode", v.solid_mode)?;
+            out.set_item("color", v.color)?;
+        }
         Entity::Block(v) => {
             out.set_item("ref_x", v.ref_x)?;
             out.set_item("ref_y", v.ref_y)?;
@@ -437,6 +448,19 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("y3", v.y3)?;
             out.set_item("x4", v.x4)?;
             out.set_item("y4", v.y4)?;
+        }
+        DxfEntity::FilledPolygon(v) => {
+            out.set_item("layer", &v.layer)?;
+            out.set_item("color", v.color)?;
+            out.set_item("line_type", &v.line_type)?;
+            let points = PyList::empty_bound(py);
+            for point in &v.points {
+                let point_dict = PyDict::new_bound(py);
+                point_dict.set_item("x", point.x)?;
+                point_dict.set_item("y", point.y)?;
+                points.append(point_dict)?;
+            }
+            out.set_item("points", points)?;
         }
         DxfEntity::Insert(v) => {
             out.set_item("layer", &v.layer)?;
