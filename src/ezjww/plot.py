@@ -14,6 +14,8 @@ def _load_matplotlib() -> tuple[Any, Any]:
         raise ImportError(
             "matplotlib is required for plotting. Install with: pip install 'ezjww[plot]'"
         ) from exc
+    plt.rcParams["pdf.fonttype"] = 42
+    plt.rcParams["ps.fonttype"] = 42
     return plt, patches
 
 
