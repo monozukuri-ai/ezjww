@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "ezjww-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "encoding_rs",
  "serde",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "ezjww-wasm"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ezjww-core",
  "serde",
