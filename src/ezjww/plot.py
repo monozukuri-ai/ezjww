@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -55,6 +56,63 @@ def _line_style(line_type: str) -> str:
     if name in {"DOT", "DOT2"}:
         return ":"
     return "-"
+
+
+@lru_cache(maxsize=1)
+def _text_font_properties() -> Any | None:
+    try:
+        from matplotlib import font_manager
+    except Exception:  # pragma: no cover - runtime dependency path
+        return None
+
+    candidates = (
+        "TakaoPGothic",
+        "TakaoGothic",
+        "VL PGothic",
+        "VL Gothic",
+        "Noto Sans CJK JP",
+        "IPAPGothic",
+        "Yu Gothic",
+        "Hiragino Sans",
+    )
+    for family in candidates:
+        try:
+            path = font_manager.findfont(family, fallback_to_default=False)
+        except Exception:
+            continue
+        if path:
+            return font_manager.FontProperties(fname=path)
+    return None
+
+
+def _data_unit_to_points(ax: Any) -> float:
+    fig = ax.figure
+    fig.canvas.draw()
+
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    data_width = abs(float(x1) - float(x0))
+    data_height = abs(float(y1) - float(y0))
+
+    bbox = ax.get_window_extent()
+    width_points = float(bbox.width) * 72.0 / float(fig.dpi)
+    height_points = float(bbox.height) * 72.0 / float(fig.dpi)
+
+    scales = []
+    if data_width > 0.0 and width_points > 0.0:
+        scales.append(width_points / data_width)
+    if data_height > 0.0 and height_points > 0.0:
+        scales.append(height_points / data_height)
+
+    return min(scales) if scales else 1.0
+
+
+def _text_fontsize(height: Any, text_scale: float, unit_to_points: float) -> float:
+    try:
+        size = float(height)
+    except (TypeError, ValueError):
+        size = 2.5
+    return max(0.1, size * float(text_scale) * float(unit_to_points))
 
 
 def _ellipse_points(
@@ -115,6 +173,10 @@ def plot_dxf_document(
         fig, ax = plt.subplots(figsize=figsize)
     else:
         fig = ax.figure
+
+    font_properties = _text_font_properties()
+    text_kwargs = {"fontproperties": font_properties} if font_properties is not None else {}
+    pending_text: list[tuple[dict[str, Any], Any]] = []
 
     for entity in dxf_document.get("entities", []):
         layer = str(entity.get("layer", "0"))
@@ -206,18 +268,7 @@ def plot_dxf_document(
                 ax.scatter([entity["x"]], [entity["y"]], s=point_size, c=[color], marker="o")
         elif entity_type == "TEXT":
             if draw_text:
-                content = str(entity.get("content", ""))
-                height = max(6.0, float(entity.get("height", 2.5)) * text_scale)
-                ax.text(
-                    entity["x"],
-                    entity["y"],
-                    content,
-                    color=color,
-                    fontsize=height,
-                    rotation=float(entity.get("rotation", 0.0)),
-                    ha="left",
-                    va="bottom",
-                )
+                pending_text.append((entity, color))
         elif entity_type == "SOLID":
             points = [
                 (entity["x1"], entity["y1"]),
@@ -257,7 +308,25 @@ def plot_dxf_document(
                 ax.scatter([x], [y], s=point_size * 1.5, c=[color], marker="x")
                 name = str(entity.get("block_name", ""))
                 if name:
-                    ax.text(x, y, name, color=color, fontsize=7.0, ha="left", va="bottom")
+                    ax.text(
+                        x,
+                        y,
+                        name,
+                        color=color,
+                        fontsize=7.0,
+                        ha="left",
+                        va="bottom",
+                        **text_kwargs,
+                    )
+
+    text_points = []
+    for entity, _ in pending_text:
+        try:
+            text_points.append((float(entity["x"]), float(entity["y"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if text_points:
+        ax.update_datalim(text_points)
 
     if equal_aspect:
         ax.set_aspect("equal", adjustable="datalim")
@@ -270,6 +339,21 @@ def plot_dxf_document(
     ax.set_ylabel("Y")
     ax.set_title("JWW Plot")
     ax.grid(False)
+
+    unit_to_points = _data_unit_to_points(ax)
+    for entity, color in pending_text:
+        content = str(entity.get("content", ""))
+        ax.text(
+            entity["x"],
+            entity["y"],
+            content,
+            color=color,
+            fontsize=_text_fontsize(entity.get("height", 2.5), text_scale, unit_to_points),
+            rotation=float(entity.get("rotation", 0.0)),
+            ha="left",
+            va="bottom",
+            **text_kwargs,
+        )
 
     if save_path is not None:
         output = Path(save_path)

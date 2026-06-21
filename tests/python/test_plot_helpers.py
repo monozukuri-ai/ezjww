@@ -37,6 +37,10 @@ class PlotHelperTests(unittest.TestCase):
         self.assertEqual(PLOT._line_style("DOT2"), ":")
         self.assertEqual(PLOT._line_style("unknown"), "-")
 
+    def test_text_fontsize_uses_data_unit_scale_without_six_point_floor(self):
+        self.assertAlmostEqual(PLOT._text_fontsize(2.0, 1.0, 2.5), 5.0)
+        self.assertAlmostEqual(PLOT._text_fontsize(2.0, 1.0, 1.0), 2.0)
+
     def test_ellipse_points_endpoints_for_full_loop(self):
         points = PLOT._ellipse_points(10.0, 5.0, 3.0, 0.0, 0.5, 0.0, 2.0 * math.pi)
         self.assertGreaterEqual(len(points), 24)
