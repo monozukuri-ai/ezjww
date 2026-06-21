@@ -50,9 +50,9 @@ def _line_style(line_type: str) -> str:
         return "-"
     if name in {"DASHED", "DASHED2"}:
         return "--"
-    if name == "DASHDOT":
+    if name in {"DASHDOT", "DASHDOT2", "CENTER", "CENTER2"}:
         return "-."
-    if name == "DOT":
+    if name in {"DOT", "DOT2"}:
         return ":"
     return "-"
 

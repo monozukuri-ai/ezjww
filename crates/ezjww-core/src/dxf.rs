@@ -368,7 +368,11 @@ impl AsciiDxfWriter {
                 "DASHED" => ("Dashed line", &[0.6, -0.3]),
                 "DASHED2" => ("Dashed line x2", &[1.2, -0.6]),
                 "DASHDOT" => ("Dash dot", &[0.6, -0.2, 0.1, -0.2]),
+                "DASHDOT2" => ("Dash dot x2", &[1.2, -0.4, 0.2, -0.4]),
+                "CENTER" => ("Center line", &[1.25, -0.25, 0.25, -0.25]),
+                "CENTER2" => ("Center line x2", &[2.5, -0.5, 0.5, -0.5]),
                 "DOT" => ("Dotted line", &[0.1, -0.1]),
+                "DOT2" => ("Dotted line x2", &[0.2, -0.2]),
                 _ => ("", &[]),
             };
             let length = pattern.iter().map(|v| v.abs()).sum::<f64>();
@@ -1380,11 +1384,15 @@ fn map_color(pen_color: u16) -> i32 {
 
 fn map_line_type(pen_style: u8) -> &'static str {
     match pen_style {
-        0 => "CONTINUOUS",
-        1 => "DASHED",
-        2 => "DASHDOT",
-        3 => "DOT",
-        4 => "DASHED2",
+        0 | 1 => "CONTINUOUS",
+        2 => "DASHED",
+        3 => "DASHDOT",
+        4 => "CENTER",
+        5 => "DOT",
+        6 => "DASHED2",
+        7 => "DASHDOT2",
+        8 => "CENTER2",
+        9 => "DOT2",
         _ => "BYLAYER",
     }
 }
@@ -1405,8 +1413,8 @@ mod tests {
     use crate::parser::read_document_from_file;
 
     use super::{
-        convert_document, convert_document_with_options, document_to_string, ConvertOptions,
-        DxfDocument, DxfEntity, DxfLayer, DxfText,
+        convert_document, convert_document_with_options, document_to_string, map_line_type,
+        ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfText,
     };
 
     fn empty_header() -> JwwHeader {
@@ -1432,6 +1440,27 @@ mod tests {
 
     fn jww_samples_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
+    }
+
+    #[test]
+    fn map_line_type_matches_jww_pen_style_numbers() {
+        let cases = [
+            (0, "CONTINUOUS"),
+            (1, "CONTINUOUS"),
+            (2, "DASHED"),
+            (3, "DASHDOT"),
+            (4, "CENTER"),
+            (5, "DOT"),
+            (6, "DASHED2"),
+            (7, "DASHDOT2"),
+            (8, "CENTER2"),
+            (9, "DOT2"),
+            (42, "BYLAYER"),
+        ];
+
+        for (pen_style, expected) in cases {
+            assert_eq!(map_line_type(pen_style), expected);
+        }
     }
 
     #[test]

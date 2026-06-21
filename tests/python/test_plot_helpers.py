@@ -29,8 +29,12 @@ class PlotHelperTests(unittest.TestCase):
     def test_line_style_mapping(self):
         self.assertEqual(PLOT._line_style("CONTINUOUS"), "-")
         self.assertEqual(PLOT._line_style("dashed"), "--")
+        self.assertEqual(PLOT._line_style("DASHED2"), "--")
         self.assertEqual(PLOT._line_style("DASHDOT"), "-.")
+        self.assertEqual(PLOT._line_style("CENTER"), "-.")
+        self.assertEqual(PLOT._line_style("CENTER2"), "-.")
         self.assertEqual(PLOT._line_style("DOT"), ":")
+        self.assertEqual(PLOT._line_style("DOT2"), ":")
         self.assertEqual(PLOT._line_style("unknown"), "-")
 
     def test_ellipse_points_endpoints_for_full_loop(self):
