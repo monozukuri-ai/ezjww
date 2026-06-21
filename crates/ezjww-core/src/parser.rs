@@ -36,29 +36,39 @@ pub fn read_document_from_file(path: impl AsRef<Path>) -> Result<JwwDocument, Jw
 }
 
 fn find_entity_list_offset(data: &[u8], version: u32) -> Option<usize> {
-    let [schema_low, schema_high, _, _] = version.to_le_bytes();
+    let expected_schema = version as u16;
+    let mut fallback_offset = None;
+
     if data.len() < 128 {
         return None;
     }
 
-    let mut i = 100usize;
-    while i + 20 < data.len() {
-        if data[i] == 0xFF
-            && data[i + 1] == 0xFF
-            && data[i + 2] == schema_low
-            && data[i + 3] == schema_high
-        {
-            let name_len = u16::from_le_bytes([data[i + 4], data[i + 5]]) as usize;
-            if (8..=32).contains(&name_len) && i + 6 + name_len <= data.len() {
-                let class_name = &data[i + 6..i + 6 + name_len];
-                if class_name.starts_with(b"CData") && i >= 2 {
-                    return Some(i - 2);
-                }
-            }
+    for i in 100..data.len().saturating_sub(20) {
+        if data[i] != 0xFF || data[i + 1] != 0xFF {
+            continue;
         }
-        i += 1;
+
+        let schema = u16::from_le_bytes([data[i + 2], data[i + 3]]);
+        let name_len = u16::from_le_bytes([data[i + 4], data[i + 5]]) as usize;
+        if !(8..=32).contains(&name_len) || i + 6 + name_len > data.len() {
+            continue;
+        }
+
+        let class_name = &data[i + 6..i + 6 + name_len];
+        if !class_name.starts_with(b"CData") || i < 2 {
+            continue;
+        }
+
+        let offset = i - 2;
+        if schema == expected_schema {
+            return Some(offset);
+        }
+        if fallback_offset.is_none() {
+            fallback_offset = Some(offset);
+        }
     }
-    None
+
+    fallback_offset
 }
 
 fn parse_entity_list(reader: &mut Reader<'_>, version: u32) -> Result<Vec<Entity>, JwwError> {
@@ -553,6 +563,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_minimal_when_class_schema_differs_from_header_version() {
+        let data = build_minimal_jww_420_with_schema_1_line();
+        let doc = super::parse_document(&data).unwrap();
+
+        assert_eq!(doc.header.version, 420);
+        assert_eq!(doc.entities.len(), 1);
+
+        match &doc.entities[0] {
+            Entity::Line(line) => {
+                assert_eq!(line.start_x, 1.0);
+                assert_eq!(line.end_x, 3.0);
+            }
+            other => panic!("expected LINE entity, got {:?}", other),
+        }
+    }
+
+    #[test]
     fn block_def_map_works() {
         let defs = vec![
             BlockDef {
@@ -752,6 +779,43 @@ mod tests {
             data.extend_from_slice(&0.0f64.to_le_bytes()); // y
             data.extend_from_slice(&0u32.to_le_bytes()); // is_temporary
         }
+
+        data.extend_from_slice(&0u32.to_le_bytes()); // block def count
+        data
+    }
+
+    fn build_minimal_jww_420_with_schema_1_line() -> Vec<u8> {
+        let mut data = Vec::<u8>::new();
+        data.extend_from_slice(b"JwwData.");
+        data.extend_from_slice(&420u32.to_le_bytes());
+
+        data.push(0); // memo
+        data.extend_from_slice(&0u32.to_le_bytes()); // paper size
+        data.extend_from_slice(&0u32.to_le_bytes()); // write layer group
+
+        for _ in 0..16 {
+            data.extend_from_slice(&0u32.to_le_bytes()); // state
+            data.extend_from_slice(&0u32.to_le_bytes()); // write layer
+            data.extend_from_slice(&1.0f64.to_le_bytes()); // scale
+            data.extend_from_slice(&0u32.to_le_bytes()); // protect
+            for _ in 0..16 {
+                data.extend_from_slice(&0u32.to_le_bytes()); // layer state
+                data.extend_from_slice(&0u32.to_le_bytes()); // layer protect
+            }
+        }
+
+        data.extend_from_slice(&1u16.to_le_bytes()); // entity count
+        data.extend_from_slice(&0xFFFFu16.to_le_bytes()); // new class
+        data.extend_from_slice(&1u16.to_le_bytes()); // class schema
+        let class_name = b"CDataSen";
+        data.extend_from_slice(&(class_name.len() as u16).to_le_bytes());
+        data.extend_from_slice(class_name);
+
+        append_entity_base(&mut data);
+        data.extend_from_slice(&1.0f64.to_le_bytes()); // start_x
+        data.extend_from_slice(&2.0f64.to_le_bytes()); // start_y
+        data.extend_from_slice(&3.0f64.to_le_bytes()); // end_x
+        data.extend_from_slice(&4.0f64.to_le_bytes()); // end_y
 
         data.extend_from_slice(&0u32.to_le_bytes()); // block def count
         data
