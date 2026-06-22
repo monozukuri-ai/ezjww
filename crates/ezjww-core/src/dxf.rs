@@ -24,6 +24,7 @@ pub struct DxfLine {
     pub layer: String,
     pub color: i32,
     pub line_type: String,
+    pub line_weight: i32,
     pub x1: f64,
     pub y1: f64,
     pub x2: f64,
@@ -35,6 +36,7 @@ pub struct DxfCircle {
     pub layer: String,
     pub color: i32,
     pub line_type: String,
+    pub line_weight: i32,
     pub center_x: f64,
     pub center_y: f64,
     pub radius: f64,
@@ -45,6 +47,7 @@ pub struct DxfArc {
     pub layer: String,
     pub color: i32,
     pub line_type: String,
+    pub line_weight: i32,
     pub center_x: f64,
     pub center_y: f64,
     pub radius: f64,
@@ -57,6 +60,7 @@ pub struct DxfEllipse {
     pub layer: String,
     pub color: i32,
     pub line_type: String,
+    pub line_weight: i32,
     pub center_x: f64,
     pub center_y: f64,
     pub major_axis_x: f64,
@@ -93,6 +97,7 @@ pub struct DxfSolid {
     pub layer: String,
     pub color: i32,
     pub line_type: String,
+    pub line_weight: i32,
     pub x1: f64,
     pub y1: f64,
     pub x2: f64,
@@ -114,6 +119,7 @@ pub struct DxfFilledPolygon {
     pub layer: String,
     pub color: i32,
     pub line_type: String,
+    pub line_weight: i32,
     pub points: Vec<DxfVertex>,
 }
 
@@ -601,7 +607,14 @@ impl AsciiDxfWriter {
     fn write_entity(&mut self, entity: &DxfEntity, owner_handle: Option<&str>) {
         match entity {
             DxfEntity::Line(v) => {
-                self.entity_header("LINE", &v.layer, v.color, &v.line_type, owner_handle);
+                self.entity_header_with_line_weight(
+                    "LINE",
+                    &v.layer,
+                    v.color,
+                    &v.line_type,
+                    v.line_weight,
+                    owner_handle,
+                );
                 self.group_f64(10, v.x1);
                 self.group_f64(20, v.y1);
                 self.group_f64(30, 0.0);
@@ -610,14 +623,28 @@ impl AsciiDxfWriter {
                 self.group_f64(31, 0.0);
             }
             DxfEntity::Circle(v) => {
-                self.entity_header("CIRCLE", &v.layer, v.color, &v.line_type, owner_handle);
+                self.entity_header_with_line_weight(
+                    "CIRCLE",
+                    &v.layer,
+                    v.color,
+                    &v.line_type,
+                    v.line_weight,
+                    owner_handle,
+                );
                 self.group_f64(10, v.center_x);
                 self.group_f64(20, v.center_y);
                 self.group_f64(30, 0.0);
                 self.group_f64(40, v.radius);
             }
             DxfEntity::Arc(v) => {
-                self.entity_header("ARC", &v.layer, v.color, &v.line_type, owner_handle);
+                self.entity_header_with_line_weight(
+                    "ARC",
+                    &v.layer,
+                    v.color,
+                    &v.line_type,
+                    v.line_weight,
+                    owner_handle,
+                );
                 self.group_f64(10, v.center_x);
                 self.group_f64(20, v.center_y);
                 self.group_f64(30, 0.0);
@@ -626,7 +653,14 @@ impl AsciiDxfWriter {
                 self.group_f64(51, v.end_angle);
             }
             DxfEntity::Ellipse(v) => {
-                self.entity_header("ELLIPSE", &v.layer, v.color, &v.line_type, owner_handle);
+                self.entity_header_with_line_weight(
+                    "ELLIPSE",
+                    &v.layer,
+                    v.color,
+                    &v.line_type,
+                    v.line_weight,
+                    owner_handle,
+                );
                 self.group_f64(10, v.center_x);
                 self.group_f64(20, v.center_y);
                 self.group_f64(30, 0.0);
@@ -654,7 +688,14 @@ impl AsciiDxfWriter {
                 self.group_str(7, &escape_unicode(&v.style));
             }
             DxfEntity::Solid(v) => {
-                self.entity_header("SOLID", &v.layer, v.color, &v.line_type, owner_handle);
+                self.entity_header_with_line_weight(
+                    "SOLID",
+                    &v.layer,
+                    v.color,
+                    &v.line_type,
+                    v.line_weight,
+                    owner_handle,
+                );
                 self.group_f64(10, v.x1);
                 self.group_f64(20, v.y1);
                 self.group_f64(30, 0.0);
@@ -700,11 +741,12 @@ impl AsciiDxfWriter {
         for pair in points[1..].windows(2) {
             let p2 = pair[0];
             let p3 = pair[1];
-            self.entity_header(
+            self.entity_header_with_line_weight(
                 "SOLID",
                 &polygon.layer,
                 polygon.color,
                 &polygon.line_type,
+                polygon.line_weight,
                 owner_handle,
             );
             self.group_f64(10, anchor.x);
@@ -730,6 +772,18 @@ impl AsciiDxfWriter {
         line_type: &str,
         owner_handle: Option<&str>,
     ) {
+        self.entity_header_with_line_weight(entity_type, layer, color, line_type, -3, owner_handle);
+    }
+
+    fn entity_header_with_line_weight(
+        &mut self,
+        entity_type: &str,
+        layer: &str,
+        color: i32,
+        line_type: &str,
+        line_weight: i32,
+        owner_handle: Option<&str>,
+    ) {
         self.group_str(0, entity_type);
         self.write_handle();
         if let Some(owner) = owner_handle {
@@ -738,6 +792,9 @@ impl AsciiDxfWriter {
         self.group_str(8, &escape_unicode(layer));
         self.group_i32(62, color);
         self.group_str(6, line_type);
+        if line_weight >= 0 {
+            self.group_i32(370, line_weight);
+        }
     }
 
     fn section_start(&mut self, name: &str) {
@@ -968,6 +1025,7 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
                 layer: v.layer.clone(),
                 color: v.color,
                 line_type: v.line_type.clone(),
+                line_weight: v.line_weight,
                 x1,
                 y1,
                 x2,
@@ -1011,6 +1069,7 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
                 layer: v.layer.clone(),
                 color: v.color,
                 line_type: v.line_type.clone(),
+                line_weight: v.line_weight,
                 x1,
                 y1,
                 x2,
@@ -1025,6 +1084,7 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
             layer: v.layer.clone(),
             color: v.color,
             line_type: v.line_type.clone(),
+            line_weight: v.line_weight,
             points: v
                 .points
                 .iter()
@@ -1079,6 +1139,7 @@ fn transform_circle_for_explode(circle: &DxfCircle, transform: &Transform2D) -> 
             layer: circle.layer.clone(),
             color: circle.color,
             line_type: circle.line_type.clone(),
+            line_weight: circle.line_weight,
             center_x,
             center_y,
             radius: (lu + lv) / 2.0,
@@ -1095,6 +1156,7 @@ fn transform_circle_for_explode(circle: &DxfCircle, transform: &Transform2D) -> 
         layer: circle.layer.clone(),
         color: circle.color,
         line_type: circle.line_type.clone(),
+        line_weight: circle.line_weight,
         center_x,
         center_y,
         major_axis_x: major_x,
@@ -1124,7 +1186,13 @@ fn transform_arc_for_explode(arc: &DxfArc, transform: &Transform2D) -> Vec<DxfEn
         points.push(transform.apply_point(x, y));
     }
 
-    points_to_lines(points, arc.layer.clone(), arc.color, arc.line_type.clone())
+    points_to_lines(
+        points,
+        arc.layer.clone(),
+        arc.color,
+        arc.line_type.clone(),
+        arc.line_weight,
+    )
 }
 
 fn transform_ellipse_for_explode(ellipse: &DxfEllipse, transform: &Transform2D) -> Vec<DxfEntity> {
@@ -1155,6 +1223,7 @@ fn transform_ellipse_for_explode(ellipse: &DxfEllipse, transform: &Transform2D) 
         ellipse.layer.clone(),
         ellipse.color,
         ellipse.line_type.clone(),
+        ellipse.line_weight,
     )
 }
 
@@ -1163,6 +1232,7 @@ fn points_to_lines(
     layer: String,
     color: i32,
     line_type: String,
+    line_weight: i32,
 ) -> Vec<DxfEntity> {
     if points.len() < 2 {
         return Vec::new();
@@ -1175,6 +1245,7 @@ fn points_to_lines(
             layer: layer.clone(),
             color,
             line_type: line_type.clone(),
+            line_weight,
             x1,
             y1,
             x2,
@@ -1263,18 +1334,20 @@ fn convert_entity(
     let layer = layer_name(doc, base.layer_group, base.layer);
     let color = map_color(base.pen_color);
     let line_type = map_line_type(base.pen_style).to_string();
+    let line_weight = map_line_weight(base.pen_width);
 
     match entity {
         Entity::Line(v) => Some(vec![DxfEntity::Line(DxfLine {
             layer,
             color,
             line_type,
+            line_weight,
             x1: v.start_x,
             y1: v.start_y,
             x2: v.end_x,
             y2: v.end_y,
         })]),
-        Entity::Arc(v) => Some(convert_arc(v, layer, color, line_type)),
+        Entity::Arc(v) => Some(convert_arc(v, layer, color, line_type, line_weight)),
         Entity::Point(v) => {
             if v.is_temporary {
                 Some(Vec::new())
@@ -1292,9 +1365,19 @@ fn convert_entity(
             v, layer, color, line_type,
         ))]),
         Entity::Solid(v) => Some(vec![DxfEntity::Solid(convert_solid(
-            v, layer, color, line_type,
+            v,
+            layer,
+            color,
+            line_type,
+            line_weight,
         ))]),
-        Entity::CircleSolid(v) => Some(convert_circle_solid(v, layer, color, line_type)),
+        Entity::CircleSolid(v) => Some(convert_circle_solid(
+            v,
+            layer,
+            color,
+            line_type,
+            line_weight,
+        )),
         Entity::Block(v) => {
             let block_name = block_name_map
                 .get(&v.def_number)
@@ -1317,6 +1400,7 @@ fn convert_entity(
                 layer: layer.clone(),
                 color,
                 line_type: line_type.clone(),
+                line_weight,
                 x1: v.line.start_x,
                 y1: v.line.start_y,
                 x2: v.line.end_x,
@@ -1327,7 +1411,13 @@ fn convert_entity(
     }
 }
 
-fn convert_solid(solid: &Solid, layer: String, color: i32, line_type: String) -> DxfSolid {
+fn convert_solid(
+    solid: &Solid,
+    layer: String,
+    color: i32,
+    line_type: String,
+    line_weight: i32,
+) -> DxfSolid {
     let points = order_solid_vertices([
         DxfVertex {
             x: solid.point1_x,
@@ -1351,6 +1441,7 @@ fn convert_solid(solid: &Solid, layer: String, color: i32, line_type: String) ->
         layer,
         color,
         line_type,
+        line_weight,
         x1: points[0].x,
         y1: points[0].y,
         x2: points[1].x,
@@ -1414,13 +1505,14 @@ fn convert_circle_solid(
     layer: String,
     color: i32,
     line_type: String,
+    line_weight: i32,
 ) -> Vec<DxfEntity> {
     if solid.radius.abs() <= 1e-12 {
         return Vec::new();
     }
 
     if matches!(solid.base.pen_style, 105 | 106) {
-        return convert_ring_solid(solid, layer, color, line_type);
+        return convert_ring_solid(solid, layer, color, line_type, line_weight);
     }
 
     let mode = solid.solid_mode.round() as i32;
@@ -1457,7 +1549,7 @@ fn convert_circle_solid(
         }
     };
 
-    filled_polygon(layer, color, line_type, points)
+    filled_polygon(layer, color, line_type, line_weight, points)
 }
 
 fn convert_ring_solid(
@@ -1465,6 +1557,7 @@ fn convert_ring_solid(
     layer: String,
     color: i32,
     line_type: String,
+    line_weight: i32,
 ) -> Vec<DxfEntity> {
     let outer_radius = solid.radius.abs();
     let inner_radius = solid.solid_mode.abs();
@@ -1473,6 +1566,7 @@ fn convert_ring_solid(
             layer,
             color,
             line_type,
+            line_weight,
             ellipse_arc_points(solid, outer_radius, 0.0, 2.0 * PI, true),
         );
     }
@@ -1494,6 +1588,7 @@ fn convert_ring_solid(
             layer.clone(),
             color,
             line_type.clone(),
+            line_weight,
             vec![outer1, outer2, inner2, inner1],
         ));
     }
@@ -1505,6 +1600,7 @@ fn filled_polygon(
     layer: String,
     color: i32,
     line_type: String,
+    line_weight: i32,
     points: Vec<DxfVertex>,
 ) -> Vec<DxfEntity> {
     let points = points
@@ -1519,6 +1615,7 @@ fn filled_polygon(
         layer,
         color,
         line_type,
+        line_weight,
         points,
     })]
 }
@@ -1577,12 +1674,19 @@ fn ellipse_point(solid: &CircleSolid, radius: f64, angle: f64) -> DxfVertex {
     }
 }
 
-fn convert_arc(arc: &Arc, layer: String, color: i32, line_type: String) -> Vec<DxfEntity> {
+fn convert_arc(
+    arc: &Arc,
+    layer: String,
+    color: i32,
+    line_type: String,
+    line_weight: i32,
+) -> Vec<DxfEntity> {
     if arc.is_full_circle && arc.flatness == 1.0 {
         return vec![DxfEntity::Circle(DxfCircle {
             layer,
             color,
             line_type,
+            line_weight,
             center_x: arc.center_x,
             center_y: arc.center_y,
             radius: arc.radius,
@@ -1617,6 +1721,7 @@ fn convert_arc(arc: &Arc, layer: String, color: i32, line_type: String) -> Vec<D
             layer,
             color,
             line_type,
+            line_weight,
             center_x: arc.center_x,
             center_y: arc.center_y,
             major_axis_x,
@@ -1631,6 +1736,7 @@ fn convert_arc(arc: &Arc, layer: String, color: i32, line_type: String) -> Vec<D
         layer,
         color,
         line_type,
+        line_weight,
         center_x: arc.center_x,
         center_y: arc.center_y,
         radius: arc.radius,
@@ -1713,6 +1819,14 @@ fn map_line_type(pen_style: u8) -> &'static str {
     }
 }
 
+fn map_line_weight(pen_width: u16) -> i32 {
+    if pen_width == 0 {
+        -3
+    } else {
+        i32::from(pen_width).clamp(0, 211)
+    }
+}
+
 fn rad_to_deg(rad: f64) -> f64 {
     rad * 180.0 / PI
 }
@@ -1779,6 +1893,34 @@ mod tests {
         for (pen_style, expected) in cases {
             assert_eq!(map_line_type(pen_style), expected);
         }
+    }
+
+    #[test]
+    fn convert_document_preserves_pen_width_as_line_weight() {
+        let base = EntityBase {
+            pen_width: 20,
+            ..EntityBase::default()
+        };
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Line(Line {
+                base,
+                start_x: 0.0,
+                start_y: 0.0,
+                end_x: 10.0,
+                end_y: 0.0,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        match &dxf.entities[0] {
+            DxfEntity::Line(line) => assert_eq!(line.line_weight, 20),
+            other => panic!("expected LINE, got {:?}", other),
+        }
+
+        let out = document_to_string(&dxf);
+        assert!(out.contains("370\n20\n"));
     }
 
     #[test]

@@ -60,6 +60,16 @@ def _line_style(line_type: str) -> str:
     return "-"
 
 
+def _entity_linewidth(entity: dict[str, Any], default: float) -> float:
+    try:
+        line_weight = int(entity.get("line_weight", -3))
+    except (TypeError, ValueError):
+        return float(default)
+    if line_weight <= 0:
+        return float(default)
+    return max(0.05, line_weight * 72.0 / 2540.0)
+
+
 @lru_cache(maxsize=1)
 def _text_font_properties() -> Any | None:
     try:
@@ -235,13 +245,14 @@ def plot_dxf_document(
         entity_type = str(entity.get("type", ""))
         color = _aci_to_color(int(entity.get("color", 256)))
         line_style = _line_style(str(entity.get("line_type", "CONTINUOUS")))
+        entity_linewidth = _entity_linewidth(entity, linewidth)
 
         if entity_type == "LINE":
             ax.plot(
                 [entity["x1"], entity["x2"]],
                 [entity["y1"], entity["y2"]],
                 color=color,
-                linewidth=linewidth,
+                linewidth=entity_linewidth,
                 linestyle=line_style,
             )
         elif entity_type == "CIRCLE":
@@ -250,7 +261,7 @@ def plot_dxf_document(
                 entity["radius"],
                 fill=False,
                 edgecolor=color,
-                linewidth=linewidth,
+                linewidth=entity_linewidth,
                 linestyle=line_style,
             )
             ax.add_patch(patch)
@@ -267,7 +278,7 @@ def plot_dxf_document(
                 theta1=start,
                 theta2=end,
                 edgecolor=color,
-                linewidth=linewidth,
+                linewidth=entity_linewidth,
                 linestyle=line_style,
             )
             ax.add_patch(patch)
@@ -296,7 +307,7 @@ def plot_dxf_document(
                     angle=angle_deg,
                     fill=False,
                     edgecolor=color,
-                    linewidth=linewidth,
+                    linewidth=entity_linewidth,
                     linestyle=line_style,
                 )
                 ax.add_patch(patch)
@@ -311,7 +322,7 @@ def plot_dxf_document(
                     end_param,
                 )
                 xs, ys = zip(*points)
-                ax.plot(xs, ys, color=color, linewidth=linewidth, linestyle=line_style)
+                ax.plot(xs, ys, color=color, linewidth=entity_linewidth, linestyle=line_style)
         elif entity_type == "POINT":
             if draw_points:
                 ax.scatter([entity["x"]], [entity["y"]], s=point_size, c=[color], marker="o")
@@ -332,7 +343,7 @@ def plot_dxf_document(
                 closed=True,
                 facecolor=color,
                 edgecolor=color,
-                linewidth=max(0.3, linewidth * 0.8),
+                linewidth=max(0.05, entity_linewidth * 0.8),
                 alpha=solid_alpha,
             )
             ax.add_patch(patch)
@@ -348,7 +359,7 @@ def plot_dxf_document(
                     closed=True,
                     facecolor=color,
                     edgecolor=color,
-                    linewidth=max(0.3, linewidth * 0.8),
+                    linewidth=max(0.05, entity_linewidth * 0.8),
                     alpha=solid_alpha,
                 )
                 ax.add_patch(patch)

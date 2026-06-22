@@ -383,6 +383,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("layer", &v.layer)?;
             out.set_item("color", v.color)?;
             out.set_item("line_type", &v.line_type)?;
+            out.set_item("line_weight", v.line_weight)?;
             out.set_item("x1", v.x1)?;
             out.set_item("y1", v.y1)?;
             out.set_item("x2", v.x2)?;
@@ -392,6 +393,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("layer", &v.layer)?;
             out.set_item("color", v.color)?;
             out.set_item("line_type", &v.line_type)?;
+            out.set_item("line_weight", v.line_weight)?;
             out.set_item("center_x", v.center_x)?;
             out.set_item("center_y", v.center_y)?;
             out.set_item("radius", v.radius)?;
@@ -400,6 +402,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("layer", &v.layer)?;
             out.set_item("color", v.color)?;
             out.set_item("line_type", &v.line_type)?;
+            out.set_item("line_weight", v.line_weight)?;
             out.set_item("center_x", v.center_x)?;
             out.set_item("center_y", v.center_y)?;
             out.set_item("radius", v.radius)?;
@@ -410,6 +413,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("layer", &v.layer)?;
             out.set_item("color", v.color)?;
             out.set_item("line_type", &v.line_type)?;
+            out.set_item("line_weight", v.line_weight)?;
             out.set_item("center_x", v.center_x)?;
             out.set_item("center_y", v.center_y)?;
             out.set_item("major_axis_x", v.major_axis_x)?;
@@ -440,6 +444,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("layer", &v.layer)?;
             out.set_item("color", v.color)?;
             out.set_item("line_type", &v.line_type)?;
+            out.set_item("line_weight", v.line_weight)?;
             out.set_item("x1", v.x1)?;
             out.set_item("y1", v.y1)?;
             out.set_item("x2", v.x2)?;
@@ -453,6 +458,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("layer", &v.layer)?;
             out.set_item("color", v.color)?;
             out.set_item("line_type", &v.line_type)?;
+            out.set_item("line_weight", v.line_weight)?;
             let points = PyList::empty_bound(py);
             for point in &v.points {
                 let point_dict = PyDict::new_bound(py);

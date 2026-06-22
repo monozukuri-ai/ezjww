@@ -157,6 +157,7 @@ class DxfEntity(TypedDict, total=False):
     layer: str
     color: int
     line_type: str
+    line_weight: int
     x1: float
     y1: float
     x2: float

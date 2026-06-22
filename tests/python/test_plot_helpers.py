@@ -41,6 +41,14 @@ class PlotHelperTests(unittest.TestCase):
         self.assertAlmostEqual(PLOT._text_fontsize(2.0, 1.0, 2.5), 5.0)
         self.assertAlmostEqual(PLOT._text_fontsize(2.0, 1.0, 1.0), 2.0)
 
+    def test_entity_linewidth_uses_dxf_line_weight(self):
+        self.assertAlmostEqual(
+            PLOT._entity_linewidth({"line_weight": 20}, 0.18),
+            20 * 72 / 2540,
+        )
+        self.assertAlmostEqual(PLOT._entity_linewidth({"line_weight": -3}, 0.18), 0.18)
+        self.assertAlmostEqual(PLOT._entity_linewidth({}, 0.18), 0.18)
+
     def test_normalize_polygon_points_fixes_crossed_quad(self):
         points = [(0.0, 10.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)]
         normalized = PLOT._normalize_polygon_points(points)
