@@ -41,6 +41,12 @@ class PlotHelperTests(unittest.TestCase):
         self.assertAlmostEqual(PLOT._text_fontsize(2.0, 1.0, 2.5), 5.0)
         self.assertAlmostEqual(PLOT._text_fontsize(2.0, 1.0, 1.0), 2.0)
 
+    def test_normalize_polygon_points_fixes_crossed_quad(self):
+        points = [(0.0, 10.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)]
+        normalized = PLOT._normalize_polygon_points(points)
+        self.assertFalse(PLOT._polygon_points_cross(normalized))
+        self.assertEqual(normalized[0], points[0])
+
     def test_ellipse_points_endpoints_for_full_loop(self):
         points = PLOT._ellipse_points(10.0, 5.0, 3.0, 0.0, 0.5, 0.0, 2.0 * math.pi)
         self.assertGreaterEqual(len(points), 24)

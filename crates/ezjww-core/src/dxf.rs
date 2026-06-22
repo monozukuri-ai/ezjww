@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
-use crate::model::{Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Text};
+use crate::model::{Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfLayer {
@@ -1291,19 +1291,9 @@ fn convert_entity(
         Entity::Text(v) => Some(vec![DxfEntity::Text(convert_text(
             v, layer, color, line_type,
         ))]),
-        Entity::Solid(v) => Some(vec![DxfEntity::Solid(DxfSolid {
-            layer,
-            color,
-            line_type,
-            x1: v.point1_x,
-            y1: v.point1_y,
-            x2: v.point2_x,
-            y2: v.point2_y,
-            x3: v.point3_x,
-            y3: v.point3_y,
-            x4: v.point4_x,
-            y4: v.point4_y,
-        })]),
+        Entity::Solid(v) => Some(vec![DxfEntity::Solid(convert_solid(
+            v, layer, color, line_type,
+        ))]),
         Entity::CircleSolid(v) => Some(convert_circle_solid(v, layer, color, line_type)),
         Entity::Block(v) => {
             let block_name = block_name_map
@@ -1335,6 +1325,88 @@ fn convert_entity(
             DxfEntity::Text(convert_text(&v.text, layer, color, line_type)),
         ]),
     }
+}
+
+fn convert_solid(solid: &Solid, layer: String, color: i32, line_type: String) -> DxfSolid {
+    let points = order_solid_vertices([
+        DxfVertex {
+            x: solid.point1_x,
+            y: solid.point1_y,
+        },
+        DxfVertex {
+            x: solid.point2_x,
+            y: solid.point2_y,
+        },
+        DxfVertex {
+            x: solid.point3_x,
+            y: solid.point3_y,
+        },
+        DxfVertex {
+            x: solid.point4_x,
+            y: solid.point4_y,
+        },
+    ]);
+
+    DxfSolid {
+        layer,
+        color,
+        line_type,
+        x1: points[0].x,
+        y1: points[0].y,
+        x2: points[1].x,
+        y2: points[1].y,
+        x3: points[2].x,
+        y3: points[2].y,
+        x4: points[3].x,
+        y4: points[3].y,
+    }
+}
+
+fn order_solid_vertices(points: [DxfVertex; 4]) -> [DxfVertex; 4] {
+    if !solid_vertices_cross(&points) {
+        return points;
+    }
+
+    let center_x = points.iter().map(|p| p.x).sum::<f64>() / points.len() as f64;
+    let center_y = points.iter().map(|p| p.y).sum::<f64>() / points.len() as f64;
+    let mut ordered = points;
+    ordered.sort_by(|a, b| {
+        let angle_a = (a.y - center_y).atan2(a.x - center_x);
+        let angle_b = (b.y - center_y).atan2(b.x - center_x);
+        angle_a
+            .partial_cmp(&angle_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(index) = ordered
+        .iter()
+        .position(|point| same_vertex(*point, points[0]))
+    {
+        ordered.rotate_left(index);
+    }
+    ordered
+}
+
+fn solid_vertices_cross(points: &[DxfVertex; 4]) -> bool {
+    segments_intersect(points[0], points[1], points[2], points[3])
+        || segments_intersect(points[1], points[2], points[3], points[0])
+}
+
+fn segments_intersect(a: DxfVertex, b: DxfVertex, c: DxfVertex, d: DxfVertex) -> bool {
+    let ab_c = orientation(a, b, c);
+    let ab_d = orientation(a, b, d);
+    let cd_a = orientation(c, d, a);
+    let cd_b = orientation(c, d, b);
+
+    ab_c * ab_d < 0.0 && cd_a * cd_b < 0.0
+}
+
+fn orientation(a: DxfVertex, b: DxfVertex, c: DxfVertex) -> f64 {
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+}
+
+fn same_vertex(a: DxfVertex, b: DxfVertex) -> bool {
+    (a.x - b.x).abs() <= 1e-9 && (a.y - b.y).abs() <= 1e-9
 }
 
 fn convert_circle_solid(
@@ -1653,12 +1725,14 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use crate::header::{JwwHeader, LayerGroupHeader, LayerHeader};
-    use crate::model::{Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Text};
+    use crate::model::{
+        Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Solid, Text,
+    };
     use crate::parser::read_document_from_file;
 
     use super::{
         convert_document, convert_document_with_options, document_to_string, map_line_type,
-        ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfText,
+        solid_vertices_cross, ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfText, DxfVertex,
     };
 
     fn empty_header() -> JwwHeader {
@@ -1739,6 +1813,55 @@ mod tests {
                 assert!(polygon.points.iter().all(|point| point.y.is_finite()));
             }
             other => panic!("expected FILLED_POLYGON, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_orders_crossed_solid_vertices() {
+        let base = EntityBase::default();
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Solid(Solid {
+                base,
+                point1_x: 0.0,
+                point1_y: 10.0,
+                point2_x: 10.0,
+                point2_y: 0.0,
+                point3_x: 10.0,
+                point3_y: 10.0,
+                point4_x: 0.0,
+                point4_y: 0.0,
+                color: None,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        assert_eq!(dxf.entities.len(), 1);
+        match &dxf.entities[0] {
+            DxfEntity::Solid(solid) => {
+                let points = [
+                    DxfVertex {
+                        x: solid.x1,
+                        y: solid.y1,
+                    },
+                    DxfVertex {
+                        x: solid.x2,
+                        y: solid.y2,
+                    },
+                    DxfVertex {
+                        x: solid.x3,
+                        y: solid.y3,
+                    },
+                    DxfVertex {
+                        x: solid.x4,
+                        y: solid.y4,
+                    },
+                ];
+                assert!(!solid_vertices_cross(&points));
+                assert_eq!(points[0], DxfVertex { x: 0.0, y: 10.0 });
+            }
+            other => panic!("expected SOLID, got {:?}", other),
         }
     }
 

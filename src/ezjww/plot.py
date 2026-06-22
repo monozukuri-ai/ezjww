@@ -117,6 +117,51 @@ def _text_fontsize(height: Any, text_scale: float, unit_to_points: float) -> flo
     return max(0.1, size * float(text_scale) * float(unit_to_points))
 
 
+def _normalize_polygon_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(points) != 4 or not _polygon_points_cross(points):
+        return points
+
+    center_x = sum(point[0] for point in points) / len(points)
+    center_y = sum(point[1] for point in points) / len(points)
+    ordered = sorted(
+        points,
+        key=lambda point: math.atan2(point[1] - center_y, point[0] - center_x),
+    )
+    try:
+        index = ordered.index(points[0])
+    except ValueError:
+        return ordered
+    return ordered[index:] + ordered[:index]
+
+
+def _polygon_points_cross(points: list[tuple[float, float]]) -> bool:
+    return (
+        _segments_intersect(points[0], points[1], points[2], points[3])
+        or _segments_intersect(points[1], points[2], points[3], points[0])
+    )
+
+
+def _segments_intersect(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+    d: tuple[float, float],
+) -> bool:
+    ab_c = _orientation(a, b, c)
+    ab_d = _orientation(a, b, d)
+    cd_a = _orientation(c, d, a)
+    cd_b = _orientation(c, d, b)
+    return ab_c * ab_d < 0.0 and cd_a * cd_b < 0.0
+
+
+def _orientation(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
 def _ellipse_points(
     center_x: float,
     center_y: float,
@@ -160,6 +205,7 @@ def plot_dxf_document(
     draw_points: bool = True,
     draw_inserts: bool = True,
     text_scale: float = 1.0,
+    fill_alpha: float = 0.3,
     invert_y: bool = False,
     equal_aspect: bool = True,
     autoscale: bool = True,
@@ -178,6 +224,7 @@ def plot_dxf_document(
 
     font_properties = _text_font_properties()
     text_kwargs = {"fontproperties": font_properties} if font_properties is not None else {}
+    solid_alpha = max(0.0, min(1.0, float(fill_alpha)))
     pending_text: list[tuple[dict[str, Any], Any]] = []
 
     for entity in dxf_document.get("entities", []):
@@ -272,19 +319,21 @@ def plot_dxf_document(
             if draw_text:
                 pending_text.append((entity, color))
         elif entity_type == "SOLID":
-            points = [
-                (entity["x1"], entity["y1"]),
-                (entity["x2"], entity["y2"]),
-                (entity["x3"], entity["y3"]),
-                (entity["x4"], entity["y4"]),
-            ]
+            points = _normalize_polygon_points(
+                [
+                    (entity["x1"], entity["y1"]),
+                    (entity["x2"], entity["y2"]),
+                    (entity["x3"], entity["y3"]),
+                    (entity["x4"], entity["y4"]),
+                ]
+            )
             patch = patches.Polygon(
                 points,
                 closed=True,
                 facecolor=color,
                 edgecolor=color,
                 linewidth=max(0.3, linewidth * 0.8),
-                alpha=0.3,
+                alpha=solid_alpha,
             )
             ax.add_patch(patch)
         elif entity_type == "FILLED_POLYGON":
@@ -300,7 +349,7 @@ def plot_dxf_document(
                     facecolor=color,
                     edgecolor=color,
                     linewidth=max(0.3, linewidth * 0.8),
-                    alpha=1.0,
+                    alpha=solid_alpha,
                 )
                 ax.add_patch(patch)
         elif entity_type == "INSERT":
