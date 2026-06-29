@@ -5,6 +5,8 @@ import math
 import unittest
 from pathlib import Path
 
+HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
+
 
 def load_plot_module():
     root = Path(__file__).resolve().parents[2]
@@ -88,7 +90,6 @@ class PlotHelperTests(unittest.TestCase):
         self.assertAlmostEqual(points[0][0], points[-1][0], places=6)
         self.assertAlmostEqual(points[0][1], points[-1][1], places=6)
 
-
     def test_text_anchor_uses_jww_text_box_center(self):
         self.assertEqual(
             PLOT._text_anchor({"x": 0.0, "y": 0.0, "end_x": 2.5, "end_y": 0.0, "height": 2.5}),
@@ -105,6 +106,7 @@ class PlotHelperTests(unittest.TestCase):
             (3.0, 4.0, "left", "bottom"),
         )
 
+    @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is required for rendering tests")
     def test_axes_are_hidden_by_default(self):
         import matplotlib
 
@@ -117,6 +119,7 @@ class PlotHelperTests(unittest.TestCase):
         finally:
             plt.close(ax.figure)
 
+    @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is required for rendering tests")
     def test_axes_can_be_shown_for_debugging(self):
         import matplotlib
 
