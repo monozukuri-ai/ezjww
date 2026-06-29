@@ -47,17 +47,49 @@ def _aci_to_color(aci: int) -> Any:
     return (hue, 0.7, 0.9)
 
 
-def _line_style(line_type: str) -> str:
+def _entity_color(aci: int, *, monochrome: bool) -> Any:
+    if monochrome:
+        return "#000000"
+    return _aci_to_color(aci)
+
+
+def _line_style(line_type: str) -> Any:
     name = line_type.upper()
     if name == "CONTINUOUS":
         return "-"
-    if name in {"DASHED", "DASHED2"}:
-        return "--"
-    if name in {"DASHDOT", "DASHDOT2", "CENTER", "CENTER2"}:
-        return "-."
-    if name in {"DOT", "DOT2"}:
-        return ":"
+    if name == "DASHED":
+        return (0.0, (7.0, 3.0))
+    if name in {"DASHED2", "DASHEDX2"}:
+        return (0.0, (14.0, 5.0))
+    if name == "DASHDOT":
+        return (0.0, (10.0, 3.0, 0.0, 3.0))
+    if name in {"DASHDOT2", "DASHDOTX2"}:
+        return (0.0, (18.0, 4.0, 0.0, 4.0))
+    if name == "CENTER":
+        return (0.0, (18.0, 4.0, 4.0, 4.0))
+    if name in {"CENTER2", "CENTERX2"}:
+        return (0.0, (28.0, 6.0, 6.0, 6.0))
+    if name == "DOT":
+        return (0.0, (0.0, 3.0))
+    if name in {"DOT2", "DOTX2"}:
+        return (0.0, (0.0, 5.0))
     return "-"
+
+
+def _line_capstyle(line_type: str) -> str | None:
+    name = line_type.upper()
+    if name in {"DASHDOT", "DASHDOT2", "DASHDOTX2", "DOT", "DOT2", "DOTX2"}:
+        return "round"
+    return None
+
+
+def _apply_line_capstyle(artist: Any, capstyle: str | None) -> None:
+    if capstyle is None:
+        return
+    if hasattr(artist, "set_dash_capstyle"):
+        artist.set_dash_capstyle(capstyle)
+    elif hasattr(artist, "set_capstyle"):
+        artist.set_capstyle(capstyle)
 
 
 def _entity_linewidth(entity: dict[str, Any], default: float) -> float:
@@ -68,6 +100,25 @@ def _entity_linewidth(entity: dict[str, Any], default: float) -> float:
     if line_weight <= 0:
         return float(default)
     return max(0.05, line_weight * 72.0 / 2540.0)
+
+
+def _filled_polygon_edge_kwargs(
+    color: Any,
+    line_width: float,
+    *,
+    draw_edges: bool,
+) -> dict[str, Any]:
+    if draw_edges:
+        return {
+            "edgecolor": color,
+            "linewidth": max(0.05, line_width * 0.8),
+            "antialiased": True,
+        }
+    return {
+        "edgecolor": "none",
+        "linewidth": 0.0,
+        "antialiased": False,
+    }
 
 
 @lru_cache(maxsize=1)
@@ -125,6 +176,34 @@ def _text_fontsize(height: Any, text_scale: float, unit_to_points: float) -> flo
     except (TypeError, ValueError):
         size = 2.5
     return max(0.1, size * float(text_scale) * float(unit_to_points))
+
+
+def _text_anchor(entity: dict[str, Any]) -> tuple[float, float, str, str]:
+    x = float(entity["x"])
+    y = float(entity["y"])
+    try:
+        end_x = float(entity["end_x"])
+        end_y = float(entity["end_y"])
+        height = float(entity.get("height", 2.5))
+    except (KeyError, TypeError, ValueError):
+        return x, y, "left", "bottom"
+
+    dx = end_x - x
+    dy = end_y - y
+    length = math.hypot(dx, dy)
+    if length <= 1e-12:
+        angle = math.radians(float(entity.get("rotation", 0.0)))
+        unit_x = math.cos(angle)
+        unit_y = math.sin(angle)
+    else:
+        unit_x = dx / length
+        unit_y = dy / length
+
+    normal_x = -unit_y
+    normal_y = unit_x
+    center_x = (x + end_x) * 0.5 + normal_x * height * 0.5
+    center_y = (y + end_y) * 0.5 + normal_y * height * 0.5
+    return center_x, center_y, "center", "center"
 
 
 def _normalize_polygon_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -210,12 +289,15 @@ def plot_dxf_document(
     ax: Any | None = None,
     layers: Iterable[str] | None = None,
     linewidth: float = 0.8,
-    point_size: float = 12.0,
+    point_size: float = 1.0,
     draw_text: bool = True,
     draw_points: bool = True,
     draw_inserts: bool = True,
     text_scale: float = 1.0,
     fill_alpha: float = 0.3,
+    draw_fill_edges: bool = False,
+    monochrome: bool = False,
+    show_axes: bool = False,
     invert_y: bool = False,
     equal_aspect: bool = True,
     autoscale: bool = True,
@@ -243,18 +325,21 @@ def plot_dxf_document(
             continue
 
         entity_type = str(entity.get("type", ""))
-        color = _aci_to_color(int(entity.get("color", 256)))
-        line_style = _line_style(str(entity.get("line_type", "CONTINUOUS")))
+        color = _entity_color(int(entity.get("color", 256)), monochrome=monochrome)
+        line_type = str(entity.get("line_type", "CONTINUOUS"))
+        line_style = _line_style(line_type)
+        line_capstyle = _line_capstyle(line_type)
         entity_linewidth = _entity_linewidth(entity, linewidth)
 
         if entity_type == "LINE":
-            ax.plot(
+            (line_artist,) = ax.plot(
                 [entity["x1"], entity["x2"]],
                 [entity["y1"], entity["y2"]],
                 color=color,
                 linewidth=entity_linewidth,
                 linestyle=line_style,
             )
+            _apply_line_capstyle(line_artist, line_capstyle)
         elif entity_type == "CIRCLE":
             patch = patches.Circle(
                 (entity["center_x"], entity["center_y"]),
@@ -264,6 +349,7 @@ def plot_dxf_document(
                 linewidth=entity_linewidth,
                 linestyle=line_style,
             )
+            _apply_line_capstyle(patch, line_capstyle)
             ax.add_patch(patch)
         elif entity_type == "ARC":
             start = float(entity["start_angle"])
@@ -281,6 +367,7 @@ def plot_dxf_document(
                 linewidth=entity_linewidth,
                 linestyle=line_style,
             )
+            _apply_line_capstyle(patch, line_capstyle)
             ax.add_patch(patch)
         elif entity_type == "ELLIPSE":
             major_x = float(entity["major_axis_x"])
@@ -310,6 +397,7 @@ def plot_dxf_document(
                     linewidth=entity_linewidth,
                     linestyle=line_style,
                 )
+                _apply_line_capstyle(patch, line_capstyle)
                 ax.add_patch(patch)
             else:
                 points = _ellipse_points(
@@ -322,10 +410,24 @@ def plot_dxf_document(
                     end_param,
                 )
                 xs, ys = zip(*points)
-                ax.plot(xs, ys, color=color, linewidth=entity_linewidth, linestyle=line_style)
+                (line_artist,) = ax.plot(
+                    xs,
+                    ys,
+                    color=color,
+                    linewidth=entity_linewidth,
+                    linestyle=line_style,
+                )
+                _apply_line_capstyle(line_artist, line_capstyle)
         elif entity_type == "POINT":
             if draw_points:
-                ax.scatter([entity["x"]], [entity["y"]], s=point_size, c=[color], marker="o")
+                ax.scatter(
+                    [entity["x"]],
+                    [entity["y"]],
+                    s=point_size,
+                    c=[color],
+                    marker="o",
+                    linewidths=0.0,
+                )
         elif entity_type == "TEXT":
             if draw_text:
                 pending_text.append((entity, color))
@@ -342,9 +444,12 @@ def plot_dxf_document(
                 points,
                 closed=True,
                 facecolor=color,
-                edgecolor=color,
-                linewidth=max(0.05, entity_linewidth * 0.8),
                 alpha=solid_alpha,
+                **_filled_polygon_edge_kwargs(
+                    color,
+                    entity_linewidth,
+                    draw_edges=draw_fill_edges,
+                ),
             )
             ax.add_patch(patch)
         elif entity_type == "FILLED_POLYGON":
@@ -358,9 +463,12 @@ def plot_dxf_document(
                     points,
                     closed=True,
                     facecolor=color,
-                    edgecolor=color,
-                    linewidth=max(0.05, entity_linewidth * 0.8),
                     alpha=solid_alpha,
+                    **_filled_polygon_edge_kwargs(
+                        color,
+                        entity_linewidth,
+                        draw_edges=draw_fill_edges,
+                    ),
                 )
                 ax.add_patch(patch)
         elif entity_type == "INSERT":
@@ -397,30 +505,36 @@ def plot_dxf_document(
     if invert_y:
         ax.invert_yaxis()
 
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_title("JWW Plot")
     ax.grid(False)
+    if show_axes:
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.set_title("JWW Plot")
+    else:
+        ax.set_axis_off()
 
     unit_to_points = _data_unit_to_points(ax)
     for entity, color in pending_text:
         content = str(entity.get("content", ""))
+        text_x, text_y, horizontal_alignment, vertical_alignment = _text_anchor(entity)
         ax.text(
-            entity["x"],
-            entity["y"],
+            text_x,
+            text_y,
             content,
             color=color,
             fontsize=_text_fontsize(entity.get("height", 2.5), text_scale, unit_to_points),
             rotation=float(entity.get("rotation", 0.0)),
-            ha="left",
-            va="bottom",
+            rotation_mode="anchor",
+            ha=horizontal_alignment,
+            va=vertical_alignment,
             **text_kwargs,
         )
 
     if save_path is not None:
         output = Path(save_path)
         output.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output, dpi=dpi, bbox_inches="tight")
+        pad_inches = 0.1 if show_axes else 0.0
+        fig.savefig(output, dpi=dpi, bbox_inches="tight", pad_inches=pad_inches)
     if show:
         plt.show()
 

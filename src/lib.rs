@@ -435,6 +435,8 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("line_type", &v.line_type)?;
             out.set_item("x", v.x)?;
             out.set_item("y", v.y)?;
+            out.set_item("end_x", v.end_x)?;
+            out.set_item("end_y", v.end_y)?;
             out.set_item("height", v.height)?;
             out.set_item("rotation", v.rotation)?;
             out.set_item("content", &v.content)?;

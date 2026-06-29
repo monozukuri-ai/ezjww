@@ -524,7 +524,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="comma-separated layer names to draw (e.g. '0,1,2' or '#lv4,#lv5')",
     )
     plot.add_argument("--dpi", type=int, default=150, help="output image DPI")
+    plot.add_argument(
+        "--linewidth",
+        type=float,
+        default=0.18,
+        help="default stroke width in points for entities without DXF line weight",
+    )
+    plot.add_argument(
+        "--point-size",
+        type=float,
+        default=1.0,
+        help="POINT marker area in points squared",
+    )
+    plot.add_argument(
+        "--figsize",
+        default="16,11",
+        help="figure size in inches as WIDTH,HEIGHT",
+    )
     plot.add_argument("--invert-y", action="store_true", help="invert Y axis")
+    plot.add_argument(
+        "--show-axes",
+        action="store_true",
+        help="show matplotlib axes, labels, and plot frame",
+    )
+    plot.add_argument(
+        "--monochrome",
+        action="store_true",
+        help="render all drawing entities in black",
+    )
     plot.add_argument("--no-text", action="store_true", help="hide TEXT entities")
     plot.add_argument("--no-points", action="store_true", help="hide POINT entities")
     plot.add_argument("--no-inserts", action="store_true", help="hide INSERT markers")
@@ -831,6 +858,34 @@ def _normalize_max_block_nesting(max_block_nesting: int) -> int:
     return value
 
 
+def _parse_figsize(value: str) -> tuple[float, float]:
+    parts = [part.strip() for part in value.lower().replace("x", ",").split(",")]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError("figsize must be WIDTH,HEIGHT")
+    try:
+        width = float(parts[0])
+        height = float(parts[1])
+    except ValueError as exc:
+        raise ValueError("figsize must be WIDTH,HEIGHT") from exc
+    if width <= 0.0 or height <= 0.0:
+        raise ValueError("figsize values must be positive")
+    return width, height
+
+
+def _normalize_plot_linewidth(linewidth: float) -> float:
+    value = float(linewidth)
+    if value <= 0.0:
+        raise ValueError("linewidth must be positive")
+    return value
+
+
+def _normalize_plot_point_size(point_size: float) -> float:
+    value = float(point_size)
+    if value < 0.0:
+        raise ValueError("point_size must be non-negative")
+    return value
+
+
 def _emit_report(report: dict[str, Any], report_format: str | None, report_path: str | None) -> None:
     if report_format != "json":
         return
@@ -1045,6 +1100,9 @@ def _run(argv: list[str] | None = None) -> int:
         input_path = Path(args.path)
         try:
             max_block_nesting = _normalize_max_block_nesting(args.max_block_nesting)
+            linewidth = _normalize_plot_linewidth(args.linewidth)
+            point_size = _normalize_plot_point_size(args.point_size)
+            figsize = _parse_figsize(args.figsize)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -1068,9 +1126,14 @@ def _run(argv: list[str] | None = None) -> int:
                 show=args.show,
                 save_path=str(save_path) if save_path is not None else None,
                 dpi=args.dpi,
+                linewidth=linewidth,
+                point_size=point_size,
+                figsize=figsize,
                 draw_text=not args.no_text,
                 draw_points=not args.no_points,
                 draw_inserts=not args.no_inserts,
+                show_axes=args.show_axes,
+                monochrome=args.monochrome,
                 invert_y=args.invert_y,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,

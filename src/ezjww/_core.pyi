@@ -174,6 +174,8 @@ class DxfEntity(TypedDict, total=False):
     end_param: float
     x: float
     y: float
+    end_x: float
+    end_y: float
     height: float
     rotation: float
     content: str

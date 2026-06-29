@@ -300,6 +300,25 @@ class PublicApiTests(unittest.TestCase):
         code = ezjww._run(["report", str(sample_path()), "--max-block-nesting", "0"])
         self.assertEqual(code, 2)
 
+    def test_parse_plot_figsize_accepts_comma_or_x_separator(self):
+        self.assertEqual(ezjww._parse_figsize("16,11"), (16.0, 11.0))
+        self.assertEqual(ezjww._parse_figsize("16x11"), (16.0, 11.0))
+        with self.assertRaises(ValueError):
+            ezjww._parse_figsize("16")
+        with self.assertRaises(ValueError):
+            ezjww._parse_figsize("16,0")
+
+    def test_normalize_plot_linewidth_rejects_non_positive_values(self):
+        self.assertEqual(ezjww._normalize_plot_linewidth(0.18), 0.18)
+        with self.assertRaises(ValueError):
+            ezjww._normalize_plot_linewidth(0.0)
+
+    def test_normalize_plot_point_size_rejects_negative_values(self):
+        self.assertEqual(ezjww._normalize_plot_point_size(4.0), 4.0)
+        self.assertEqual(ezjww._normalize_plot_point_size(0.0), 0.0)
+        with self.assertRaises(ValueError):
+            ezjww._normalize_plot_point_size(-1.0)
+
     def test_cli_to_dxf_rejects_invalid_max_block_nesting(self):
         with tempfile.TemporaryDirectory(prefix="ezjww_test_") as tmp_dir:
             tmp = Path(tmp_dir)

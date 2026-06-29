@@ -86,6 +86,8 @@ pub struct DxfText {
     pub line_type: String,
     pub x: f64,
     pub y: f64,
+    pub end_x: f64,
+    pub end_y: f64,
     pub height: f64,
     pub rotation: f64,
     pub content: String,
@@ -1047,6 +1049,7 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
         }
         DxfEntity::Text(v) => {
             let (x, y) = transform.apply_point(v.x, v.y);
+            let (end_x, end_y) = transform.apply_point(v.end_x, v.end_y);
             let height = (v.height * transform.average_scale().abs()).max(0.1);
             vec![DxfEntity::Text(DxfText {
                 layer: v.layer.clone(),
@@ -1054,6 +1057,8 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
                 line_type: v.line_type.clone(),
                 x,
                 y,
+                end_x,
+                end_y,
                 height,
                 rotation: v.rotation + transform.rotation_deg(),
                 content: v.content.clone(),
@@ -1706,15 +1711,12 @@ fn convert_arc(
 
         let major_axis_x = major_radius * tilt_angle.cos();
         let major_axis_y = major_radius * tilt_angle.sin();
-        let start_param = if arc.is_full_circle {
-            0.0
-        } else {
-            arc.start_angle
-        };
+        let (span_start, span_end) = jww_arc_to_ccw_span(arc.start_angle, arc.arc_angle);
+        let start_param = if arc.is_full_circle { 0.0 } else { span_start };
         let end_param = if arc.is_full_circle {
             2.0 * PI
         } else {
-            arc.start_angle + arc.arc_angle
+            span_end
         };
 
         return vec![DxfEntity::Ellipse(DxfEllipse {
@@ -1732,6 +1734,7 @@ fn convert_arc(
         })];
     }
 
+    let (start_angle, end_angle) = jww_arc_to_ccw_span(arc.start_angle, arc.arc_angle);
     vec![DxfEntity::Arc(DxfArc {
         layer,
         color,
@@ -1740,8 +1743,8 @@ fn convert_arc(
         center_x: arc.center_x,
         center_y: arc.center_y,
         radius: arc.radius,
-        start_angle: rad_to_deg(arc.start_angle),
-        end_angle: rad_to_deg(arc.start_angle + arc.arc_angle),
+        start_angle: normalize_degrees(rad_to_deg(start_angle)),
+        end_angle: normalize_degrees(rad_to_deg(end_angle)),
     })]
 }
 
@@ -1752,6 +1755,8 @@ fn convert_text(text: &Text, layer: String, color: i32, line_type: String) -> Dx
         line_type,
         x: text.start_x,
         y: text.start_y,
+        end_x: text.end_x,
+        end_y: text.end_y,
         height: if text.size_y <= 0.0 { 2.5 } else { text.size_y },
         rotation: text.angle,
         content: text.content.clone(),
@@ -1831,6 +1836,18 @@ fn rad_to_deg(rad: f64) -> f64 {
     rad * 180.0 / PI
 }
 
+fn jww_arc_to_ccw_span(start_angle: f64, arc_angle: f64) -> (f64, f64) {
+    if arc_angle < 0.0 {
+        (start_angle + arc_angle, start_angle)
+    } else {
+        (start_angle, start_angle + arc_angle)
+    }
+}
+
+fn normalize_degrees(degrees: f64) -> f64 {
+    degrees.rem_euclid(360.0)
+}
+
 #[cfg(test)]
 mod tests {
     use std::array;
@@ -1840,7 +1857,7 @@ mod tests {
 
     use crate::header::{JwwHeader, LayerGroupHeader, LayerHeader};
     use crate::model::{
-        Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Solid, Text,
+        Arc, Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Solid, Text,
     };
     use crate::parser::read_document_from_file;
 
@@ -1892,6 +1909,64 @@ mod tests {
 
         for (pen_style, expected) in cases {
             assert_eq!(map_line_type(pen_style), expected);
+        }
+    }
+
+    #[test]
+    fn convert_document_converts_negative_arc_sweep_to_short_ccw_span() {
+        let base = EntityBase::default();
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Arc(Arc {
+                base,
+                center_x: 0.0,
+                center_y: 0.0,
+                radius: 10.0,
+                start_angle: 1.0_f64.to_radians(),
+                arc_angle: (-2.0_f64).to_radians(),
+                tilt_angle: 0.0,
+                flatness: 1.0,
+                is_full_circle: false,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        match &dxf.entities[0] {
+            DxfEntity::Arc(arc) => {
+                assert!((arc.start_angle - 359.0).abs() < 1e-9);
+                assert!((arc.end_angle - 1.0).abs() < 1e-9);
+            }
+            other => panic!("expected ARC, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_converts_negative_ellipse_sweep_to_short_ccw_span() {
+        let base = EntityBase::default();
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Arc(Arc {
+                base,
+                center_x: 0.0,
+                center_y: 0.0,
+                radius: 10.0,
+                start_angle: 1.0,
+                arc_angle: -0.2,
+                tilt_angle: 0.0,
+                flatness: 0.5,
+                is_full_circle: false,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        match &dxf.entities[0] {
+            DxfEntity::Ellipse(ellipse) => {
+                assert!((ellipse.start_param - 0.8).abs() < 1e-9);
+                assert!((ellipse.end_param - 1.0).abs() < 1e-9);
+            }
+            other => panic!("expected ELLIPSE, got {:?}", other),
         }
     }
 
@@ -2376,6 +2451,8 @@ mod tests {
                 line_type: "CONTINUOUS".to_string(),
                 x: 0.0,
                 y: 0.0,
+                end_x: 0.0,
+                end_y: 0.0,
                 height: 2.5,
                 rotation: 0.0,
                 content: "日本語".to_string(),
