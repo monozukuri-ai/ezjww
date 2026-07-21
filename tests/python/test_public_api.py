@@ -23,6 +23,52 @@ def sample_path() -> Path:
 
 
 class PublicApiTests(unittest.TestCase):
+    def test_is_jww_file_uses_signature_not_extension(self):
+        with tempfile.TemporaryDirectory(prefix="ezjww_signature_") as tmp_dir:
+            tmp = Path(tmp_dir)
+            valid = tmp / "drawing.bin"
+            disguised = tmp / "drawing.jww"
+            short = tmp / "short.jww"
+            valid.write_bytes(b"JwwData.")
+            disguised.write_bytes(b"NotJWW!!")
+            short.write_bytes(b"Jww")
+
+            self.assertTrue(ezjww.is_jww_file(str(valid)))
+            self.assertFalse(ezjww.is_jww_file(str(disguised)))
+            self.assertFalse(ezjww.is_jww_file(str(short)))
+
+    def test_read_document_exposes_parser_diagnostics(self):
+        document = ezjww.read_document(str(sample_path()))
+        self.assertIn("diagnostics", document)
+        self.assertIsInstance(document["diagnostics"], list)
+
+    def test_invalid_cp932_is_reported_end_to_end(self):
+        raw = bytearray(sample_path().read_bytes())
+        memo_prefix = "日影図".encode("cp932")
+        damaged_offset = raw.find(memo_prefix)
+        self.assertGreaterEqual(damaged_offset, 0)
+        raw[damaged_offset] = 0xFF
+
+        with tempfile.TemporaryDirectory(prefix="ezjww_cp932_") as tmp_dir:
+            damaged = Path(tmp_dir) / "damaged.jww"
+            damaged.write_bytes(raw)
+
+            document = ezjww.read_document(str(damaged))
+            result = ezjww.audit(str(damaged))
+
+        self.assertEqual(len(document["diagnostics"]), 1)
+        diagnostic = document["diagnostics"][0]
+        self.assertEqual(diagnostic["code"], "CP932_DECODE_REPLACED")
+        self.assertEqual(diagnostic["details"]["field"], "header.memo")
+        self.assertEqual(diagnostic["details"]["byte_offset"], damaged_offset)
+        self.assertGreaterEqual(
+            diagnostic["details"]["replacement_characters"],
+            1,
+        )
+        self.assertIn("CP932_DECODE_REPLACED", result["issue_codes"])
+        self.assertEqual(result["decode_error_count"], 1)
+        self.assertGreaterEqual(result["decode_replacement_characters"], 1)
+
     def test_readfile_modelspace_query(self):
         drawing = ezjww.readfile(sample_path())
         msp = drawing.modelspace()
@@ -74,10 +120,60 @@ class PublicApiTests(unittest.TestCase):
         self.assertIn("unsupported_count", result)
         self.assertIn("unsupported_entities", result)
         self.assertIn("unresolved_def_numbers", result)
+        self.assertIn("diagnostics", result)
+        self.assertIn("decode_error_count", result)
+        self.assertIn("decode_replacement_characters", result)
+        self.assertIn("decode_affected_fields", result)
         self.assertEqual(result["unresolved_def_numbers"], [])
         self.assertEqual(result["issue_codes"], [])
         self.assertEqual(result["unresolved_count"], 0)
         self.assertEqual(result["unsupported_count"], 0)
+        self.assertEqual(result["decode_error_count"], 0)
+        self.assertEqual(result["decode_replacement_characters"], 0)
+        self.assertEqual(result["decode_affected_fields"], [])
+        self.assertEqual(result["diagnostics"], [])
+
+    def test_audit_includes_structured_cp932_parser_diagnostic(self):
+        parser_diagnostic = {
+            "code": "CP932_DECODE_REPLACED",
+            "severity": "warning",
+            "message": "CP932 decoding replaced 1 sequence.",
+            "action": "normalized",
+            "details": {
+                "encoding": "cp932",
+                "field": "entity.text.content",
+                "byte_offset": 120,
+                "byte_length": 2,
+                "replacement_characters": 1,
+                "had_errors": True,
+            },
+        }
+        drawing = ezjww.Drawing(
+            source_path="damaged.jww",
+            jww_document={
+                "validation": {
+                    "total_references": 0,
+                    "resolved_references": 0,
+                    "unresolved_def_numbers": [],
+                },
+                "diagnostics": [parser_diagnostic],
+            },
+            dxf_document={
+                "layers": [],
+                "entities": [],
+                "blocks": [],
+                "unsupported_entities": [],
+            },
+        )
+
+        result = drawing.audit()
+
+        self.assertTrue(result["has_issues"])
+        self.assertEqual(result["issue_codes"], ["CP932_DECODE_REPLACED"])
+        self.assertEqual(result["diagnostics"], [parser_diagnostic])
+        self.assertEqual(result["decode_error_count"], 1)
+        self.assertEqual(result["decode_replacement_characters"], 1)
+        self.assertEqual(result["decode_affected_fields"], ["entity.text.content"])
 
     def test_bbox_from_path(self):
         result = ezjww.bbox(sample_path())

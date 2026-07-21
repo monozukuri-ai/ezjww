@@ -4,36 +4,61 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::diagnostics::DecodeDiagnostic;
 use crate::error::JwwError;
-use crate::header::parse_header;
+use crate::header::parse_header_with_diagnostics;
 use crate::model::{
     Arc, Block, BlockDef, CircleSolid, Dimension, Entity, EntityBase, JwwDocument, Line, Point,
     Solid, Text,
 };
 use crate::reader::Reader;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedJwwDocument {
+    pub document: JwwDocument,
+    pub diagnostics: Vec<DecodeDiagnostic>,
+}
+
 pub fn parse_document(data: &[u8]) -> Result<JwwDocument, JwwError> {
-    let header = parse_header(data)?;
+    parse_document_with_diagnostics(data).map(|parsed| parsed.document)
+}
+
+pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument, JwwError> {
+    let (header, mut diagnostics) = parse_header_with_diagnostics(data)?;
     let entity_list_offset =
         find_entity_list_offset(data, header.version).ok_or(JwwError::EntityListNotFound)?;
-    let mut reader = Reader::new(&data[entity_list_offset..]);
+    let mut reader = Reader::with_base_offset(&data[entity_list_offset..], entity_list_offset);
     let entities = parse_entity_list(&mut reader, header.version)?;
     let block_data_start = entity_list_offset + reader.bytes_read();
-    let block_defs = if block_data_start < data.len() {
-        parse_block_def_list(&data[block_data_start..], header.version)
+    let entity_diagnostics = reader.into_decode_diagnostics();
+    let (block_defs, block_diagnostics) = if block_data_start < data.len() {
+        parse_block_def_list(&data[block_data_start..], header.version, block_data_start)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
-    Ok(JwwDocument {
-        header,
-        entities,
-        block_defs,
+    diagnostics.extend(entity_diagnostics);
+    diagnostics.extend(block_diagnostics);
+
+    Ok(ParsedJwwDocument {
+        document: JwwDocument {
+            header,
+            entities,
+            block_defs,
+        },
+        diagnostics,
     })
 }
 
 pub fn read_document_from_file(path: impl AsRef<Path>) -> Result<JwwDocument, JwwError> {
     let data = fs::read(path)?;
     parse_document(&data)
+}
+
+pub fn read_document_from_file_with_diagnostics(
+    path: impl AsRef<Path>,
+) -> Result<ParsedJwwDocument, JwwError> {
+    let data = fs::read(path)?;
+    parse_document_with_diagnostics(&data)
 }
 
 fn find_entity_list_offset(data: &[u8], version: u32) -> Option<usize> {
@@ -217,8 +242,8 @@ fn parse_text(reader: &mut Reader<'_>, version: u32) -> Result<Text, JwwError> {
         size_y: reader.read_f64()?,
         spacing: reader.read_f64()?,
         angle: reader.read_f64()?,
-        font_name: reader.read_cstring()?,
-        content: reader.read_cstring()?,
+        font_name: reader.read_cstring_with_context("entity.text.font_name")?,
+        content: reader.read_cstring_with_context("entity.text.content")?,
     })
 }
 
@@ -308,15 +333,19 @@ fn parse_dimension(reader: &mut Reader<'_>, version: u32) -> Result<Dimension, J
     })
 }
 
-fn parse_block_def_list(data: &[u8], version: u32) -> Vec<BlockDef> {
-    let mut reader = Reader::new(data);
+fn parse_block_def_list(
+    data: &[u8],
+    version: u32,
+    base_offset: usize,
+) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>) {
+    let mut reader = Reader::with_base_offset(data, base_offset);
     let count = match reader.read_u32() {
         Ok(v) => v,
-        Err(_) => return Vec::new(),
+        Err(_) => return (Vec::new(), reader.into_decode_diagnostics()),
     };
 
     if count > 10_000 {
-        return Vec::new();
+        return (Vec::new(), reader.into_decode_diagnostics());
     }
 
     let mut block_defs = Vec::<BlockDef>::with_capacity(count as usize);
@@ -335,7 +364,7 @@ fn parse_block_def_list(data: &[u8], version: u32) -> Vec<BlockDef> {
         }
     }
 
-    block_defs
+    (block_defs, reader.into_decode_diagnostics())
 }
 
 fn parse_block_def_with_tracking(
@@ -359,7 +388,7 @@ fn parse_block_def_with_tracking(
     let number = reader.read_u32()?;
     let is_referenced = reader.read_u32()? != 0;
     reader.skip(4)?; // CTime
-    let name = reader.read_cstring()?;
+    let name = reader.read_cstring_with_context("block_definition.name")?;
 
     let entities = parse_entity_list(reader, version).unwrap_or_default();
 
@@ -455,8 +484,8 @@ mod tests {
     use crate::model::{BlockDef, Entity, EntityBase};
 
     use super::{
-        block_def_name_map, entity_counts, read_document_from_file, resolve_block_name,
-        validate_block_references, JwwError,
+        block_def_name_map, entity_counts, parse_document_with_diagnostics,
+        read_document_from_file, resolve_block_name, validate_block_references, JwwError,
     };
 
     fn jww_samples_dir() -> PathBuf {
@@ -631,6 +660,37 @@ mod tests {
                 assert_eq!(dim.line.start_x, 0.0);
                 assert_eq!(dim.line.end_x, 10.0);
                 assert_eq!(dim.text.content, "1000");
+            }
+            other => panic!("expected DIMENSION entity, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn cp932_decode_replacement_is_structured_parser_diagnostic() {
+        let mut data = build_minimal_jww_with_dimension();
+        let content_offset = data
+            .windows(4)
+            .position(|window| window == b"1000")
+            .unwrap();
+        data[content_offset] = 0x81;
+
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.diagnostics.len(), 1);
+
+        let diagnostic = &parsed.diagnostics[0];
+        assert_eq!(diagnostic.code, "CP932_DECODE_REPLACED");
+        assert_eq!(diagnostic.severity, "warning");
+        assert_eq!(diagnostic.action, "normalized");
+        assert_eq!(diagnostic.details.encoding, "cp932");
+        assert_eq!(diagnostic.details.field, "entity.text.content");
+        assert_eq!(diagnostic.details.byte_offset, content_offset);
+        assert_eq!(diagnostic.details.byte_length, 4);
+        assert_eq!(diagnostic.details.replacement_characters, 1);
+        assert!(diagnostic.details.had_errors);
+
+        match &parsed.document.entities[0] {
+            Entity::Dimension(dim) => {
+                assert!(dim.text.content.contains(char::REPLACEMENT_CHARACTER));
             }
             other => panic!("expected DIMENSION entity, got {:?}", other),
         }

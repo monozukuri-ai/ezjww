@@ -9,9 +9,10 @@ pub use ezjww_core::{
     block_def_name_map, collect_entity_coordinates, convert_document,
     convert_document_with_options, coordinates_bbox, document_to_string, entity_counts,
     is_jww_signature, jww_document_to_dto, parse_document, parse_header, read_document_from_file,
-    read_header_from_file, resolve_block_name, validate_block_references, write_document_to_file,
-    Arc, Block, BlockDef, BlockReferenceValidation, BlockReferenceValidationDto, CircleSolid,
-    ConvertOptions, Coord2D, Dimension, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfDocumentDto,
+    read_document_from_file_with_diagnostics, read_header_from_file, resolve_block_name,
+    validate_block_references, write_document_to_file, Arc, Block, BlockDef,
+    BlockReferenceValidation, BlockReferenceValidationDto, CircleSolid, ConvertOptions, Coord2D,
+    DecodeDiagnostic, Dimension, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfDocumentDto,
     DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid,
     DxfText, DxfVertex, Entity, EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader,
     LayerGroupHeader, LayerHeader, Line, Point, Solid, Text,
@@ -44,7 +45,8 @@ fn read_header(py: Python<'_>, path: &str) -> PyResult<PyObject> {
 
 #[pyfunction]
 fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
-    let document = read_document_from_file(path).map_err(to_py_err)?;
+    let parsed = read_document_from_file_with_diagnostics(path).map_err(to_py_err)?;
+    let document = &parsed.document;
     let out = PyDict::new_bound(py);
     let header = header_to_pydict(py, &document.header)?;
     out.set_item("header", header)?;
@@ -69,11 +71,17 @@ fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
 
     let counts = entity_counts_to_pydict(py, entity_counts(&document.entities))?;
     out.set_item("entity_counts", counts)?;
-    let validation = validate_block_references(&document);
+    let validation = validate_block_references(document);
     out.set_item(
         "validation",
         block_reference_validation_to_pydict(py, &validation)?,
     )?;
+
+    let diagnostics = PyList::empty_bound(py);
+    for diagnostic in &parsed.diagnostics {
+        diagnostics.append(decode_diagnostic_to_pydict(py, diagnostic)?)?;
+    }
+    out.set_item("diagnostics", diagnostics)?;
 
     Ok(out.unbind().into())
 }
@@ -534,6 +542,30 @@ fn block_def_names_to_pydict<'py>(
     for (k, v) in block_name_map {
         out.set_item(*k, v)?;
     }
+    Ok(out)
+}
+
+fn decode_diagnostic_to_pydict<'py>(
+    py: Python<'py>,
+    diagnostic: &DecodeDiagnostic,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new_bound(py);
+    out.set_item("code", &diagnostic.code)?;
+    out.set_item("severity", &diagnostic.severity)?;
+    out.set_item("message", &diagnostic.message)?;
+    out.set_item("action", &diagnostic.action)?;
+
+    let details = PyDict::new_bound(py);
+    details.set_item("encoding", &diagnostic.details.encoding)?;
+    details.set_item("field", &diagnostic.details.field)?;
+    details.set_item("byte_offset", diagnostic.details.byte_offset)?;
+    details.set_item("byte_length", diagnostic.details.byte_length)?;
+    details.set_item(
+        "replacement_characters",
+        diagnostic.details.replacement_characters,
+    )?;
+    details.set_item("had_errors", diagnostic.details.had_errors)?;
+    out.set_item("details", details)?;
     Ok(out)
 }
 

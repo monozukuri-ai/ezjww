@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+use crate::diagnostics::DecodeDiagnostic;
 use crate::dxf::DxfDocument;
 use crate::header::JwwHeader;
 use crate::model::{BlockDef, JwwDocument};
@@ -23,11 +24,19 @@ pub struct JwwDocumentDto<'a> {
     pub block_def_names: BTreeMap<u32, String>,
     pub entity_counts: BTreeMap<String, usize>,
     pub validation: BlockReferenceValidationDto,
+    pub diagnostics: &'a [DecodeDiagnostic],
 }
 
 pub type DxfDocumentDto = DxfDocument;
 
 pub fn jww_document_to_dto(document: &JwwDocument) -> JwwDocumentDto<'_> {
+    jww_document_to_dto_with_diagnostics(document, &[])
+}
+
+pub fn jww_document_to_dto_with_diagnostics<'a>(
+    document: &'a JwwDocument,
+    diagnostics: &'a [DecodeDiagnostic],
+) -> JwwDocumentDto<'a> {
     let block_def_names = block_def_name_map(&document.block_defs)
         .into_iter()
         .collect::<BTreeMap<_, _>>();
@@ -49,6 +58,7 @@ pub fn jww_document_to_dto(document: &JwwDocument) -> JwwDocumentDto<'_> {
             has_unresolved: validation.has_unresolved(),
             unresolved_def_numbers: validation.unresolved_def_numbers,
         },
+        diagnostics,
     }
 }
 
@@ -154,6 +164,7 @@ mod tests {
         assert_eq!(value["entity_counts"]["LINE"], 1);
         assert_eq!(value["validation"]["has_unresolved"], false);
         assert!(value["block_def_names"].is_object());
+        assert_eq!(value["diagnostics"], json!([]));
     }
 
     #[test]

@@ -2,8 +2,9 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 use ezjww_core::{
-    convert_document_with_options, document_to_string, is_jww_signature, jww_document_to_dto,
-    parse_document, parse_header, ConvertOptions, JwwError,
+    convert_document_with_options, document_to_string, is_jww_signature,
+    jww_document_to_dto_with_diagnostics, parse_document, parse_document_with_diagnostics,
+    parse_header, ConvertOptions, JwwError,
 };
 
 #[wasm_bindgen(js_name = isJwwFile)]
@@ -20,8 +21,11 @@ pub fn read_header(data: &[u8]) -> Result<JsValue, JsValue> {
 
 #[wasm_bindgen(js_name = readDocument)]
 pub fn read_document(data: &[u8]) -> Result<JsValue, JsValue> {
-    let document = parse_document(data).map_err(to_js_error)?;
-    to_js_value(&jww_document_to_dto(&document))
+    let parsed = parse_document_with_diagnostics(data).map_err(to_js_error)?;
+    to_js_value(&jww_document_to_dto_with_diagnostics(
+        &parsed.document,
+        &parsed.diagnostics,
+    ))
 }
 
 #[wasm_bindgen(js_name = readDxfDocument)]

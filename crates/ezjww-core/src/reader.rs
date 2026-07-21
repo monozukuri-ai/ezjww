@@ -2,16 +2,25 @@ use std::io::Cursor;
 
 use encoding_rs::SHIFT_JIS;
 
+use crate::diagnostics::DecodeDiagnostic;
 use crate::error::JwwError;
 
 pub struct Reader<'a> {
     cursor: Cursor<&'a [u8]>,
+    base_offset: usize,
+    decode_diagnostics: Vec<DecodeDiagnostic>,
 }
 
 impl<'a> Reader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
+        Self::with_base_offset(data, 0)
+    }
+
+    pub fn with_base_offset(data: &'a [u8], base_offset: usize) -> Self {
         Self {
             cursor: Cursor::new(data),
+            base_offset,
+            decode_diagnostics: Vec::new(),
         }
     }
 
@@ -54,6 +63,10 @@ impl<'a> Reader<'a> {
     }
 
     pub fn read_cstring(&mut self) -> Result<String, JwwError> {
+        self.read_cstring_with_context("cstring")
+    }
+
+    pub fn read_cstring_with_context(&mut self, field: &str) -> Result<String, JwwError> {
         let len_byte = self.read_u8()?;
         let len = if len_byte < 0xFF {
             len_byte as usize
@@ -70,9 +83,32 @@ impl<'a> Reader<'a> {
             return Ok(String::new());
         }
 
+        let byte_offset = self.base_offset.saturating_add(self.bytes_read());
         let bytes = self.read_bytes(len)?;
-        let (decoded, _, _) = SHIFT_JIS.decode(&bytes);
+        let (decoded, _, had_errors) = SHIFT_JIS.decode(&bytes);
+        if had_errors {
+            let replacement_characters = decoded.matches(char::REPLACEMENT_CHARACTER).count();
+            self.decode_diagnostics
+                .push(DecodeDiagnostic::cp932_replaced(
+                    field,
+                    byte_offset,
+                    len,
+                    replacement_characters,
+                ));
+        }
         Ok(decoded.trim_end_matches('\0').to_string())
+    }
+
+    pub fn decode_diagnostic_count(&self) -> usize {
+        self.decode_diagnostics.len()
+    }
+
+    pub fn truncate_decode_diagnostics(&mut self, len: usize) {
+        self.decode_diagnostics.truncate(len);
+    }
+
+    pub fn into_decode_diagnostics(self) -> Vec<DecodeDiagnostic> {
+        self.decode_diagnostics
     }
 
     fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], JwwError> {
@@ -127,5 +163,28 @@ mod tests {
         let data = [0];
         let mut reader = Reader::new(&data);
         assert_eq!(reader.read_cstring().unwrap(), "");
+    }
+
+    #[test]
+    fn read_cstring_reports_cp932_replacement_with_absolute_offset() {
+        let data = [1, 0x81];
+        let mut reader = Reader::with_base_offset(&data, 100);
+
+        assert_eq!(
+            reader
+                .read_cstring_with_context("entity.text.content")
+                .unwrap(),
+            char::REPLACEMENT_CHARACTER.to_string()
+        );
+
+        let diagnostics = reader.into_decode_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let diagnostic = &diagnostics[0];
+        assert_eq!(diagnostic.code, "CP932_DECODE_REPLACED");
+        assert_eq!(diagnostic.details.field, "entity.text.content");
+        assert_eq!(diagnostic.details.byte_offset, 101);
+        assert_eq!(diagnostic.details.byte_length, 1);
+        assert_eq!(diagnostic.details.replacement_characters, 1);
+        assert!(diagnostic.details.had_errors);
     }
 }

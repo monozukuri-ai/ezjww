@@ -130,6 +130,23 @@ class BlockReferenceValidation(TypedDict):
     has_unresolved: bool
 
 
+class DecodeDiagnosticDetails(TypedDict):
+    encoding: str
+    field: str
+    byte_offset: int
+    byte_length: int
+    replacement_characters: int
+    had_errors: bool
+
+
+class DecodeDiagnostic(TypedDict):
+    code: str
+    severity: str
+    message: str
+    action: str
+    details: DecodeDiagnosticDetails
+
+
 class JwwDocument(TypedDict):
     header: JwwHeader
     entities: list[JwwEntity]
@@ -137,6 +154,7 @@ class JwwDocument(TypedDict):
     block_def_names: dict[int, str]
     entity_counts: dict[str, int]
     validation: BlockReferenceValidation
+    diagnostics: list[DecodeDiagnostic]
 
 
 class DxfLayer(TypedDict):

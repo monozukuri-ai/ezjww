@@ -3,6 +3,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::diagnostics::DecodeDiagnostic;
 use crate::error::JwwError;
 use crate::reader::Reader;
 
@@ -39,6 +40,12 @@ pub fn is_jww_signature(data: &[u8]) -> bool {
 }
 
 pub fn parse_header(data: &[u8]) -> Result<JwwHeader, JwwError> {
+    parse_header_with_diagnostics(data).map(|(header, _)| header)
+}
+
+pub(crate) fn parse_header_with_diagnostics(
+    data: &[u8],
+) -> Result<(JwwHeader, Vec<DecodeDiagnostic>), JwwError> {
     if !is_jww_signature(data) {
         return Err(JwwError::InvalidSignature);
     }
@@ -47,7 +54,7 @@ pub fn parse_header(data: &[u8]) -> Result<JwwHeader, JwwError> {
     reader.skip(JWW_SIGNATURE.len())?;
 
     let version = reader.read_u32()?;
-    let memo = reader.read_cstring()?;
+    let memo = reader.read_cstring_with_context("header.memo")?;
     let paper_size = reader.read_u32()?;
     let write_layer_group = reader.read_u32()?;
 
@@ -69,19 +76,26 @@ pub fn parse_header(data: &[u8]) -> Result<JwwHeader, JwwError> {
 
     // Layer names and group names are stored later in the header block.
     // If this optional extraction fails, keep deterministic default names.
+    let diagnostic_checkpoint = reader.decode_diagnostic_count();
     if parse_layer_names(&mut reader, version, &mut layer_groups).is_err() {
+        // This section is optional and layout-dependent. Discard diagnostics
+        // collected while probing bytes that were not confirmed as names.
+        reader.truncate_decode_diagnostics(diagnostic_checkpoint);
         apply_default_layer_names(&mut layer_groups);
     } else {
         apply_default_layer_names_for_blanks(&mut layer_groups);
     }
 
-    Ok(JwwHeader {
-        version,
-        memo,
-        paper_size,
-        write_layer_group,
-        layer_groups,
-    })
+    Ok((
+        JwwHeader {
+            version,
+            memo,
+            paper_size,
+            write_layer_group,
+            layer_groups,
+        },
+        reader.into_decode_diagnostics(),
+    ))
 }
 
 fn parse_layer_names(
@@ -108,14 +122,16 @@ fn parse_layer_names(
     // memori origin x/y [16]
     reader.skip(16 + 8 + 4 + 4 + 8 + 16 + 16)?;
 
-    for group in layer_groups.iter_mut() {
-        for layer in group.layers.iter_mut() {
-            layer.name = reader.read_cstring()?;
+    for (group_index, group) in layer_groups.iter_mut().enumerate() {
+        for (layer_index, layer) in group.layers.iter_mut().enumerate() {
+            let field = format!("header.layer_groups[{group_index}].layers[{layer_index}].name");
+            layer.name = reader.read_cstring_with_context(&field)?;
         }
     }
 
-    for group in layer_groups.iter_mut() {
-        group.name = reader.read_cstring()?;
+    for (group_index, group) in layer_groups.iter_mut().enumerate() {
+        let field = format!("header.layer_groups[{group_index}].name");
+        group.name = reader.read_cstring_with_context(&field)?;
     }
 
     Ok(())

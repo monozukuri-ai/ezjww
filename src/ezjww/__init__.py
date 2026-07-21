@@ -10,6 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ezjww.diagnostics import (
+    ALL_ISSUE_CODES,
+    CP932_DECODE_REPLACED,
+    ISSUE_CODES,
+    UNRESOLVED_BLOCK_REFERENCES,
+    UNSUPPORTED_DXF_ENTITIES,
+    IssueCode,
+    issue_code_details,
+)
 from ezjww._core import (
     hello_from_bin,
     is_jww_file,
@@ -22,12 +31,16 @@ from ezjww._core import (
 from ezjww.plot import plot_dxf_document, plot_jww
 
 __all__ = [
+    "ALL_ISSUE_CODES",
     "Drawing",
+    "ISSUE_CODES",
+    "IssueCode",
     "Modelspace",
     "audit",
     "bbox",
     "hello_from_bin",
     "is_jww_file",
+    "issue_code_details",
     "new",
     "readfile",
     "read_header",
@@ -181,20 +194,70 @@ class Drawing:
         unresolved: list[int] = []
         total_refs = 0
         resolved_refs = 0
+        parser_diagnostics: list[dict[str, Any]] = []
         if self._jww_document is not None:
             validation = self._jww_document.get("validation", {})
             unresolved = list(validation.get("unresolved_def_numbers", []))
             total_refs = int(validation.get("total_references", 0))
             resolved_refs = int(validation.get("resolved_references", 0))
+            for value in self._jww_document.get("diagnostics", []):
+                if isinstance(value, dict):
+                    parser_diagnostics.append(dict(value))
 
-        warnings: list[str] = []
-        issue_codes: list[str] = []
+        diagnostics: list[dict[str, Any]] = []
         if unresolved:
-            warnings.append("unresolved block references detected")
-            issue_codes.append("UNRESOLVED_BLOCK_REFERENCES")
+            diagnostics.append(
+                _make_audit_diagnostic(
+                    UNRESOLVED_BLOCK_REFERENCES,
+                    "unresolved block references detected",
+                    {
+                        "count": len(unresolved),
+                        "unresolved_def_numbers": unresolved,
+                    },
+                )
+            )
         if unsupported:
-            warnings.append("unsupported entities exist for DXF conversion")
-            issue_codes.append("UNSUPPORTED_DXF_ENTITIES")
+            diagnostics.append(
+                _make_audit_diagnostic(
+                    UNSUPPORTED_DXF_ENTITIES,
+                    "unsupported entities exist for DXF conversion",
+                    {
+                        "count": len(unsupported),
+                        "entity_types": unsupported,
+                    },
+                )
+            )
+        diagnostics.extend(parser_diagnostics)
+
+        issue_codes: list[str] = []
+        for diagnostic in diagnostics:
+            code = diagnostic.get("code")
+            if isinstance(code, str) and code not in issue_codes:
+                issue_codes.append(code)
+
+        warnings = [
+            str(diagnostic.get("message", ""))
+            for diagnostic in diagnostics
+            if diagnostic.get("severity") in {"warning", "error"}
+            and diagnostic.get("message")
+        ]
+        decode_diagnostics = [
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.get("code") == CP932_DECODE_REPLACED
+        ]
+        decode_replacement_characters = 0
+        decode_affected_fields: list[str] = []
+        for diagnostic in decode_diagnostics:
+            details = diagnostic.get("details", {})
+            if not isinstance(details, dict):
+                continue
+            decode_replacement_characters += int(
+                details.get("replacement_characters", 0)
+            )
+            field = details.get("field")
+            if isinstance(field, str) and field not in decode_affected_fields:
+                decode_affected_fields.append(field)
 
         return {
             "source_path": self._source_path,
@@ -204,8 +267,15 @@ class Drawing:
             "unresolved_count": len(unresolved),
             "unsupported_entities": unsupported,
             "unsupported_count": len(unsupported),
+            "decode_error_count": len(decode_diagnostics),
+            "decode_replacement_characters": decode_replacement_characters,
+            "decode_affected_fields": decode_affected_fields,
+            "diagnostics": diagnostics,
             "issue_codes": issue_codes,
-            "has_issues": bool(unresolved or unsupported),
+            "has_issues": any(
+                diagnostic.get("severity") in {"warning", "error"}
+                for diagnostic in diagnostics
+            ),
             "warnings": warnings,
         }
 
@@ -313,6 +383,23 @@ def readfile(path: str | Path) -> Drawing:
 
 def new() -> Drawing:
     return Drawing.new()
+
+
+def _make_audit_diagnostic(
+    code: str,
+    message: str,
+    details: dict[str, Any],
+) -> dict[str, Any]:
+    definition = ISSUE_CODES[code]
+    diagnostic: dict[str, Any] = {
+        "code": code,
+        "severity": definition.severity,
+        "message": message,
+        "details": details,
+    }
+    if definition.action is not None:
+        diagnostic["action"] = definition.action
+    return diagnostic
 
 
 def audit(
@@ -935,6 +1022,11 @@ def _run(argv: list[str] | None = None) -> int:
             print(f"issue_codes: {result['issue_codes']}")
             print(f"unresolved_count: {result['unresolved_count']}")
             print(f"unsupported_count: {result['unsupported_count']}")
+            print(f"decode_error_count: {result.get('decode_error_count', 0)}")
+            print(
+                "decode_replacement_characters: "
+                f"{result.get('decode_replacement_characters', 0)}"
+            )
 
         if args.fail_on_issues and result["has_issues"]:
             return 3

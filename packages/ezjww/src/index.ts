@@ -127,6 +127,23 @@ export interface BlockReferenceValidation {
   has_unresolved: boolean;
 }
 
+export interface DecodeDiagnosticDetails {
+  encoding: "cp932";
+  field: string;
+  byte_offset: number;
+  byte_length: number;
+  replacement_characters: number;
+  had_errors: boolean;
+}
+
+export interface DecodeDiagnostic {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  action: string;
+  details: DecodeDiagnosticDetails;
+}
+
 export interface JwwDocument {
   header: JwwHeader;
   entities: JwwEntity[];
@@ -134,6 +151,7 @@ export interface JwwDocument {
   block_def_names: Record<string, string>;
   entity_counts: Record<string, number>;
   validation: BlockReferenceValidation;
+  diagnostics: DecodeDiagnostic[];
 }
 
 export interface DxfLayer {

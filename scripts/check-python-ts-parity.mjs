@@ -79,6 +79,7 @@ def summarize(path: Path):
         "dxf_sha256": sha256(read_dxf_string(source)),
         "entities": len(doc["entities"]),
         "entity_counts": sorted_map(doc["entity_counts"]),
+        "diagnostics": doc["diagnostics"],
         "header_version": int(doc["header"]["version"]),
         "validation": validation_summary(doc["validation"]),
     }
@@ -115,6 +116,7 @@ function typescriptSummary(path) {
     dxf_sha256: sha256(ezjww.readDxfString(data)),
     entities: doc.entities.length,
     entity_counts: sortedObject(doc.entity_counts),
+    diagnostics: doc.diagnostics,
     header_version: doc.header.version,
     validation: {
       has_unresolved: doc.validation.has_unresolved,

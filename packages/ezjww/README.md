@@ -8,8 +8,18 @@ import { readDocument, toDxfString } from "ezjww";
 
 const data = readFileSync("sample.jww");
 const document = readDocument(data);
+for (const diagnostic of document.diagnostics) {
+  console.log(diagnostic.code, diagnostic.details);
+}
 const dxf = toDxfString(data, { explodeInserts: true });
 ```
+
+`isJwwFile(data)` checks the exact eight-byte `JwwData.` signature at offset 0;
+it does not use a filename extension. `readDocument(data).diagnostics` reports
+structured CP932 replacement events, including absolute byte offsets.
+
+The repository documents the stable audit issue-code catalog in
+`docs/DIAGNOSTICS.md` and the signature contract in `docs/JWW_SIGNATURE.md`.
 
 ## Browser example
 

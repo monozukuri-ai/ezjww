@@ -5,7 +5,8 @@ The core parser/writer is implemented in Rust and exposed to Python with PyO3.
 
 ## Current Features
 
-- Validate and parse `.jww` files.
+- Validate and parse `.jww` files by their `JwwData.` binary signature.
+- Report structured CP932 replacement diagnostics with source byte offsets.
 - Read document/header data from Python.
 - Convert parsed JWW entities to DXF intermediate entities.
 - Write ASCII DXF files.
@@ -35,6 +36,7 @@ uv sync
 
 ```python
 from ezjww import (
+    ALL_ISSUE_CODES,
     audit,
     bbox,
     is_jww_file,
@@ -63,6 +65,11 @@ extents = drawing.bbox(explode_inserts=True)
 raw_dxf = drawing.to_dxf_string()
 dist = drawing.stats()
 health = drawing.audit()  # or: audit("sample.jww")
+for diagnostic in health["diagnostics"]:
+    print(diagnostic["code"], diagnostic["details"])
+
+# Stable machine-readable catalog for integrations and CI.
+assert set(health["issue_codes"]) <= set(ALL_ISSUE_CODES)
 full = report("sample.jww", explode_inserts=True)
 
 # expand INSERT references (nested block aware)
@@ -106,6 +113,15 @@ ezjww to-dxf-dir jww_samples -o /tmp/dxf_out -r
 # render with matplotlib
 ezjww plot jww_samples/Test1.jww -o /tmp/Test1.png --explode-inserts
 ```
+
+## Public contracts
+
+- [Audit issue code catalog and stability policy](docs/DIAGNOSTICS.md)
+- [JWW binary signature specification](docs/JWW_SIGNATURE.md)
+
+`is_jww_file(path)` checks file content, not the filename extension. A matching
+signature is only a lightweight format check; parsing still validates the
+remaining structure.
 
 ## Development
 

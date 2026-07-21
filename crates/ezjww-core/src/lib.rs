@@ -1,3 +1,4 @@
+pub mod diagnostics;
 pub mod dxf;
 pub mod error;
 pub mod header;
@@ -6,6 +7,7 @@ pub mod parser;
 pub mod reader;
 pub mod schema;
 
+pub use diagnostics::{DecodeDiagnostic, DecodeDiagnosticDetails, CP932_DECODE_REPLACED};
 pub use dxf::{
     convert_document, convert_document_with_options, document_to_string, write_document_to_file,
     ConvertOptions, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfEllipse, DxfEntity,
@@ -20,9 +22,11 @@ pub use model::{
     Dimension, Entity, EntityBase, JwwDocument, Line, Point, Solid, Text,
 };
 pub use parser::{
-    block_def_name_map, entity_counts, parse_document, read_document_from_file, resolve_block_name,
-    validate_block_references, BlockReferenceValidation,
+    block_def_name_map, entity_counts, parse_document, parse_document_with_diagnostics,
+    read_document_from_file, read_document_from_file_with_diagnostics, resolve_block_name,
+    validate_block_references, BlockReferenceValidation, ParsedJwwDocument,
 };
 pub use schema::{
-    jww_document_to_dto, BlockReferenceValidationDto, DxfDocumentDto, JwwDocumentDto,
+    jww_document_to_dto, jww_document_to_dto_with_diagnostics, BlockReferenceValidationDto,
+    DxfDocumentDto, JwwDocumentDto,
 };
