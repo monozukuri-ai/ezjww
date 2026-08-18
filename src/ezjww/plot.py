@@ -206,6 +206,20 @@ def _text_anchor(entity: dict[str, Any]) -> tuple[float, float, str, str]:
     return center_x, center_y, "center", "center"
 
 
+def _solid_traversal_points(entity: dict[str, Any]) -> list[tuple[float, float]]:
+    """Read a SOLID back in polygon traversal order.
+
+    DXF stores SOLID corners in "Z" order: groups 10/11/12/13 are the 1st, 2nd,
+    4th and 3rd corner, so the last two are swapped back here.
+    """
+    return [
+        (entity["x1"], entity["y1"]),
+        (entity["x2"], entity["y2"]),
+        (entity["x4"], entity["y4"]),
+        (entity["x3"], entity["y3"]),
+    ]
+
+
 def _normalize_polygon_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     if len(points) != 4 or not _polygon_points_cross(points):
         return points
@@ -432,14 +446,7 @@ def plot_dxf_document(
             if draw_text:
                 pending_text.append((entity, color))
         elif entity_type == "SOLID":
-            points = _normalize_polygon_points(
-                [
-                    (entity["x1"], entity["y1"]),
-                    (entity["x2"], entity["y2"]),
-                    (entity["x3"], entity["y3"]),
-                    (entity["x4"], entity["y4"]),
-                ]
-            )
+            points = _normalize_polygon_points(_solid_traversal_points(entity))
             patch = patches.Polygon(
                 points,
                 closed=True,

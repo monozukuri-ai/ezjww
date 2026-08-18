@@ -1423,10 +1423,19 @@ fn convert_solid(
     line_type: String,
     line_weight: i32,
 ) -> DxfSolid {
+    // Jw_cad numbers the corners 1/4/2/3 in the order it serializes them,
+    // so `Solid`'s fields are *not* in polygon traversal order.
+    // The order the coordinates appear in the file is: point1, point4, point2, point3
+    // -- and that is the traversal order.
+    // Feeding the fields verbatim makes every quadrilateral self-cross, leaving `order_solid_vertices` to guess.
     let points = order_solid_vertices([
         DxfVertex {
             x: solid.point1_x,
             y: solid.point1_y,
+        },
+        DxfVertex {
+            x: solid.point4_x,
+            y: solid.point4_y,
         },
         DxfVertex {
             x: solid.point2_x,
@@ -1436,12 +1445,11 @@ fn convert_solid(
             x: solid.point3_x,
             y: solid.point3_y,
         },
-        DxfVertex {
-            x: solid.point4_x,
-            y: solid.point4_y,
-        },
     ]);
 
+    // `points` is now in polygon traversal order, but DXF stores SOLID corners in "Z"
+    // order: groups 10/11/12/13 are the 1st, 2nd, *4th* and 3rd corner (the 4th is diagonally opposite the 1st).
+    // Writing the traversal order verbatim makes every SOLID render as a bowtie, so swap the last two.
     DxfSolid {
         layer,
         color,
@@ -1451,10 +1459,10 @@ fn convert_solid(
         y1: points[0].y,
         x2: points[1].x,
         y2: points[1].y,
-        x3: points[2].x,
-        y3: points[2].y,
-        x4: points[3].x,
-        y4: points[3].y,
+        x3: points[3].x,
+        y3: points[3].y,
+        x4: points[2].x,
+        y4: points[2].y,
     }
 }
 
@@ -1863,7 +1871,8 @@ mod tests {
 
     use super::{
         convert_document, convert_document_with_options, document_to_string, map_line_type,
-        solid_vertices_cross, ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfText, DxfVertex,
+        solid_vertices_cross, ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfSolid, DxfText,
+        DxfVertex,
     };
 
     fn empty_header() -> JwwHeader {
@@ -2033,8 +2042,33 @@ mod tests {
         }
     }
 
+    /// Reads DXF groups 10/11/12/13 back as the 1st, 2nd, 4th and 3rd corner,
+    /// which recovers the polygon traversal order.
+    fn solid_traversal(solid: &DxfSolid) -> [DxfVertex; 4] {
+        [
+            DxfVertex {
+                x: solid.x1,
+                y: solid.y1,
+            },
+            DxfVertex {
+                x: solid.x2,
+                y: solid.y2,
+            },
+            DxfVertex {
+                x: solid.x4,
+                y: solid.y4,
+            },
+            DxfVertex {
+                x: solid.x3,
+                y: solid.y3,
+            },
+        ]
+    }
+
     #[test]
-    fn convert_document_orders_crossed_solid_vertices() {
+    fn convert_document_writes_solid_in_dxf_z_order() {
+        // A well-formed Jw_cad solid: the file order point1 -> point4 -> point2 ->
+        // point3 walks the square counter-clockwise from the top-left corner.
         let base = EntityBase::default();
         let doc = JwwDocument {
             header: empty_header(),
@@ -2057,26 +2091,106 @@ mod tests {
         assert_eq!(dxf.entities.len(), 1);
         match &dxf.entities[0] {
             DxfEntity::Solid(solid) => {
-                let points = [
-                    DxfVertex {
-                        x: solid.x1,
-                        y: solid.y1,
-                    },
-                    DxfVertex {
-                        x: solid.x2,
-                        y: solid.y2,
-                    },
-                    DxfVertex {
-                        x: solid.x3,
-                        y: solid.y3,
-                    },
-                    DxfVertex {
-                        x: solid.x4,
-                        y: solid.y4,
-                    },
-                ];
-                assert!(!solid_vertices_cross(&points));
-                assert_eq!(points[0], DxfVertex { x: 0.0, y: 10.0 });
+                let traversal = solid_traversal(solid);
+                assert!(!solid_vertices_cross(&traversal));
+                assert_eq!(
+                    traversal,
+                    [
+                        DxfVertex { x: 0.0, y: 10.0 },
+                        DxfVertex { x: 0.0, y: 0.0 },
+                        DxfVertex { x: 10.0, y: 0.0 },
+                        DxfVertex { x: 10.0, y: 10.0 },
+                    ]
+                );
+                // Pin the raw groups too: 12 must hold the 4th corner and 13 the 3rd,
+                // so that this test fails if the writer stops emitting "Z" order.
+                assert_eq!((solid.x1, solid.y1), (0.0, 10.0));
+                assert_eq!((solid.x2, solid.y2), (0.0, 0.0));
+                assert_eq!((solid.x3, solid.y3), (10.0, 10.0));
+                assert_eq!((solid.x4, solid.y4), (10.0, 0.0));
+            }
+            other => panic!("expected SOLID, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_keeps_concave_solid_traversal() {
+        // A concave solid, traversed (0,0) -> (4,0) -> (1,1) -> (0,4) with the third corner denting inwards.
+        // Nothing self-crosses in either ordering,
+        // so `order_solid_vertices` stays out of the way and the field order is the only thing that decides the shape.
+        let base = EntityBase::default();
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Solid(Solid {
+                base,
+                point1_x: 0.0,
+                point1_y: 0.0,
+                point2_x: 1.0,
+                point2_y: 1.0,
+                point3_x: 0.0,
+                point3_y: 4.0,
+                point4_x: 4.0,
+                point4_y: 0.0,
+                color: None,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        assert_eq!(dxf.entities.len(), 1);
+        match &dxf.entities[0] {
+            DxfEntity::Solid(solid) => {
+                assert_eq!(
+                    solid_traversal(solid),
+                    [
+                        DxfVertex { x: 0.0, y: 0.0 },
+                        DxfVertex { x: 4.0, y: 0.0 },
+                        DxfVertex { x: 1.0, y: 1.0 },
+                        DxfVertex { x: 0.0, y: 4.0 },
+                    ]
+                );
+            }
+            other => panic!("expected SOLID, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_orders_crossed_solid_vertices() {
+        // Corners laid out so that even the file order self-crosses,
+        // forcing the `order_solid_vertices` fallback to repair the traversal.
+        let base = EntityBase::default();
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Solid(Solid {
+                base,
+                point1_x: 0.0,
+                point1_y: 10.0,
+                point2_x: 0.0,
+                point2_y: 0.0,
+                point3_x: 10.0,
+                point3_y: 10.0,
+                point4_x: 10.0,
+                point4_y: 0.0,
+                color: None,
+            })],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        assert_eq!(dxf.entities.len(), 1);
+        match &dxf.entities[0] {
+            DxfEntity::Solid(solid) => {
+                let traversal = solid_traversal(solid);
+                assert!(!solid_vertices_cross(&traversal));
+                assert_eq!(
+                    traversal,
+                    [
+                        DxfVertex { x: 0.0, y: 10.0 },
+                        DxfVertex { x: 0.0, y: 0.0 },
+                        DxfVertex { x: 10.0, y: 0.0 },
+                        DxfVertex { x: 10.0, y: 10.0 },
+                    ]
+                );
             }
             other => panic!("expected SOLID, got {:?}", other),
         }
