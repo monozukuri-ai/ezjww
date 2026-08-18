@@ -492,7 +492,7 @@ fn parse_block_def_list(
         return (Vec::new(), reader.into_decode_diagnostics());
     }
 
-    let mut block_defs = Vec::<BlockDef>::with_capacity(count as usize);
+    let mut block_defs = Vec::<BlockDef>::with_capacity(count);
     let mut class_map = HashMap::<u16, String>::new();
     let mut next_id = 1u16;
 
