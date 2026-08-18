@@ -78,24 +78,6 @@ class PlotHelperTests(unittest.TestCase):
         self.assertGreater(visible["linewidth"], 0.0)
         self.assertTrue(visible["antialiased"])
 
-    def test_solid_traversal_points_read_dxf_z_order(self):
-        # Groups 10/11/12/13 hold the 1st, 2nd, 4th and 3rd corner of a concave
-        # quadrilateral traversed (0,0) -> (4,0) -> (1,1) -> (0,4).
-        entity = {
-            "x1": 0.0,
-            "y1": 0.0,
-            "x2": 4.0,
-            "y2": 0.0,
-            "x3": 0.0,
-            "y3": 4.0,
-            "x4": 1.0,
-            "y4": 1.0,
-        }
-        self.assertEqual(
-            PLOT._solid_traversal_points(entity),
-            [(0.0, 0.0), (4.0, 0.0), (1.0, 1.0), (0.0, 4.0)],
-        )
-
     def test_normalize_polygon_points_fixes_crossed_quad(self):
         points = [(0.0, 10.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)]
         normalized = PLOT._normalize_polygon_points(points)

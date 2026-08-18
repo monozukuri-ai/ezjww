@@ -94,6 +94,14 @@ pub struct DxfText {
     pub style: String,
 }
 
+/// A filled quadrilateral.
+///
+/// The corners are kept in **polygon traversal order** (`1 -> 2 -> 3 -> 4`), *not* in the "Z" order DXF uses on the wire.
+/// The ASCII writer is the only place that knows about the wire order: it emits `x4/y4` as group 12 and `x3/y3` as group 13.
+///
+/// Traversal order is best effort rather than an invariant.
+/// `order_solid_vertices` only repairs an ordering it can prove self-crossing,
+/// so collinear or degenerate corners reach here in whatever order the JWW file had them.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfSolid {
     pub layer: String,
@@ -704,11 +712,13 @@ impl AsciiDxfWriter {
                 self.group_f64(11, v.x2);
                 self.group_f64(21, v.y2);
                 self.group_f64(31, 0.0);
-                self.group_f64(12, v.x3);
-                self.group_f64(22, v.y3);
+                // DXF stores SOLID corners in "Z" order: group 12 is the 4th corner, group 13 the 3rd.
+                // Writing traversal order verbatim would make a convex quadrilateral render as a bowtie.
+                self.group_f64(12, v.x4);
+                self.group_f64(22, v.y4);
                 self.group_f64(32, 0.0);
-                self.group_f64(13, v.x4);
-                self.group_f64(23, v.y4);
+                self.group_f64(13, v.x3);
+                self.group_f64(23, v.y3);
                 self.group_f64(33, 0.0);
             }
             DxfEntity::FilledPolygon(v) => {
@@ -1423,11 +1433,8 @@ fn convert_solid(
     line_type: String,
     line_weight: i32,
 ) -> DxfSolid {
-    // Jw_cad numbers the corners 1/4/2/3 in the order it serializes them,
-    // so `Solid`'s fields are *not* in polygon traversal order.
-    // The order the coordinates appear in the file is: point1, point4, point2, point3
-    // -- and that is the traversal order.
-    // Feeding the fields verbatim makes every quadrilateral self-cross, leaving `order_solid_vertices` to guess.
+    // Jw_cad writes the corners as `m_start, m_end, m_DPoint2, m_DPoint3` and that file order is the traversal order.
+    // `parse_solid` names them `point1, point4, point2, point3`, so the fields have to be reordered back here.
     let points = order_solid_vertices([
         DxfVertex {
             x: solid.point1_x,
@@ -1447,9 +1454,8 @@ fn convert_solid(
         },
     ]);
 
-    // `points` is now in polygon traversal order, but DXF stores SOLID corners in "Z"
-    // order: groups 10/11/12/13 are the 1st, 2nd, *4th* and 3rd corner (the 4th is diagonally opposite the 1st).
-    // Writing the traversal order verbatim makes every SOLID render as a bowtie, so swap the last two.
+    // `points` is in polygon traversal order, which is exactly how `DxfSolid` stores
+    // its corners. Translating that to the DXF "Z" order is the writer's job.
     DxfSolid {
         layer,
         color,
@@ -1459,10 +1465,10 @@ fn convert_solid(
         y1: points[0].y,
         x2: points[1].x,
         y2: points[1].y,
-        x3: points[3].x,
-        y3: points[3].y,
-        x4: points[2].x,
-        y4: points[2].y,
+        x3: points[2].x,
+        y3: points[2].y,
+        x4: points[3].x,
+        y4: points[3].y,
     }
 }
 
@@ -2042,8 +2048,7 @@ mod tests {
         }
     }
 
-    /// Reads DXF groups 10/11/12/13 back as the 1st, 2nd, 4th and 3rd corner,
-    /// which recovers the polygon traversal order.
+    /// `DxfSolid` stores its corners in polygon traversal order, so walking `x1..x4` is the traversal.
     fn solid_traversal(solid: &DxfSolid) -> [DxfVertex; 4] {
         [
             DxfVertex {
@@ -2055,20 +2060,24 @@ mod tests {
                 y: solid.y2,
             },
             DxfVertex {
-                x: solid.x4,
-                y: solid.y4,
-            },
-            DxfVertex {
                 x: solid.x3,
                 y: solid.y3,
+            },
+            DxfVertex {
+                x: solid.x4,
+                y: solid.y4,
             },
         ]
     }
 
     #[test]
-    fn convert_document_writes_solid_in_dxf_z_order() {
-        // A well-formed Jw_cad solid: the file order point1 -> point4 -> point2 ->
-        // point3 walks the square counter-clockwise from the top-left corner.
+    fn convert_document_orders_solid_by_jww_file_order() {
+        // A well-formed convex solid whose file order point1 -> point4 -> point2 -> point3 walks the corners clockwise from the top-left.
+        //
+        // The clockwise winding is what gives this test teeth.
+        // Feed the fields in　declaration order instead and the two diagonals become edges,
+        // so　`order_solid_vertices` kicks in -- and its angular sort always rebuilds a convex quad counter-clockwise.
+        // A counter-clockwise fixture would therefore come out identical either way and pin nothing.
         let base = EntityBase::default();
         let doc = JwwDocument {
             header: empty_header(),
@@ -2078,10 +2087,10 @@ mod tests {
                 point1_y: 10.0,
                 point2_x: 10.0,
                 point2_y: 0.0,
-                point3_x: 10.0,
-                point3_y: 10.0,
-                point4_x: 0.0,
-                point4_y: 0.0,
+                point3_x: 0.0,
+                point3_y: 0.0,
+                point4_x: 12.0,
+                point4_y: 10.0,
                 color: None,
             })],
             block_defs: vec![],
@@ -2097,17 +2106,11 @@ mod tests {
                     traversal,
                     [
                         DxfVertex { x: 0.0, y: 10.0 },
-                        DxfVertex { x: 0.0, y: 0.0 },
+                        DxfVertex { x: 12.0, y: 10.0 },
                         DxfVertex { x: 10.0, y: 0.0 },
-                        DxfVertex { x: 10.0, y: 10.0 },
+                        DxfVertex { x: 0.0, y: 0.0 },
                     ]
                 );
-                // Pin the raw groups too: 12 must hold the 4th corner and 13 the 3rd,
-                // so that this test fails if the writer stops emitting "Z" order.
-                assert_eq!((solid.x1, solid.y1), (0.0, 10.0));
-                assert_eq!((solid.x2, solid.y2), (0.0, 0.0));
-                assert_eq!((solid.x3, solid.y3), (10.0, 10.0));
-                assert_eq!((solid.x4, solid.y4), (10.0, 0.0));
             }
             other => panic!("expected SOLID, got {:?}", other),
         }
@@ -2547,6 +2550,70 @@ mod tests {
         assert!(out.contains("  2\nENTITIES\n"));
         assert!(out.contains("  0\nLINE\n"));
         assert!(out.ends_with("  0\nEOF\n"));
+    }
+
+    /// Pulls the corner group codes (10..13 / 20..23) of the first SOLID out of an ASCII DXF,
+    /// in the order they were emitted.
+    fn solid_corner_groups(out: &str) -> Vec<(i32, f64)> {
+        let lines: Vec<&str> = out.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim() == "SOLID")
+            .expect("no SOLID entity in output");
+        // Every group is exactly two lines (code, value),
+        // so chunking keeps alignment even across the string-valued groups we skip below.
+        lines[start + 1..]
+            .chunks(2)
+            .filter_map(|pair| match pair {
+                [code, value] => Some((code.trim().parse::<i32>().ok()?, value.trim())),
+                _ => None,
+            })
+            .take_while(|(code, _)| *code != 0)
+            .filter(|(code, _)| matches!(code, 10..=13 | 20..=23))
+            .filter_map(|(code, value)| Some((code, value.parse::<f64>().ok()?)))
+            .collect()
+    }
+
+    #[test]
+    fn document_to_string_writes_solid_corners_in_dxf_z_order() {
+        // `DxfSolid` holds the corners in traversal order, so the writer -- and only
+        // the writer -- has to emit the 4th corner as group 12 and the 3rd as 13.
+        let dxf = DxfDocument {
+            layers: vec![],
+            entities: vec![DxfEntity::Solid(DxfSolid {
+                layer: "0".to_string(),
+                color: 7,
+                line_type: "CONTINUOUS".to_string(),
+                line_weight: -3,
+                x1: 1.0,
+                y1: 1.0,
+                x2: 2.0,
+                y2: 1.0,
+                x3: 2.0,
+                y3: 2.0,
+                x4: 1.0,
+                y4: 2.0,
+            })],
+            blocks: vec![],
+            unsupported_entities: vec![],
+        };
+
+        let out = document_to_string(&dxf);
+
+        assert_eq!(
+            solid_corner_groups(&out),
+            vec![
+                (10, 1.0),
+                (20, 1.0),
+                (11, 2.0),
+                (21, 1.0),
+                // group 12 is vertex 4, group 13 is vertex 3
+                (12, 1.0),
+                (22, 2.0),
+                (13, 2.0),
+                (23, 2.0),
+            ]
+        );
     }
 
     #[test]
