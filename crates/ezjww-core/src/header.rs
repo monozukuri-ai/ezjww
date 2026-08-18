@@ -47,6 +47,14 @@ pub(crate) fn parse_header_with_diagnostics(
     data: &[u8],
 ) -> Result<(JwwHeader, Vec<DecodeDiagnostic>), JwwError> {
     if !is_jww_signature(data) {
+        let head = data
+            .iter()
+            .take(JWW_SIGNATURE.len())
+            .map(|&byte| byte as char)
+            .collect::<String>();
+        if head.len() == JWW_SIGNATURE.len() && head.chars().all(|c| (' '..='~').contains(&c)) {
+            return Err(JwwError::InvalidSignatureFound(head));
+        }
         return Err(JwwError::InvalidSignature);
     }
 
@@ -184,6 +192,8 @@ mod tests {
     #[test]
     fn invalid_signature_is_rejected() {
         let err = parse_header(b"NotJwwData").unwrap_err();
+        assert!(matches!(err, JwwError::InvalidSignatureFound(_)));
+        let err = parse_header(b"\x00\x01\x02\x03\x04\x05\x06\x07").unwrap_err();
         assert!(matches!(err, JwwError::InvalidSignature));
     }
 

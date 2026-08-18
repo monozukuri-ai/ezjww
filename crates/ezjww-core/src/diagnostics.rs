@@ -53,16 +53,40 @@ impl Diagnostic {
         byte_length: usize,
         replacement_characters: usize,
     ) -> Self {
+        Self::decode_replaced(
+            "cp932",
+            field,
+            byte_offset,
+            byte_length,
+            replacement_characters,
+        )
+    }
+
+    /// Undecodable bytes in a string were replaced with U+FFFD. The code stays
+    /// `CP932_DECODE_REPLACED` for every encoding (stable contract); the actual
+    /// encoding is in `details.encoding` (`cp932` or `utf-16le`).
+    pub(crate) fn decode_replaced(
+        encoding: &str,
+        field: impl Into<String>,
+        byte_offset: usize,
+        byte_length: usize,
+        replacement_characters: usize,
+    ) -> Self {
         let field = field.into();
+        let label = if encoding == "cp932" {
+            "CP932"
+        } else {
+            "UTF-16LE"
+        };
         Self {
             code: CP932_DECODE_REPLACED.to_string(),
             severity: "warning".to_string(),
             message: format!(
-                "CP932 decoding replaced {replacement_characters} undecodable character sequence(s) in {field}."
+                "{label} decoding replaced {replacement_characters} undecodable character sequence(s) in {field}."
             ),
             action: "normalized".to_string(),
             details: DiagnosticDetails::Decode(DecodeDiagnosticDetails {
-                encoding: "cp932".to_string(),
+                encoding: encoding.to_string(),
                 field,
                 byte_offset,
                 byte_length,

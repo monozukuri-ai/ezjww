@@ -7,6 +7,9 @@ The core parser/writer is implemented in Rust and exposed to Python with PyO3.
 
 - Validate and parse `.jww` files by their `JwwData.` binary signature.
 - Report structured CP932 replacement diagnostics with source byte offsets.
+- Read JWW files written by Jw_cad 8 (version 700, Unicode builds): CStrings with the
+  MFC `FF FE FF` marker are decoded as UTF-16LE, and block definitions (whose list
+  count is a WORD) are loaded.
 - Read damaged files best-effort: a main entity list that cannot be read to its end
   keeps the entities parsed so far and reports `ENTITY_LIST_TRUNCATED` (see
   `docs/DIAGNOSTICS.md`); MFC `CArchive` escaped counts (65535+ entities), NULL

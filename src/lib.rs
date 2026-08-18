@@ -139,10 +139,15 @@ fn to_py_err(err: JwwError) -> PyErr {
     match err {
         JwwError::Io(io) => PyIOError::new_err(io.to_string()),
         JwwError::InvalidSignature => PyValueError::new_err("invalid JWW signature"),
+        JwwError::InvalidSignatureFound(head) => PyValueError::new_err(format!(
+            "invalid JWW signature: file starts with {head:?}, not \"JwwData.\" (not a Jw_cad JWW file)"
+        )),
         JwwError::UnexpectedEof(ctx) => {
             PyValueError::new_err(format!("unexpected EOF while reading {ctx}"))
         }
-        JwwError::EntityListNotFound => PyValueError::new_err("entity list not found"),
+        JwwError::EntityListNotFound => PyValueError::new_err(
+            "entity list not found (empty drawing, or a JWW written by a tool other than Jw_cad)",
+        ),
         JwwError::UnknownClassPid(pid) => {
             PyValueError::new_err(format!("unknown class PID: {pid}"))
         }

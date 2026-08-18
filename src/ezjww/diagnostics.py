@@ -28,7 +28,8 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "warning",
         "normalized",
         "JWW parser",
-        "One or more undecodable CP932 byte sequences were replaced.",
+        "One or more undecodable byte sequences (CP932, or UTF-16LE for Unicode "
+        "strings) were replaced.",
     ),
     ENTITY_LIST_TRUNCATED: IssueCode(
         "error",

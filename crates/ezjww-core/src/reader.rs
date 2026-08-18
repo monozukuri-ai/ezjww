@@ -67,12 +67,30 @@ impl<'a> Reader<'a> {
     }
 
     pub fn read_cstring_with_context(&mut self, field: &str) -> Result<String, JwwError> {
+        // MFC `AfxReadStringLength`: BYTE length; 0xFF escapes to WORD; the WORD
+        // 0xFFFE is the Unicode marker (written as FF FE FF) after which the length
+        // is encoded again and the payload is UTF-16LE. Jw_cad's Unicode builds
+        // (JWW version 700 files) write every CString this way.
+        let mut unicode = false;
         let len_byte = self.read_u8()?;
         let len = if len_byte < 0xFF {
             len_byte as usize
         } else {
-            let word_len = self.read_u16()?;
-            if word_len < 0xFFFF {
+            let mut word_len = self.read_u16()?;
+            if word_len == 0xFFFE {
+                unicode = true;
+                let inner = self.read_u8()?;
+                if inner < 0xFF {
+                    inner as usize
+                } else {
+                    word_len = self.read_u16()?;
+                    if word_len < 0xFFFF {
+                        word_len as usize
+                    } else {
+                        self.read_u32()? as usize
+                    }
+                }
+            } else if word_len < 0xFFFF {
                 word_len as usize
             } else {
                 self.read_u32()? as usize
@@ -84,6 +102,26 @@ impl<'a> Reader<'a> {
         }
 
         let byte_offset = self.base_offset.saturating_add(self.bytes_read());
+        if unicode {
+            let byte_len = len
+                .checked_mul(2)
+                .ok_or(JwwError::UnexpectedEof("cstring length"))?;
+            let bytes = self.read_bytes(byte_len)?;
+            let (decoded, had_errors) = decode_utf16le(&bytes);
+            if had_errors {
+                let replacement_characters = decoded.matches(char::REPLACEMENT_CHARACTER).count();
+                self.decode_diagnostics
+                    .push(DecodeDiagnostic::decode_replaced(
+                        "utf-16le",
+                        field,
+                        byte_offset,
+                        byte_len,
+                        replacement_characters,
+                    ));
+            }
+            return Ok(decoded.trim_end_matches('\0').to_string());
+        }
+
         let bytes = self.read_bytes(len)?;
         let (decoded, _, had_errors) = SHIFT_JIS.decode(&bytes);
         if had_errors {
@@ -132,6 +170,24 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// Decode UTF-16LE code units, replacing unpaired surrogates with U+FFFD.
+fn decode_utf16le(bytes: &[u8]) -> (String, bool) {
+    let units = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect::<Vec<_>>();
+    let mut had_errors = !bytes.len().is_multiple_of(2);
+    let decoded = char::decode_utf16(units.iter().copied())
+        .map(|result| {
+            result.unwrap_or_else(|_| {
+                had_errors = true;
+                char::REPLACEMENT_CHARACTER
+            })
+        })
+        .collect::<String>();
+    (decoded, had_errors)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Reader;
@@ -163,6 +219,57 @@ mod tests {
         let data = [0];
         let mut reader = Reader::new(&data);
         assert_eq!(reader.read_cstring().unwrap(), "");
+    }
+
+    #[test]
+    fn read_cstring_unicode_marker_decodes_utf16le() {
+        // MFC AfxWriteStringLength(bUnicode=TRUE): FF FE FF, then BYTE length, then UTF-16LE.
+        let mut data = vec![0xFF, 0xFE, 0xFF, 3];
+        for unit in "図面A".encode_utf16() {
+            data.extend_from_slice(&unit.to_le_bytes());
+        }
+        let mut reader = Reader::new(&data);
+        assert_eq!(reader.read_cstring().unwrap(), "図面A");
+        assert_eq!(reader.bytes_read(), data.len());
+        assert!(reader.into_decode_diagnostics().is_empty());
+    }
+
+    #[test]
+    fn read_cstring_unicode_marker_with_word_length() {
+        let text = "x".repeat(300);
+        let mut data = vec![0xFF, 0xFE, 0xFF, 0xFF];
+        data.extend_from_slice(&300u16.to_le_bytes());
+        for unit in text.encode_utf16() {
+            data.extend_from_slice(&unit.to_le_bytes());
+        }
+        let mut reader = Reader::new(&data);
+        assert_eq!(reader.read_cstring().unwrap(), text);
+    }
+
+    #[test]
+    fn read_cstring_unicode_unpaired_surrogate_is_reported() {
+        let data = [0xFF, 0xFE, 0xFF, 1, 0x00, 0xD8]; // lone high surrogate
+        let mut reader = Reader::with_base_offset(&data, 10);
+        assert_eq!(
+            reader.read_cstring_with_context("header.memo").unwrap(),
+            char::REPLACEMENT_CHARACTER.to_string()
+        );
+        let diagnostics = reader.into_decode_diagnostics();
+        assert_eq!(diagnostics.len(), 1);
+        let details = diagnostics[0].decode_details().expect("decode details");
+        assert_eq!(details.encoding, "utf-16le");
+        assert_eq!(details.byte_offset, 14);
+        assert_eq!(details.byte_length, 2);
+    }
+
+    #[test]
+    fn read_cstring_ansi_word_length_still_works() {
+        let text = "y".repeat(300);
+        let mut data = vec![0xFF];
+        data.extend_from_slice(&300u16.to_le_bytes());
+        data.extend_from_slice(text.as_bytes());
+        let mut reader = Reader::new(&data);
+        assert_eq!(reader.read_cstring().unwrap(), text);
     }
 
     #[test]

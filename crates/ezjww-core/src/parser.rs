@@ -466,10 +466,27 @@ fn parse_block_def_list(
     base_offset: usize,
 ) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>) {
     let mut reader = Reader::with_base_offset(data, base_offset);
-    let count = match reader.read_u32() {
+    // The block definition list is a CObList too, so its count follows
+    // CArchive::ReadCount (WORD, 0xFFFF escape). Older writers of this crate's
+    // fixtures used a plain DWORD; accept that layout when the two bytes after a
+    // WORD count are zero and a class tag follows.
+    let count = match read_count(&mut reader) {
         Ok(v) => v,
         Err(_) => return (Vec::new(), reader.into_decode_diagnostics()),
     };
+    let plain_word_count = data.len() >= 6 && !(data[0] == 0xFF && data[1] == 0xFF);
+    if count > 0
+        && plain_word_count
+        && data[2] == 0
+        && data[3] == 0
+        && data[4] == 0xFF
+        && data[5] == 0xFF
+    {
+        // Legacy DWORD count layout: consume its high word.
+        if reader.skip(2).is_err() {
+            return (Vec::new(), reader.into_decode_diagnostics());
+        }
+    }
 
     if count > 10_000 {
         return (Vec::new(), reader.into_decode_diagnostics());
@@ -710,7 +727,10 @@ mod tests {
     #[test]
     fn invalid_signature_returns_error() {
         let err = super::parse_document(b"NotJwwData").unwrap_err();
-        assert!(matches!(err, JwwError::InvalidSignature));
+        assert!(matches!(
+            err,
+            JwwError::InvalidSignature | JwwError::InvalidSignatureFound(_)
+        ));
     }
 
     #[test]
@@ -1005,6 +1025,85 @@ mod tests {
             "{}",
             details.error
         );
+    }
+
+    #[test]
+    fn unicode_strings_and_word_block_count_as_written_by_jw_cad_8() {
+        // JWW version 700 written by a Unicode build: memo, text and block names use
+        // the FF FE FF marker; the block definition list count is a WORD.
+        let mut data = Vec::<u8>::new();
+        data.extend_from_slice(b"JwwData.");
+        data.extend_from_slice(&700u32.to_le_bytes());
+        data.extend_from_slice(&[0xFF, 0xFE, 0xFF, 2]); // memo "\r\n" as UTF-16LE
+        data.extend_from_slice(&[0x0D, 0x00, 0x0A, 0x00]);
+        data.extend_from_slice(&0u32.to_le_bytes()); // paper size
+        data.extend_from_slice(&0u32.to_le_bytes()); // write layer group
+        for _ in 0..16 {
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.extend_from_slice(&1.0f64.to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes());
+            for _ in 0..16 {
+                data.extend_from_slice(&0u32.to_le_bytes());
+                data.extend_from_slice(&0u32.to_le_bytes());
+            }
+        }
+        // entity list: 1 text + 1 block reference
+        data.extend_from_slice(&2u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataMoji");
+        append_entity_base(&mut data);
+        for value in [0.0f64, 0.0, 10.0, 0.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        data.extend_from_slice(&0u32.to_le_bytes()); // text_type
+        for value in [2.5f64, 2.5, 0.0, 0.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        data.extend_from_slice(&[0xFF, 0xFE, 0xFF, 0]); // font name: empty unicode string
+        data.extend_from_slice(&[0xFF, 0xFE, 0xFF, 2]); // content "図面"
+        for unit in "図面".encode_utf16() {
+            data.extend_from_slice(&unit.to_le_bytes());
+        }
+        append_new_class(&mut data, b"CDataBlock");
+        append_entity_base(&mut data);
+        for value in [0.0f64, 0.0, 1.0, 1.0, 0.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        data.extend_from_slice(&7u32.to_le_bytes()); // def_number
+                                                     // block definition list: WORD count, one CDataList with a unicode name
+        data.extend_from_slice(&1u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataList");
+        append_entity_base(&mut data);
+        data.extend_from_slice(&7u32.to_le_bytes()); // number
+        data.extend_from_slice(&1u32.to_le_bytes()); // is_referenced
+        data.extend_from_slice(&0u32.to_le_bytes()); // ctime
+        data.extend_from_slice(&[0xFF, 0xFE, 0xFF, 3]);
+        for unit in "BLK".encode_utf16() {
+            data.extend_from_slice(&unit.to_le_bytes());
+        }
+        data.extend_from_slice(&1u16.to_le_bytes()); // nested list: 1 line
+        append_new_class(&mut data, b"CDataSen");
+        append_line_payload(&mut data, 3.0);
+
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.document.header.memo, "\r\n");
+        assert_eq!(parsed.document.entities.len(), 2);
+        match &parsed.document.entities[0] {
+            Entity::Text(text) => assert_eq!(text.content, "図面"),
+            other => panic!("expected TEXT entity, got {:?}", other),
+        }
+        assert_eq!(parsed.document.block_defs.len(), 1);
+        assert_eq!(parsed.document.block_defs[0].name, "BLK");
+        assert_eq!(parsed.document.block_defs[0].entities.len(), 1);
+        let validation = validate_block_references(&parsed.document);
+        assert_eq!(validation.unresolved_def_numbers, Vec::<u32>::new());
+    }
+
+    #[test]
+    fn foreign_signature_is_named_in_the_error() {
+        let data = b"ho_cad(c) something".to_vec();
+        let err = parse_document_with_diagnostics(&data).unwrap_err();
+        assert!(err.to_string().contains("ho_cad(c"), "{err}");
     }
 
     fn build_minimal_jww_with_block_def() -> Vec<u8> {
