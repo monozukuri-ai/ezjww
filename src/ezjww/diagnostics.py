@@ -8,6 +8,7 @@ from typing import Any, Literal
 IssueSeverity = Literal["info", "warning", "error"]
 
 CP932_DECODE_REPLACED = "CP932_DECODE_REPLACED"
+ENTITY_LIST_TRUNCATED = "ENTITY_LIST_TRUNCATED"
 UNRESOLVED_BLOCK_REFERENCES = "UNRESOLVED_BLOCK_REFERENCES"
 UNSUPPORTED_DXF_ENTITIES = "UNSUPPORTED_DXF_ENTITIES"
 
@@ -28,6 +29,13 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "normalized",
         "JWW parser",
         "One or more undecodable CP932 byte sequences were replaced.",
+    ),
+    ENTITY_LIST_TRUNCATED: IssueCode(
+        "error",
+        "skipped",
+        "JWW parser",
+        "The main entity list could not be read to its end; entities parsed before "
+        "the error were kept and block definitions were not read.",
     ),
     UNRESOLVED_BLOCK_REFERENCES: IssueCode(
         "warning",

@@ -18,6 +18,7 @@ class DiagnosticsCatalogTests(unittest.TestCase):
     def test_catalog_is_sorted_unique_and_complete(self):
         expected = {
             "CP932_DECODE_REPLACED",
+            "ENTITY_LIST_TRUNCATED",
             "UNRESOLVED_BLOCK_REFERENCES",
             "UNSUPPORTED_DXF_ENTITIES",
         }

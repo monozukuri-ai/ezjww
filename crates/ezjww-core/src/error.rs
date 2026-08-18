@@ -9,6 +9,9 @@ pub enum JwwError {
     EntityListNotFound,
     UnknownClassPid(u32),
     UnknownEntityClass(String),
+    /// A serialized reference to an already-loaded object (MFC object tag), which the
+    /// entity list never contains in files written by Jw_cad.
+    UnsupportedObjectReference(u32),
 }
 
 impl Display for JwwError {
@@ -20,6 +23,9 @@ impl Display for JwwError {
             Self::EntityListNotFound => write!(f, "could not find entity list in file"),
             Self::UnknownClassPid(pid) => write!(f, "unknown class PID: {pid}"),
             Self::UnknownEntityClass(name) => write!(f, "unknown entity class: {name}"),
+            Self::UnsupportedObjectReference(tag) => {
+                write!(f, "unsupported object reference tag: {tag}")
+            }
         }
     }
 }

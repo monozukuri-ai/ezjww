@@ -136,12 +136,19 @@ export interface DecodeDiagnosticDetails {
   had_errors: boolean;
 }
 
+export interface TruncationDiagnosticDetails {
+  byte_offset: number;
+  expected_entities: number;
+  parsed_entities: number;
+  error: string;
+}
+
 export interface DecodeDiagnostic {
   code: string;
   severity: "info" | "warning" | "error";
   message: string;
   action: string;
-  details: DecodeDiagnosticDetails;
+  details: DecodeDiagnosticDetails | TruncationDiagnosticDetails;
 }
 
 export interface JwwDocument {

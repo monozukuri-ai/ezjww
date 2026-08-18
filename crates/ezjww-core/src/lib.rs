@@ -7,7 +7,10 @@ pub mod parser;
 pub mod reader;
 pub mod schema;
 
-pub use diagnostics::{DecodeDiagnostic, DecodeDiagnosticDetails, CP932_DECODE_REPLACED};
+pub use diagnostics::{
+    DecodeDiagnostic, DecodeDiagnosticDetails, Diagnostic, DiagnosticDetails,
+    TruncationDiagnosticDetails, CP932_DECODE_REPLACED, ENTITY_LIST_TRUNCATED,
+};
 pub use dxf::{
     convert_document, convert_document_with_options, document_to_string, write_document_to_file,
     ConvertOptions, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfEllipse, DxfEntity,

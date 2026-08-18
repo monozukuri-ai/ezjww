@@ -17,6 +17,7 @@ diagnostic instances with different byte offsets, fields, or entity types.
 | Code | Default severity | Action | Area | Emitted when |
 |---|---|---|---|---|
 | `CP932_DECODE_REPLACED` | warning | normalized | JWW parser | One or more undecodable CP932 byte sequences were replaced with U+FFFD while parsing a JWW string. |
+| `ENTITY_LIST_TRUNCATED` | error | skipped | JWW parser | The main entity list could not be read to its end (truncated upload, unknown record layout, corrupt tag). Entities parsed before the error are kept, block definitions behind the list are not read, and `details` carries `byte_offset`, `expected_entities`, `parsed_entities` and `error`. A list whose first entity already fails still raises. |
 | `UNRESOLVED_BLOCK_REFERENCES` | warning | - | JWW validation | One or more block references could not be resolved. |
 | `UNSUPPORTED_DXF_ENTITIES` | warning | skipped | DXF conversion | One or more parsed JWW entity kinds are unsupported by DXF conversion. |
 

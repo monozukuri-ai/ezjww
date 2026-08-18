@@ -13,6 +13,7 @@ from typing import Any
 from ezjww.diagnostics import (
     ALL_ISSUE_CODES,
     CP932_DECODE_REPLACED,
+    ENTITY_LIST_TRUNCATED,
     ISSUE_CODES,
     UNRESOLVED_BLOCK_REFERENCES,
     UNSUPPORTED_DXF_ENTITIES,
@@ -33,6 +34,7 @@ from ezjww.plot import plot_dxf_document, plot_jww
 __all__ = [
     "ALL_ISSUE_CODES",
     "Drawing",
+    "ENTITY_LIST_TRUNCATED",
     "ISSUE_CODES",
     "IssueCode",
     "Modelspace",

@@ -181,10 +181,11 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         let diagnostic = &diagnostics[0];
         assert_eq!(diagnostic.code, "CP932_DECODE_REPLACED");
-        assert_eq!(diagnostic.details.field, "entity.text.content");
-        assert_eq!(diagnostic.details.byte_offset, 101);
-        assert_eq!(diagnostic.details.byte_length, 1);
-        assert_eq!(diagnostic.details.replacement_characters, 1);
-        assert!(diagnostic.details.had_errors);
+        let details = diagnostic.decode_details().expect("decode details");
+        assert_eq!(details.field, "entity.text.content");
+        assert_eq!(details.byte_offset, 101);
+        assert_eq!(details.byte_length, 1);
+        assert_eq!(details.replacement_characters, 1);
+        assert!(details.had_errors);
     }
 }

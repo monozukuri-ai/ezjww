@@ -28,16 +28,38 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
     let entity_list_offset =
         find_entity_list_offset(data, header.version).ok_or(JwwError::EntityListNotFound)?;
     let mut reader = Reader::with_base_offset(&data[entity_list_offset..], entity_list_offset);
-    let entities = parse_entity_list(&mut reader, header.version)?;
-    let block_data_start = entity_list_offset + reader.bytes_read();
+    let outcome = parse_entity_list_lenient(&mut reader, header.version);
+    let stop_offset = entity_list_offset + reader.bytes_read();
     let entity_diagnostics = reader.into_decode_diagnostics();
-    let (block_defs, block_diagnostics) = if block_data_start < data.len() {
-        parse_block_def_list(&data[block_data_start..], header.version, block_data_start)
-    } else {
-        (Vec::new(), Vec::new())
-    };
     diagnostics.extend(entity_diagnostics);
-    diagnostics.extend(block_diagnostics);
+
+    let entities = outcome.entities;
+    let block_defs = match outcome.truncation {
+        None => {
+            let (block_defs, block_diagnostics) = if stop_offset < data.len() {
+                parse_block_def_list(&data[stop_offset..], header.version, stop_offset)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            diagnostics.extend(block_diagnostics);
+            block_defs
+        }
+        Some(truncation) => {
+            // Best effort: keep what was read when at least one entity survived,
+            // and report the truncation instead of failing the whole file. Block
+            // definitions cannot be located behind a truncated list.
+            if entities.is_empty() {
+                return Err(truncation.error);
+            }
+            diagnostics.push(DecodeDiagnostic::entity_list_truncated(
+                stop_offset,
+                truncation.expected_entities,
+                entities.len(),
+                truncation.error.to_string(),
+            ));
+            Vec::new()
+        }
+    };
 
     Ok(ParsedJwwDocument {
         document: JwwDocument {
@@ -85,7 +107,7 @@ fn find_entity_list_offset(data: &[u8], version: u32) -> Option<usize> {
             continue;
         }
 
-        let offset = i - 2;
+        let offset = entity_list_offset_before_class_tag(data, i);
         if schema == expected_schema {
             return Some(offset);
         }
@@ -97,23 +119,130 @@ fn find_entity_list_offset(data: &[u8], version: u32) -> Option<usize> {
     fallback_offset
 }
 
-fn parse_entity_list(reader: &mut Reader<'_>, version: u32) -> Result<Vec<Entity>, JwwError> {
-    let count = reader.read_u16()? as usize;
-    let mut entities = Vec::with_capacity(count);
+/// Offset of the entity list count preceding the first class tag at `class_tag`.
+///
+/// `CObList::Serialize` writes the count with `CArchive::WriteCount`: a WORD, or the
+/// escape WORD `0xFFFF` followed by a DWORD when the list holds 65535+ entities. In
+/// the escaped layout the two bytes right before the class tag are the high word of
+/// the DWORD count, so the plain "count is the WORD before the tag" rule would read a
+/// tiny count and silently drop almost the whole drawing.
+fn entity_list_offset_before_class_tag(data: &[u8], class_tag: usize) -> usize {
+    if class_tag >= 6 && data[class_tag - 6] == 0xFF && data[class_tag - 5] == 0xFF {
+        let dword = u32::from_le_bytes([
+            data[class_tag - 4],
+            data[class_tag - 3],
+            data[class_tag - 2],
+            data[class_tag - 1],
+        ]) as usize;
+        // Every entity is at least ~20 bytes; reject implausible escaped counts so a
+        // header field that happens to end in FF FF cannot hijack a small list.
+        if dword >= 0xFFFF && dword.saturating_mul(20) <= data.len() {
+            return class_tag - 6;
+        }
+    }
+    class_tag - 2
+}
+
+/// `CArchive::ReadCount`: a WORD count, escaped to a DWORD by `0xFFFF`.
+fn read_count(reader: &mut Reader<'_>) -> Result<usize, JwwError> {
+    let word = reader.read_u16()?;
+    if word != 0xFFFF {
+        return Ok(word as usize);
+    }
+    Ok(reader.read_u32()? as usize)
+}
+
+/// Serialized object tag as written by `CArchive::WriteObject`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObjectTag {
+    /// `0xFFFF`: a `CRuntimeClass` description follows, then the object.
+    NewClass,
+    /// `0x8000 | pid` (or the big-tag form): an object of an already-loaded class.
+    ClassRef(u32),
+    /// `0` (`wNullTag`), also `0x8000` as written by some third-party writers.
+    Null,
+    /// A reference to an already-loaded object (no class bit).
+    ObjectRef(u32),
+}
+
+fn read_object_tag(reader: &mut Reader<'_>) -> Result<ObjectTag, JwwError> {
+    let word = reader.read_u16()?;
+    if word == 0xFFFF {
+        return Ok(ObjectTag::NewClass);
+    }
+    // wBigObjectTag (0x7FFF): the real tag follows as a DWORD (class bit 0x8000_0000).
+    let tag: u32 = if word == 0x7FFF {
+        reader.read_u32()?
+    } else {
+        ((u32::from(word) & 0x8000) << 16) | (u32::from(word) & 0x7FFF)
+    };
+    if tag & 0x8000_0000 != 0 {
+        let pid = tag & 0x7FFF_FFFF;
+        if pid == 0 {
+            return Ok(ObjectTag::Null);
+        }
+        return Ok(ObjectTag::ClassRef(pid));
+    }
+    if tag == 0 {
+        return Ok(ObjectTag::Null);
+    }
+    Ok(ObjectTag::ObjectRef(tag))
+}
+
+/// Result of reading an entity list as far as the data allows.
+struct EntityListOutcome {
+    entities: Vec<Entity>,
+    truncation: Option<EntityListTruncation>,
+}
+
+struct EntityListTruncation {
+    expected_entities: usize,
+    error: JwwError,
+}
+
+fn parse_entity_list_lenient(reader: &mut Reader<'_>, version: u32) -> EntityListOutcome {
+    let count = match read_count(reader) {
+        Ok(count) => count,
+        Err(error) => {
+            return EntityListOutcome {
+                entities: Vec::new(),
+                truncation: Some(EntityListTruncation {
+                    expected_entities: 0,
+                    error,
+                }),
+            }
+        }
+    };
+    // A corrupt count must not drive a huge allocation up front.
+    let mut entities = Vec::with_capacity(count.min(1 << 16));
 
     let mut pid_to_class_name = HashMap::<u32, String>::new();
     let mut next_pid: u32 = 1;
 
     for _ in 0..count {
-        let (entity, new_pid) =
-            parse_entity_with_pid_tracking(reader, version, &mut pid_to_class_name, next_pid)?;
-        next_pid = new_pid;
-        if let Some(entity) = entity {
-            entities.push(entity);
+        match parse_entity_with_pid_tracking(reader, version, &mut pid_to_class_name, next_pid) {
+            Ok((entity, new_pid)) => {
+                next_pid = new_pid;
+                if let Some(entity) = entity {
+                    entities.push(entity);
+                }
+            }
+            Err(error) => {
+                return EntityListOutcome {
+                    entities,
+                    truncation: Some(EntityListTruncation {
+                        expected_entities: count,
+                        error,
+                    }),
+                }
+            }
         }
     }
 
-    Ok(entities)
+    EntityListOutcome {
+        entities,
+        truncation: None,
+    }
 }
 
 fn parse_entity_with_pid_tracking(
@@ -122,23 +251,21 @@ fn parse_entity_with_pid_tracking(
     pid_to_class_name: &mut HashMap<u32, String>,
     mut next_pid: u32,
 ) -> Result<(Option<Entity>, u32), JwwError> {
-    let class_id = reader.read_u16()?;
-
-    let class_name = if class_id == 0xFFFF {
-        let _schema_version = reader.read_u16()?;
-        let name_len = reader.read_u16()? as usize;
-        let name = String::from_utf8_lossy(&reader.read_bytes(name_len)?).to_string();
-        pid_to_class_name.insert(next_pid, name.clone());
-        next_pid += 1;
-        name
-    } else if class_id == 0x8000 {
-        return Ok((None, next_pid));
-    } else {
-        let class_pid = (class_id & 0x7FFF) as u32;
-        pid_to_class_name
+    let class_name = match read_object_tag(reader)? {
+        ObjectTag::NewClass => {
+            let _schema_version = reader.read_u16()?;
+            let name_len = reader.read_u16()? as usize;
+            let name = String::from_utf8_lossy(&reader.read_bytes(name_len)?).to_string();
+            pid_to_class_name.insert(next_pid, name.clone());
+            next_pid += 1;
+            name
+        }
+        ObjectTag::Null => return Ok((None, next_pid)),
+        ObjectTag::ClassRef(class_pid) => pid_to_class_name
             .get(&class_pid)
             .cloned()
-            .ok_or(JwwError::UnknownClassPid(class_pid))?
+            .ok_or(JwwError::UnknownClassPid(class_pid))?,
+        ObjectTag::ObjectRef(tag) => return Err(JwwError::UnsupportedObjectReference(tag)),
     };
 
     let entity = match class_name.as_str() {
@@ -373,15 +500,17 @@ fn parse_block_def_with_tracking(
     class_map: &mut HashMap<u16, String>,
     mut next_id: u16,
 ) -> Result<(Option<BlockDef>, u16), JwwError> {
-    let class_id = reader.read_u16()?;
-    if class_id == 0xFFFF {
-        let _schema = reader.read_u16()?;
-        let name_len = reader.read_u16()? as usize;
-        let class_name = String::from_utf8_lossy(&reader.read_bytes(name_len)?).to_string();
-        class_map.insert(next_id, class_name);
-        next_id = next_id.saturating_add(1);
-    } else if class_id == 0x8000 {
-        return Ok((None, next_id));
+    match read_object_tag(reader)? {
+        ObjectTag::NewClass => {
+            let _schema = reader.read_u16()?;
+            let name_len = reader.read_u16()? as usize;
+            let class_name = String::from_utf8_lossy(&reader.read_bytes(name_len)?).to_string();
+            class_map.insert(next_id, class_name);
+            next_id = next_id.saturating_add(1);
+        }
+        ObjectTag::Null => return Ok((None, next_id)),
+        ObjectTag::ClassRef(_) => {}
+        ObjectTag::ObjectRef(tag) => return Err(JwwError::UnsupportedObjectReference(tag)),
     }
 
     let base = parse_entity_base(reader, version)?;
@@ -390,7 +519,9 @@ fn parse_block_def_with_tracking(
     reader.skip(4)?; // CTime
     let name = reader.read_cstring_with_context("block_definition.name")?;
 
-    let entities = parse_entity_list(reader, version).unwrap_or_default();
+    // Keep whatever part of a damaged nested list could be read; the outer block
+    // definition loop stops at the next tag mismatch anyway.
+    let entities = parse_entity_list_lenient(reader, version).entities;
 
     Ok((
         Some(BlockDef {
@@ -681,12 +812,13 @@ mod tests {
         assert_eq!(diagnostic.code, "CP932_DECODE_REPLACED");
         assert_eq!(diagnostic.severity, "warning");
         assert_eq!(diagnostic.action, "normalized");
-        assert_eq!(diagnostic.details.encoding, "cp932");
-        assert_eq!(diagnostic.details.field, "entity.text.content");
-        assert_eq!(diagnostic.details.byte_offset, content_offset);
-        assert_eq!(diagnostic.details.byte_length, 4);
-        assert_eq!(diagnostic.details.replacement_characters, 1);
-        assert!(diagnostic.details.had_errors);
+        let details = diagnostic.decode_details().expect("decode details");
+        assert_eq!(details.encoding, "cp932");
+        assert_eq!(details.field, "entity.text.content");
+        assert_eq!(details.byte_offset, content_offset);
+        assert_eq!(details.byte_length, 4);
+        assert_eq!(details.replacement_characters, 1);
+        assert!(details.had_errors);
 
         match &parsed.document.entities[0] {
             Entity::Dimension(dim) => {
@@ -725,6 +857,154 @@ mod tests {
         assert_eq!(validation.resolved_references, 0);
         assert_eq!(validation.unresolved_def_numbers, vec![99]);
         assert!(validation.has_unresolved());
+    }
+
+    /// Header for a version-600 file with an empty memo and default layer tables.
+    fn minimal_header_600() -> Vec<u8> {
+        let mut data = Vec::<u8>::new();
+        data.extend_from_slice(b"JwwData.");
+        data.extend_from_slice(&600u32.to_le_bytes());
+        data.push(0); // memo
+        data.extend_from_slice(&0u32.to_le_bytes()); // paper size
+        data.extend_from_slice(&0u32.to_le_bytes()); // write layer group
+        for _ in 0..16 {
+            data.extend_from_slice(&0u32.to_le_bytes()); // state
+            data.extend_from_slice(&0u32.to_le_bytes()); // write layer
+            data.extend_from_slice(&1.0f64.to_le_bytes()); // scale
+            data.extend_from_slice(&0u32.to_le_bytes()); // protect
+            for _ in 0..16 {
+                data.extend_from_slice(&0u32.to_le_bytes()); // layer state
+                data.extend_from_slice(&0u32.to_le_bytes()); // layer protect
+            }
+        }
+        data
+    }
+
+    fn append_line_payload(data: &mut Vec<u8>, index: f64) {
+        append_entity_base(data);
+        data.extend_from_slice(&index.to_le_bytes()); // start_x
+        data.extend_from_slice(&0.0f64.to_le_bytes()); // start_y
+        data.extend_from_slice(&(index + 1.0).to_le_bytes()); // end_x
+        data.extend_from_slice(&1.0f64.to_le_bytes()); // end_y
+    }
+
+    fn append_new_class(data: &mut Vec<u8>, name: &[u8]) {
+        data.extend_from_slice(&0xFFFFu16.to_le_bytes());
+        data.extend_from_slice(&600u16.to_le_bytes());
+        data.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        data.extend_from_slice(name);
+    }
+
+    #[test]
+    fn parse_entity_list_with_escaped_dword_count() {
+        // CArchive::WriteCount escapes counts >= 0xFFFF as WORD 0xFFFF + DWORD.
+        let count = 70_000usize;
+        let mut data = minimal_header_600();
+        data.extend_from_slice(&0xFFFFu16.to_le_bytes());
+        data.extend_from_slice(&(count as u32).to_le_bytes());
+        append_new_class(&mut data, b"CDataSen");
+        append_line_payload(&mut data, 0.0);
+        for index in 1..count {
+            data.extend_from_slice(&(0x8000u16 | 1).to_le_bytes()); // class ref PID 1
+            append_line_payload(&mut data, index as f64);
+        }
+        data.extend_from_slice(&0u32.to_le_bytes()); // block def count
+
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        // The synthetic header has no layer-name section, so the heuristic header
+        // reader may emit CP932 notes; only the list itself matters here.
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != "ENTITY_LIST_TRUNCATED"));
+        assert_eq!(parsed.document.entities.len(), count);
+        match &parsed.document.entities[count - 1] {
+            Entity::Line(line) => assert_eq!(line.start_x, (count - 1) as f64),
+            other => panic!("expected LINE entity, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_entity_list_skips_null_tags_and_reads_big_object_tags() {
+        let mut data = minimal_header_600();
+        data.extend_from_slice(&3u16.to_le_bytes()); // count
+        append_new_class(&mut data, b"CDataSen"); // class PID 1, object PID 2
+        append_line_payload(&mut data, 0.0);
+        data.extend_from_slice(&0u16.to_le_bytes()); // wNullTag: NULL object
+        data.extend_from_slice(&0x7FFFu16.to_le_bytes()); // wBigObjectTag
+        data.extend_from_slice(&(0x8000_0000u32 | 1).to_le_bytes()); // class ref PID 1
+        append_line_payload(&mut data, 5.0);
+        data.extend_from_slice(&0u32.to_le_bytes()); // block def count
+
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.document.entities.len(), 2);
+        assert!(parsed.diagnostics.is_empty());
+        match &parsed.document.entities[1] {
+            Entity::Line(line) => assert_eq!(line.start_x, 5.0),
+            other => panic!("expected LINE entity, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn truncated_entity_list_keeps_parsed_entities_with_diagnostic() {
+        let mut data = minimal_header_600();
+        data.extend_from_slice(&3u16.to_le_bytes()); // announces 3 entities
+        append_new_class(&mut data, b"CDataSen");
+        append_line_payload(&mut data, 0.0);
+        data.extend_from_slice(&(0x8000u16 | 1).to_le_bytes());
+        append_line_payload(&mut data, 1.0);
+        data.extend_from_slice(&(0x8000u16 | 1).to_le_bytes());
+        append_entity_base(&mut data);
+        data.extend_from_slice(&2.0f64.to_le_bytes()); // file ends mid-entity
+
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.document.entities.len(), 2);
+        assert!(parsed.document.block_defs.is_empty());
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let diagnostic = &parsed.diagnostics[0];
+        assert_eq!(diagnostic.code, "ENTITY_LIST_TRUNCATED");
+        assert_eq!(diagnostic.severity, "error");
+        let details = diagnostic.truncation_details().expect("truncation details");
+        assert_eq!(details.expected_entities, 3);
+        assert_eq!(details.parsed_entities, 2);
+        assert_eq!(details.byte_offset, data.len());
+        assert!(
+            details.error.contains("unexpected EOF"),
+            "{}",
+            details.error
+        );
+    }
+
+    #[test]
+    fn truncated_entity_list_without_any_entity_is_an_error() {
+        let mut data = minimal_header_600();
+        data.extend_from_slice(&2u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataSen");
+        append_entity_base(&mut data); // no coordinates at all
+
+        let err = parse_document_with_diagnostics(&data).unwrap_err();
+        assert!(matches!(err, JwwError::UnexpectedEof(_)), "{err}");
+    }
+
+    #[test]
+    fn unknown_class_reference_after_valid_entities_is_reported_as_truncation() {
+        let mut data = minimal_header_600();
+        data.extend_from_slice(&2u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataSen");
+        append_line_payload(&mut data, 0.0);
+        data.extend_from_slice(&(0x8000u16 | 0x1000).to_le_bytes()); // desync: PID 4096
+        data.extend_from_slice(&[0u8; 64]);
+
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.document.entities.len(), 1);
+        let details = parsed.diagnostics[0]
+            .truncation_details()
+            .expect("truncation details");
+        assert!(
+            details.error.contains("unknown class PID: 4096"),
+            "{}",
+            details.error
+        );
     }
 
     fn build_minimal_jww_with_block_def() -> Vec<u8> {

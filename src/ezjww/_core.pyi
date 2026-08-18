@@ -139,12 +139,19 @@ class DecodeDiagnosticDetails(TypedDict):
     had_errors: bool
 
 
+class TruncationDiagnosticDetails(TypedDict):
+    byte_offset: int
+    expected_entities: int
+    parsed_entities: int
+    error: str
+
+
 class DecodeDiagnostic(TypedDict):
     code: str
     severity: str
     message: str
     action: str
-    details: DecodeDiagnosticDetails
+    details: DecodeDiagnosticDetails | TruncationDiagnosticDetails
 
 
 class JwwDocument(TypedDict):

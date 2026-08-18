@@ -7,6 +7,10 @@ The core parser/writer is implemented in Rust and exposed to Python with PyO3.
 
 - Validate and parse `.jww` files by their `JwwData.` binary signature.
 - Report structured CP932 replacement diagnostics with source byte offsets.
+- Read damaged files best-effort: a main entity list that cannot be read to its end
+  keeps the entities parsed so far and reports `ENTITY_LIST_TRUNCATED` (see
+  `docs/DIAGNOSTICS.md`); MFC `CArchive` escaped counts (65535+ entities), NULL
+  tags and big object tags are honoured.
 - Read document/header data from Python.
 - Convert parsed JWW entities to DXF intermediate entities.
 - Write ASCII DXF files.
