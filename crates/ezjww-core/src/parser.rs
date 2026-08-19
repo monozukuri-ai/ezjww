@@ -28,7 +28,8 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
     let entity_list_offset =
         find_entity_list_offset(data, header.version).ok_or(JwwError::EntityListNotFound)?;
     let mut reader = Reader::with_base_offset(&data[entity_list_offset..], entity_list_offset);
-    let outcome = parse_entity_list_lenient(&mut reader, header.version);
+    let mut table = ArchiveTable::new();
+    let outcome = parse_entity_list_lenient(&mut reader, header.version, &mut table);
     let stop_offset = entity_list_offset + reader.bytes_read();
     let entity_diagnostics = reader.into_decode_diagnostics();
     diagnostics.extend(entity_diagnostics);
@@ -37,7 +38,12 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
     let block_defs = match outcome.truncation {
         None => {
             let (block_defs, block_diagnostics) = if stop_offset < data.len() {
-                parse_block_def_list(&data[stop_offset..], header.version, stop_offset)
+                parse_block_def_list(
+                    &data[stop_offset..],
+                    header.version,
+                    stop_offset,
+                    &mut table,
+                )
             } else {
                 (Vec::new(), Vec::new())
             };
@@ -200,7 +206,65 @@ struct EntityListTruncation {
     error: JwwError,
 }
 
-fn parse_entity_list_lenient(reader: &mut Reader<'_>, version: u32) -> EntityListOutcome {
+/// A single, archive-wide table of class-schema and object back-references.
+///
+/// The on-disk format is one continuous MFC `CArchive` stream: the main
+/// entity list, the block-definition list, and every block's own nested
+/// entity list all share the *same* running index of "classes and objects
+/// seen so far". A class or object registered while reading the main list
+/// can legitimately be referenced again from inside a block, and a class
+/// registered inside one block can be referenced again from a later block.
+/// This table must therefore be threaded through the whole document parse
+/// instead of being recreated per list.
+struct ArchiveTable {
+    class_names: HashMap<u32, String>,
+    objects: HashMap<u32, Entity>,
+    next_pid: u32,
+}
+
+impl ArchiveTable {
+    fn new() -> Self {
+        Self {
+            class_names: HashMap::new(),
+            objects: HashMap::new(),
+            next_pid: 1,
+        }
+    }
+
+    /// Registers a newly-seen class name and returns the pid assigned to it.
+    fn register_class(&mut self, name: String) -> u32 {
+        let pid = self.next_pid;
+        self.class_names.insert(pid, name);
+        self.next_pid += 1;
+        pid
+    }
+
+    fn resolve_class(&self, pid: u32) -> Option<&str> {
+        self.class_names.get(&pid).map(String::as_str)
+    }
+
+    /// Reserves the pid slot an object occupies once fully read, regardless
+    /// of whether it was reached via a new class or a class reference.
+    fn reserve_object_pid(&mut self) -> u32 {
+        let pid = self.next_pid;
+        self.next_pid += 1;
+        pid
+    }
+
+    fn store_object(&mut self, pid: u32, entity: Entity) {
+        self.objects.insert(pid, entity);
+    }
+
+    fn resolve_object(&self, pid: u32) -> Option<&Entity> {
+        self.objects.get(&pid)
+    }
+}
+
+fn parse_entity_list_lenient(
+    reader: &mut Reader<'_>,
+    version: u32,
+    table: &mut ArchiveTable,
+) -> EntityListOutcome {
     let count = match read_count(reader) {
         Ok(count) => count,
         Err(error) => {
@@ -216,17 +280,10 @@ fn parse_entity_list_lenient(reader: &mut Reader<'_>, version: u32) -> EntityLis
     // A corrupt count must not drive a huge allocation up front.
     let mut entities = Vec::with_capacity(count.min(1 << 16));
 
-    let mut pid_to_class_name = HashMap::<u32, String>::new();
-    let mut next_pid: u32 = 1;
-
     for _ in 0..count {
-        match parse_entity_with_pid_tracking(reader, version, &mut pid_to_class_name, next_pid) {
-            Ok((entity, new_pid)) => {
-                next_pid = new_pid;
-                if let Some(entity) = entity {
-                    entities.push(entity);
-                }
-            }
+        match parse_entity_with_pid_tracking(reader, version, table) {
+            Ok(Some(entity)) => entities.push(entity),
+            Ok(None) => {}
             Err(error) => {
                 return EntityListOutcome {
                     entities,
@@ -248,24 +305,28 @@ fn parse_entity_list_lenient(reader: &mut Reader<'_>, version: u32) -> EntityLis
 fn parse_entity_with_pid_tracking(
     reader: &mut Reader<'_>,
     version: u32,
-    pid_to_class_name: &mut HashMap<u32, String>,
-    mut next_pid: u32,
-) -> Result<(Option<Entity>, u32), JwwError> {
+    table: &mut ArchiveTable,
+) -> Result<Option<Entity>, JwwError> {
     let class_name = match read_object_tag(reader)? {
         ObjectTag::NewClass => {
             let _schema_version = reader.read_u16()?;
             let name_len = reader.read_u16()? as usize;
             let name = String::from_utf8_lossy(&reader.read_bytes(name_len)?).to_string();
-            pid_to_class_name.insert(next_pid, name.clone());
-            next_pid += 1;
+            table.register_class(name.clone());
             name
         }
-        ObjectTag::Null => return Ok((None, next_pid)),
-        ObjectTag::ClassRef(class_pid) => pid_to_class_name
-            .get(&class_pid)
-            .cloned()
+        ObjectTag::Null => return Ok(None),
+        ObjectTag::ClassRef(class_pid) => table
+            .resolve_class(class_pid)
+            .map(str::to_string)
             .ok_or(JwwError::UnknownClassPid(class_pid))?,
-        ObjectTag::ObjectRef(tag) => return Err(JwwError::UnsupportedObjectReference(tag)),
+        ObjectTag::ObjectRef(tag) => {
+            return table
+                .resolve_object(tag)
+                .cloned()
+                .map(Some)
+                .ok_or(JwwError::UnsupportedObjectReference(tag));
+        }
     };
 
     let entity = match class_name.as_str() {
@@ -279,8 +340,11 @@ fn parse_entity_with_pid_tracking(
         _ => return Err(JwwError::UnknownEntityClass(class_name)),
     };
 
-    next_pid += 1;
-    Ok((entity, next_pid))
+    let pid = table.reserve_object_pid();
+    if let Some(entity) = &entity {
+        table.store_object(pid, entity.clone());
+    }
+    Ok(entity)
 }
 
 fn parse_entity_base(reader: &mut Reader<'_>, version: u32) -> Result<EntityBase, JwwError> {
@@ -464,6 +528,7 @@ fn parse_block_def_list(
     data: &[u8],
     version: u32,
     base_offset: usize,
+    table: &mut ArchiveTable,
 ) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>) {
     let mut reader = Reader::with_base_offset(data, base_offset);
     // The block definition list is a CObList too, so its count follows
@@ -493,18 +558,12 @@ fn parse_block_def_list(
     }
 
     let mut block_defs = Vec::<BlockDef>::with_capacity(count);
-    let mut class_map = HashMap::<u16, String>::new();
-    let mut next_id = 1u16;
 
     for _ in 0..count {
-        let parsed = parse_block_def_with_tracking(&mut reader, version, &mut class_map, next_id);
-        let (block_def, new_next_id) = match parsed {
-            Ok(v) => v,
+        match parse_block_def_with_tracking(&mut reader, version, table) {
+            Ok(Some(block_def)) => block_defs.push(block_def),
+            Ok(None) => {}
             Err(_) => break,
-        };
-        next_id = new_next_id;
-        if let Some(block_def) = block_def {
-            block_defs.push(block_def);
         }
     }
 
@@ -514,21 +573,29 @@ fn parse_block_def_list(
 fn parse_block_def_with_tracking(
     reader: &mut Reader<'_>,
     version: u32,
-    class_map: &mut HashMap<u16, String>,
-    mut next_id: u16,
-) -> Result<(Option<BlockDef>, u16), JwwError> {
+    table: &mut ArchiveTable,
+) -> Result<Option<BlockDef>, JwwError> {
     match read_object_tag(reader)? {
         ObjectTag::NewClass => {
             let _schema = reader.read_u16()?;
             let name_len = reader.read_u16()? as usize;
             let class_name = String::from_utf8_lossy(&reader.read_bytes(name_len)?).to_string();
-            class_map.insert(next_id, class_name);
-            next_id = next_id.saturating_add(1);
+            table.register_class(class_name);
         }
-        ObjectTag::Null => return Ok((None, next_id)),
+        ObjectTag::Null => return Ok(None),
+        // The wrapper class name (e.g. "CDataList") is never actually needed
+        // to know which fields follow, so a reference to it is accepted
+        // without a strict lookup, same as before this table was unified.
         ObjectTag::ClassRef(_) => {}
         ObjectTag::ObjectRef(tag) => return Err(JwwError::UnsupportedObjectReference(tag)),
     }
+
+    // The block-definition object's own identity is established here, the
+    // moment its class is known -- *before* its nested entity list (which
+    // can itself register further classes/objects) is read. This mirrors
+    // real CArchive::ReadObject, which reserves the new object's slot
+    // before calling into its Serialize body.
+    table.reserve_object_pid();
 
     let base = parse_entity_base(reader, version)?;
     let number = reader.read_u32()?;
@@ -538,18 +605,15 @@ fn parse_block_def_with_tracking(
 
     // Keep whatever part of a damaged nested list could be read; the outer block
     // definition loop stops at the next tag mismatch anyway.
-    let entities = parse_entity_list_lenient(reader, version).entities;
+    let entities = parse_entity_list_lenient(reader, version, table).entities;
 
-    Ok((
-        Some(BlockDef {
-            base,
-            number,
-            is_referenced,
-            name,
-            entities,
-        }),
-        next_id,
-    ))
+    Ok(Some(BlockDef {
+        base,
+        number,
+        is_referenced,
+        name,
+        entities,
+    }))
 }
 
 pub fn entity_counts(entities: &[Entity]) -> HashMap<&'static str, usize> {
@@ -638,6 +702,10 @@ mod tests {
 
     fn jww_samples_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
+    }
+
+    fn block_regression_samples_dir() -> PathBuf {
+        jww_samples_dir().join("block_regressions")
     }
 
     #[test]
@@ -756,6 +824,67 @@ mod tests {
         assert_eq!(validation.resolved_references, 1);
         assert!(validation.unresolved_def_numbers.is_empty());
         assert!(!validation.has_unresolved());
+    }
+
+    // Regression coverage for the archive-wide class/object table.
+    //
+    // Before that table was shared across the main entity list, the
+    // block-definition list, and each block's own nested entity list, a
+    // class registered in one of those scopes could not be resolved when
+    // referenced again from another scope. In real Jw_cad files this
+    // showed up as blocks (furniture, door/window symbols, ...) silently
+    // losing all but their first entity, with no error surfaced to the
+    // caller. These three fixtures were produced directly in Jw_cad (not
+    // hand-built) to isolate each scope-crossing pattern individually.
+
+    #[test]
+    fn parse_block_def_reuses_class_registered_in_main_entity_list() {
+        // out1_in2.jww: one LINE drawn outside any block, then a block
+        // containing two more LINEs. The block's first LINE must resolve
+        // "CDataSen" via a class reference into the main list's table
+        // instead of failing as an unknown class pid.
+        let path = block_regression_samples_dir().join("out1_in2.jww");
+        let doc = read_document_from_file(&path).unwrap();
+
+        assert_eq!(doc.block_defs.len(), 1);
+        assert_eq!(doc.block_defs[0].entities.len(), 2);
+        for entity in &doc.block_defs[0].entities {
+            assert!(matches!(entity, Entity::Line(_)));
+        }
+    }
+
+    #[test]
+    fn parse_block_def_resolves_repeated_entity_classes_within_one_block() {
+        // sqr-circle-blocks.jww: a single block containing a 4-line square
+        // plus a circle drawn separately at the top level. Every one of the
+        // square's later edges references the same "CDataSen" class as its
+        // first edge; all five entities inside the block must be recovered.
+        let path = block_regression_samples_dir().join("sqr-circle-blocks.jww");
+        let doc = read_document_from_file(&path).unwrap();
+
+        assert_eq!(doc.block_defs.len(), 1);
+        assert_eq!(doc.block_defs[0].entities.len(), 5);
+
+        let line_count = doc.block_defs[0]
+            .entities
+            .iter()
+            .filter(|e| matches!(e, Entity::Line(_)))
+            .count();
+        assert_eq!(line_count, 4);
+    }
+
+    #[test]
+    fn parse_multiple_block_defs_each_with_multiple_entities() {
+        // 2blocks.jww: two separate blocks, one with two LINEs and one with
+        // two CIRCLEs. Before the fix, a failure while reading the first
+        // block's second entity aborted the whole block-definition list, so
+        // the second block was never even attempted.
+        let path = block_regression_samples_dir().join("2blocks.jww");
+        let doc = read_document_from_file(&path).unwrap();
+
+        assert_eq!(doc.block_defs.len(), 2);
+        assert_eq!(doc.block_defs[0].entities.len(), 2);
+        assert_eq!(doc.block_defs[1].entities.len(), 2);
     }
 
     #[test]
