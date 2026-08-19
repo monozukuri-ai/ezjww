@@ -206,19 +206,19 @@ struct EntityListTruncation {
     error: JwwError,
 }
 
-/// A single, archive-wide table of class-schema and object back-references.
+/// A single, archive-wide table of class-schema references and PID allocation.
 ///
 /// The on-disk format is one continuous MFC `CArchive` stream: the main
 /// entity list, the block-definition list, and every block's own nested
 /// entity list all share the *same* running index of "classes and objects
-/// seen so far". A class or object registered while reading the main list
-/// can legitimately be referenced again from inside a block, and a class
+/// seen so far". A class registered while reading the main list can
+/// legitimately be referenced again from inside a block, and a class
 /// registered inside one block can be referenced again from a later block.
-/// This table must therefore be threaded through the whole document parse
-/// instead of being recreated per list.
+/// Class and object PIDs must therefore be allocated through one table
+/// threaded through the whole document parse instead of being recreated per
+/// list.
 struct ArchiveTable {
     class_names: HashMap<u32, String>,
-    objects: HashMap<u32, Entity>,
     next_pid: u32,
 }
 
@@ -226,7 +226,6 @@ impl ArchiveTable {
     fn new() -> Self {
         Self {
             class_names: HashMap::new(),
-            objects: HashMap::new(),
             next_pid: 1,
         }
     }
@@ -249,14 +248,6 @@ impl ArchiveTable {
         let pid = self.next_pid;
         self.next_pid += 1;
         pid
-    }
-
-    fn store_object(&mut self, pid: u32, entity: Entity) {
-        self.objects.insert(pid, entity);
-    }
-
-    fn resolve_object(&self, pid: u32) -> Option<&Entity> {
-        self.objects.get(&pid)
     }
 }
 
@@ -320,13 +311,7 @@ fn parse_entity_with_pid_tracking(
             .resolve_class(class_pid)
             .map(str::to_string)
             .ok_or(JwwError::UnknownClassPid(class_pid))?,
-        ObjectTag::ObjectRef(tag) => {
-            return table
-                .resolve_object(tag)
-                .cloned()
-                .map(Some)
-                .ok_or(JwwError::UnsupportedObjectReference(tag));
-        }
+        ObjectTag::ObjectRef(tag) => return Err(JwwError::UnsupportedObjectReference(tag)),
     };
 
     let entity = match class_name.as_str() {
@@ -340,10 +325,7 @@ fn parse_entity_with_pid_tracking(
         _ => return Err(JwwError::UnknownEntityClass(class_name)),
     };
 
-    let pid = table.reserve_object_pid();
-    if let Some(entity) = &entity {
-        table.store_object(pid, entity.clone());
-    }
+    table.reserve_object_pid();
     Ok(entity)
 }
 
@@ -826,7 +808,7 @@ mod tests {
         assert!(!validation.has_unresolved());
     }
 
-    // Regression coverage for the archive-wide class/object table.
+    // Regression coverage for the archive-wide class/PID table.
     //
     // Before that table was shared across the main entity list, the
     // block-definition list, and each block's own nested entity list, a
@@ -834,8 +816,49 @@ mod tests {
     // referenced again from another scope. In real Jw_cad files this
     // showed up as blocks (furniture, door/window symbols, ...) silently
     // losing all but their first entity, with no error surfaced to the
-    // caller. These three fixtures were produced directly in Jw_cad (not
+    // caller. These seven fixtures were produced directly in Jw_cad (not
     // hand-built) to isolate each scope-crossing pattern individually.
+
+    #[test]
+    fn parse_all_block_regression_fixtures_with_expected_counts() {
+        let cases: &[(&str, usize, &[usize])] = &[
+            ("non_block.jww", 12, &[]),
+            ("2-circles-blocks.jww", 11, &[2]),
+            ("2blocks.jww", 8, &[2, 2]),
+            ("3blocks.jww", 7, &[6]),
+            ("copy-block.jww", 7, &[8]),
+            ("out1_in2.jww", 8, &[2]),
+            ("sqr-circle-blocks.jww", 8, &[5]),
+        ];
+
+        for &(file_name, expected_entities, expected_block_sizes) in cases {
+            let path = block_regression_samples_dir().join(file_name);
+            let doc = read_document_from_file(&path)
+                .unwrap_or_else(|error| panic!("failed parsing {file_name}: {error}"));
+
+            assert_eq!(
+                doc.entities.len(),
+                expected_entities,
+                "unexpected top-level entity count in {file_name}"
+            );
+            let block_sizes = doc
+                .block_defs
+                .iter()
+                .map(|block_def| block_def.entities.len())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                block_sizes, expected_block_sizes,
+                "unexpected block entity counts in {file_name}"
+            );
+
+            let validation = validate_block_references(&doc);
+            assert!(
+                !validation.has_unresolved(),
+                "unresolved block references in {file_name}: {:?}",
+                validation.unresolved_def_numbers
+            );
+        }
+    }
 
     #[test]
     fn parse_block_def_reuses_class_registered_in_main_entity_list() {
