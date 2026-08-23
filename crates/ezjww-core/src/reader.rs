@@ -173,8 +173,10 @@ impl<'a> Reader<'a> {
 /// Decode UTF-16LE code units, replacing unpaired surrogates with U+FFFD.
 fn decode_utf16le(bytes: &[u8]) -> (String, bool) {
     let units = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect::<Vec<_>>();
     let mut had_errors = !bytes.len().is_multiple_of(2);
     let decoded = char::decode_utf16(units.iter().copied())
