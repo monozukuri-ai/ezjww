@@ -154,6 +154,24 @@ class DecodeDiagnostic(TypedDict):
     details: DecodeDiagnosticDetails | TruncationDiagnosticDetails
 
 
+class DxfWriteReport(TypedDict):
+    target_version: str
+    source_version: int
+    source_entities: int
+    source_entity_counts: dict[str, int]
+    source_block_definitions: int
+    source_block_entities: int
+    all_source_entity_counts: dict[str, int]
+    converted_entities: int
+    converted_block_entities: int
+    converted_entity_counts: dict[str, int]
+    unsupported_entity_counts: dict[str, int]
+    normalized_layer_names: int
+    normalized_block_names: int
+    diagnostics: list[DecodeDiagnostic]
+    validation: BlockReferenceValidation
+
+
 class JwwDocument(TypedDict):
     header: JwwHeader
     entities: list[JwwEntity]
@@ -242,10 +260,19 @@ def read_dxf_string(
     path: str,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    target_version: str = "AC1015",
 ) -> str: ...
 def write_dxf(
     path: str,
     output_path: str,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    target_version: str = "AC1015",
 ) -> None: ...
+def write_dxf_with_report(
+    path: str,
+    output_path: str,
+    explode_inserts: bool = False,
+    max_block_nesting: int = 32,
+    target_version: str = "AC1015",
+) -> DxfWriteReport: ...

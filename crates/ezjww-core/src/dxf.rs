@@ -254,6 +254,22 @@ pub struct DxfDocument {
     pub unsupported_entities: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum DxfTargetVersion {
+    #[default]
+    Ac1015,
+    Ac1024,
+}
+
+impl DxfTargetVersion {
+    pub const fn acad_version(self) -> &'static str {
+        match self {
+            Self::Ac1015 => "AC1015",
+            Self::Ac1024 => "AC1024",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ConvertOptions {
     pub explode_inserts: bool,
@@ -274,7 +290,8 @@ pub fn convert_document(doc: &JwwDocument) -> DxfDocument {
 }
 
 pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions) -> DxfDocument {
-    let layers = convert_layers(doc);
+    let layer_name_map = layer_name_map(doc);
+    let layers = convert_layers(doc, &layer_name_map);
     let block_name_map = block_name_map(doc);
     let block_defs = block_defs_by_number(&doc.block_defs);
 
@@ -282,7 +299,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
     let entities = if options.explode_inserts {
         let mut expanding_stack = Vec::new();
         let mut context = ExplodeContext {
-            doc,
+            layer_names: &layer_name_map,
             block_name_map: &block_name_map,
             block_defs: &block_defs,
             unsupported_entities: &mut unsupported_entities,
@@ -296,8 +313,8 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
         )
     } else {
         convert_entities(
-            doc,
             &doc.entities,
+            &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
         )
@@ -305,7 +322,12 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
     let blocks = if options.explode_inserts {
         Vec::new()
     } else {
-        convert_blocks(doc, &block_name_map, &mut unsupported_entities)
+        convert_blocks(
+            doc,
+            &layer_name_map,
+            &block_name_map,
+            &mut unsupported_entities,
+        )
     };
 
     DxfDocument {
@@ -317,27 +339,44 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
 }
 
 pub fn document_to_string(doc: &DxfDocument) -> String {
-    let mut writer = AsciiDxfWriter::new();
+    document_to_string_with_version(doc, DxfTargetVersion::default())
+}
+
+pub fn document_to_string_with_version(
+    doc: &DxfDocument,
+    target_version: DxfTargetVersion,
+) -> String {
+    let mut writer = AsciiDxfWriter::new(target_version);
     writer.write_document(doc);
     writer.finish()
 }
 
 pub fn write_document_to_file(doc: &DxfDocument, path: impl AsRef<Path>) -> io::Result<()> {
-    let data = document_to_string(doc);
+    write_document_to_file_with_version(doc, path, DxfTargetVersion::default())
+}
+
+pub fn write_document_to_file_with_version(
+    doc: &DxfDocument,
+    path: impl AsRef<Path>,
+    target_version: DxfTargetVersion,
+) -> io::Result<()> {
+    let data = document_to_string_with_version(doc, target_version);
     fs::write(path, data)
 }
 
 struct AsciiDxfWriter {
     out: String,
+    target_version: DxfTargetVersion,
     next_handle: u32,
     block_record_order: Vec<String>,
     block_record_handles: BTreeMap<String, String>,
 }
 
 impl AsciiDxfWriter {
-    fn new() -> Self {
+    fn new(target_version: DxfTargetVersion) -> Self {
         Self {
             out: String::with_capacity(16 * 1024),
+            target_version,
             next_handle: 1,
             block_record_order: Vec::new(),
             block_record_handles: BTreeMap::new(),
@@ -361,7 +400,12 @@ impl AsciiDxfWriter {
     fn write_header(&mut self) {
         self.section_start("HEADER");
         self.group_str(9, "$ACADVER");
-        self.group_str(1, "AC1015");
+        self.group_str(1, self.target_version.acad_version());
+        // Readers create handles for implicit SEQEND records (for example after
+        // INSERT entities). Keep their generated range above every handle this
+        // writer can practically allocate so those records never collide.
+        self.group_str(9, "$HANDSEED");
+        self.group_str(5, "FFFFFFFF");
         self.group_str(9, "$DWGCODEPAGE");
         self.group_str(3, "ANSI_1252");
         self.group_str(9, "$MEASUREMENT");
@@ -965,7 +1009,7 @@ impl Transform2D {
 }
 
 struct ExplodeContext<'a> {
-    doc: &'a JwwDocument,
+    layer_names: &'a HashMap<(u16, u16), String>,
     block_name_map: &'a HashMap<u32, String>,
     block_defs: &'a HashMap<u32, &'a BlockDef>,
     unsupported_entities: &'a mut Vec<String>,
@@ -1013,7 +1057,7 @@ fn convert_entities_exploded(
                 expanding_stack.pop();
                 out.extend(expanded);
             }
-            _ => match convert_entity(context.doc, entity, context.block_name_map) {
+            _ => match convert_entity(entity, context.layer_names, context.block_name_map) {
                 Some(converted) => {
                     for dxf_entity in converted {
                         out.extend(transform_entity_for_explode(&dxf_entity, transform));
@@ -1274,16 +1318,15 @@ fn nearly_equal(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
 }
 
-fn convert_layers(doc: &JwwDocument) -> Vec<DxfLayer> {
+fn convert_layers(doc: &JwwDocument, layer_names: &HashMap<(u16, u16), String>) -> Vec<DxfLayer> {
     let mut layers = Vec::<DxfLayer>::with_capacity(16 * 16);
     for g in 0..16 {
         for l in 0..16 {
             let layer = &doc.header.layer_groups[g].layers[l];
-            let name = if layer.name.is_empty() {
-                format!("{:X}-{:X}", g, l)
-            } else {
-                layer.name.clone()
-            };
+            let name = layer_names
+                .get(&(g as u16, l as u16))
+                .cloned()
+                .unwrap_or_else(|| format!("{g:X}-{l:X}"));
             layers.push(DxfLayer {
                 name,
                 color: ((g * 16 + l) % 255 + 1) as i32,
@@ -1298,15 +1341,19 @@ fn convert_layers(doc: &JwwDocument) -> Vec<DxfLayer> {
 
 fn convert_blocks(
     doc: &JwwDocument,
+    layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
 ) -> Vec<DxfBlock> {
     let mut blocks = Vec::<DxfBlock>::with_capacity(doc.block_defs.len());
     for block_def in &doc.block_defs {
-        let name = block_def_name(block_def.number, &block_def.name);
+        let name = block_name_map
+            .get(&block_def.number)
+            .cloned()
+            .unwrap_or_else(|| format!("BLOCK_{}", block_def.number));
         let entities = convert_entities(
-            doc,
             &block_def.entities,
+            layer_names,
             block_name_map,
             unsupported_entities,
         );
@@ -1321,14 +1368,14 @@ fn convert_blocks(
 }
 
 fn convert_entities(
-    doc: &JwwDocument,
     entities: &[Entity],
+    layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
 ) -> Vec<DxfEntity> {
     let mut out = Vec::<DxfEntity>::new();
     for entity in entities {
-        match convert_entity(doc, entity, block_name_map) {
+        match convert_entity(entity, layer_names, block_name_map) {
             Some(converted) => {
                 for e in converted {
                     out.push(e);
@@ -1341,12 +1388,12 @@ fn convert_entities(
 }
 
 fn convert_entity(
-    doc: &JwwDocument,
     entity: &Entity,
+    layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
 ) -> Option<Vec<DxfEntity>> {
     let base = entity.base();
-    let layer = layer_name(doc, base.layer_group, base.layer);
+    let layer = layer_name(layer_names, base.layer_group, base.layer);
     let color = map_color(base.pen_color);
     let line_type = map_line_type(base.pen_style).to_string();
     let line_weight = map_line_weight(base.pen_width);
@@ -1780,33 +1827,77 @@ fn convert_text(text: &Text, layer: String, color: i32, line_type: String) -> Dx
 
 fn block_name_map(doc: &JwwDocument) -> HashMap<u32, String> {
     let mut map = HashMap::<u32, String>::with_capacity(doc.block_defs.len());
+    let mut used =
+        BTreeSet::<String>::from(["*Model_Space".to_string(), "*Paper_Space".to_string()]);
     for block_def in &doc.block_defs {
-        map.insert(
-            block_def.number,
-            block_def_name(block_def.number, &block_def.name),
-        );
+        let fallback = format!("BLOCK_{}", block_def.number);
+        let candidate = sanitize_dxf_table_name(&block_def.name, &fallback);
+        let name = unique_dxf_table_name(candidate, &format!("_{}", block_def.number), &mut used);
+        map.insert(block_def.number, name);
     }
     map
 }
 
-fn block_def_name(number: u32, raw: &str) -> String {
-    if raw.is_empty() {
-        format!("BLOCK_{number}")
-    } else {
-        raw.to_string()
-    }
-}
-
-fn layer_name(doc: &JwwDocument, layer_group: u16, layer: u16) -> String {
-    let g = layer_group as usize;
-    let l = layer as usize;
-    if g < 16 && l < 16 {
-        let candidate = doc.header.layer_groups[g].layers[l].name.trim();
-        if !candidate.is_empty() {
-            return candidate.to_string();
+fn layer_name_map(doc: &JwwDocument) -> HashMap<(u16, u16), String> {
+    let mut map = HashMap::<(u16, u16), String>::with_capacity(16 * 16);
+    let mut used = BTreeSet::<String>::from(["0".to_string()]);
+    for g in 0..16 {
+        for l in 0..16 {
+            let fallback = format!("{g:X}-{l:X}");
+            let raw = &doc.header.layer_groups[g].layers[l].name;
+            let candidate = sanitize_dxf_table_name(raw, &fallback);
+            let name = unique_dxf_table_name(candidate, &format!("_{fallback}"), &mut used);
+            map.insert((g as u16, l as u16), name);
         }
     }
-    format!("{:X}-{:X}", layer_group, layer)
+    map
+}
+
+fn sanitize_dxf_table_name(raw: &str, fallback: &str) -> String {
+    let mut name = raw
+        .trim()
+        .chars()
+        .take(255)
+        .map(|character| {
+            if character.is_control() || "<>/\\\":;?*|=".contains(character) {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    if name.trim_matches('_').trim().is_empty() {
+        name = fallback.to_string();
+    }
+    name
+}
+
+fn unique_dxf_table_name(candidate: String, suffix: &str, used: &mut BTreeSet<String>) -> String {
+    if used.insert(candidate.clone()) {
+        return candidate;
+    }
+    let keep = 255usize.saturating_sub(suffix.chars().count());
+    let base = candidate.chars().take(keep).collect::<String>();
+    let mut unique = format!("{base}{suffix}");
+    let mut collision = 2usize;
+    while !used.insert(unique.clone()) {
+        let numbered_suffix = format!("{suffix}_{collision}");
+        let keep = 255usize.saturating_sub(numbered_suffix.chars().count());
+        unique = format!(
+            "{}{}",
+            candidate.chars().take(keep).collect::<String>(),
+            numbered_suffix
+        );
+        collision += 1;
+    }
+    unique
+}
+
+fn layer_name(layer_names: &HashMap<(u16, u16), String>, layer_group: u16, layer: u16) -> String {
+    layer_names
+        .get(&(layer_group, layer))
+        .cloned()
+        .unwrap_or_else(|| format!("{layer_group:X}-{layer:X}"))
 }
 
 fn map_color(pen_color: u16) -> i32 {
@@ -1876,9 +1967,9 @@ mod tests {
     use crate::parser::read_document_from_file;
 
     use super::{
-        convert_document, convert_document_with_options, document_to_string, map_line_type,
-        solid_vertices_cross, ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfSolid, DxfText,
-        DxfVertex,
+        convert_document, convert_document_with_options, document_to_string,
+        document_to_string_with_version, map_line_type, solid_vertices_cross, ConvertOptions,
+        DxfDocument, DxfEntity, DxfLayer, DxfSolid, DxfTargetVersion, DxfText, DxfVertex,
     };
 
     fn empty_header() -> JwwHeader {
@@ -2549,7 +2640,91 @@ mod tests {
         assert!(out.contains("  2\nBLOCKS\n"));
         assert!(out.contains("  2\nENTITIES\n"));
         assert!(out.contains("  0\nLINE\n"));
+        assert!(out.contains("  9\n$HANDSEED\n  5\nFFFFFFFF\n"));
         assert!(out.ends_with("  0\nEOF\n"));
+    }
+
+    #[test]
+    fn document_to_string_can_emit_ac1024_header() {
+        let dxf = DxfDocument {
+            layers: vec![],
+            entities: vec![],
+            blocks: vec![],
+            unsupported_entities: vec![],
+        };
+
+        let out = document_to_string_with_version(&dxf, DxfTargetVersion::Ac1024);
+
+        assert!(out.contains("  9\n$ACADVER\n  1\nAC1024\n"));
+    }
+
+    #[test]
+    fn convert_document_sanitizes_and_deduplicates_dxf_table_names() {
+        let mut header = empty_header();
+        header.layer_groups[0].layers[0].name = "A*B".to_string();
+        header.layer_groups[0].layers[1].name = "A?B".to_string();
+        let first_base = EntityBase::default();
+        let second_base = EntityBase {
+            layer: 1,
+            ..EntityBase::default()
+        };
+        let doc = JwwDocument {
+            header,
+            entities: vec![
+                Entity::Line(Line {
+                    base: first_base,
+                    start_x: 0.0,
+                    start_y: 0.0,
+                    end_x: 1.0,
+                    end_y: 0.0,
+                }),
+                Entity::Line(Line {
+                    base: second_base,
+                    start_x: 0.0,
+                    start_y: 1.0,
+                    end_x: 1.0,
+                    end_y: 1.0,
+                }),
+            ],
+            block_defs: vec![
+                BlockDef {
+                    base: first_base,
+                    number: 1,
+                    is_referenced: false,
+                    name: "B*X".to_string(),
+                    entities: vec![],
+                },
+                BlockDef {
+                    base: first_base,
+                    number: 2,
+                    is_referenced: false,
+                    name: "B?X".to_string(),
+                    entities: vec![],
+                },
+            ],
+        };
+
+        let dxf = convert_document(&doc);
+        let entity_layers = dxf
+            .entities
+            .iter()
+            .map(|entity| match entity {
+                DxfEntity::Line(line) => line.layer.as_str(),
+                _ => panic!("expected line"),
+            })
+            .collect::<Vec<_>>();
+        let block_names = dxf
+            .blocks
+            .iter()
+            .map(|block| block.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(entity_layers, ["A_B", "A_B_0-1"]);
+        assert_eq!(block_names, ["B_X", "B_X_2"]);
+        assert!(dxf.layers.iter().all(|layer| !layer
+            .name
+            .chars()
+            .any(|character| "<>/\\\":;?*|=".contains(character))));
     }
 
     /// Pulls the corner group codes (10..13 / 20..23) of the first SOLID out of an ASCII DXF,

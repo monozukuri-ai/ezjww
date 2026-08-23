@@ -227,7 +227,30 @@ class PublicApiTests(unittest.TestCase):
     def test_to_dxf_string_from_path(self):
         text = ezjww.to_dxf_string(sample_path())
         self.assertIn("SECTION", text)
+        self.assertIn("  9\n$ACADVER\n  1\nAC1015\n", text)
         self.assertTrue(text.endswith("  0\nEOF\n"))
+
+    def test_write_dxf_with_report_targets_ac1024(self):
+        with tempfile.TemporaryDirectory(prefix="ezjww_report_") as tmp_dir:
+            output = Path(tmp_dir) / "output.dxf"
+            report = ezjww.write_dxf_with_report(
+                str(sample_path()),
+                str(output),
+                target_version="AC1024",
+            )
+            text = output.read_text(encoding="ascii")
+
+        self.assertIn("  9\n$ACADVER\n  1\nAC1024\n", text)
+        self.assertEqual(report["target_version"], "AC1024")
+        self.assertGreater(report["source_entities"], 0)
+        self.assertGreater(report["converted_entities"], 0)
+        self.assertEqual(report["diagnostics"], [])
+        self.assertEqual(report["unsupported_entity_counts"], {})
+        self.assertFalse(report["validation"]["has_unresolved"])
+
+    def test_dxf_writers_reject_unsupported_target_version(self):
+        with self.assertRaisesRegex(ValueError, "expected AC1015 or AC1024"):
+            ezjww.to_dxf_string(sample_path(), target_version="AC1009")
 
     def test_drawing_to_dxf_string_with_options(self):
         drawing = ezjww.readfile(sample_path())

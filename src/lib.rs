@@ -1,21 +1,23 @@
 // PyO3's proc macros can trigger this lint on `PyResult` signatures.
 #![allow(clippy::useless_conversion)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
 
 pub use ezjww_core::{
     block_def_name_map, collect_entity_coordinates, convert_document,
-    convert_document_with_options, coordinates_bbox, document_to_string, entity_counts,
-    is_jww_signature, jww_document_to_dto, parse_document, parse_header, read_document_from_file,
+    convert_document_with_options, coordinates_bbox, document_to_string,
+    document_to_string_with_version, entity_counts, is_jww_signature, jww_document_to_dto,
+    parse_document, parse_header, read_document_from_file,
     read_document_from_file_with_diagnostics, read_header_from_file, resolve_block_name,
-    validate_block_references, write_document_to_file, Arc, Block, BlockDef,
-    BlockReferenceValidation, BlockReferenceValidationDto, CircleSolid, ConvertOptions, Coord2D,
-    DecodeDiagnostic, DiagnosticDetails, Dimension, DxfArc, DxfBlock, DxfCircle, DxfDocument,
-    DxfDocumentDto, DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert, DxfLayer, DxfLine,
-    DxfPoint, DxfSolid, DxfText, DxfVertex, Entity, EntityBase, JwwDocument, JwwDocumentDto,
-    JwwError, JwwHeader, LayerGroupHeader, LayerHeader, Line, Point, Solid, Text,
+    validate_block_references, write_document_to_file, write_document_to_file_with_version, Arc,
+    Block, BlockDef, BlockReferenceValidation, BlockReferenceValidationDto, CircleSolid,
+    ConvertOptions, Coord2D, DecodeDiagnostic, DiagnosticDetails, Dimension, DxfArc, DxfBlock,
+    DxfCircle, DxfDocument, DxfDocumentDto, DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert,
+    DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, Entity,
+    EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader, LayerGroupHeader, LayerHeader,
+    Line, Point, Solid, Text,
 };
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -102,37 +104,134 @@ fn read_dxf_document(
     Ok(dxf_document_to_pydict(py, &dxf_document)?.unbind().into())
 }
 
-#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32))]
+#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, target_version="AC1015"))]
 fn read_dxf_string(
     path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
+    target_version: &str,
 ) -> PyResult<String> {
+    let target_version = parse_dxf_target_version(target_version)?;
     let document = read_document_from_file(path).map_err(to_py_err)?;
     let options = ConvertOptions {
         explode_inserts,
         max_block_nesting,
     };
     let dxf_document = convert_document_with_options(&document, options);
-    Ok(document_to_string(&dxf_document))
+    Ok(document_to_string_with_version(
+        &dxf_document,
+        target_version,
+    ))
 }
 
-#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32))]
+#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015"))]
 fn write_dxf(
     path: &str,
     output_path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
+    target_version: &str,
 ) -> PyResult<()> {
+    let target_version = parse_dxf_target_version(target_version)?;
     let document = read_document_from_file(path).map_err(to_py_err)?;
     let options = ConvertOptions {
         explode_inserts,
         max_block_nesting,
     };
     let dxf_document = convert_document_with_options(&document, options);
-    write_document_to_file(&dxf_document, output_path)
+    write_document_to_file_with_version(&dxf_document, output_path, target_version)
         .map_err(|err| PyIOError::new_err(err.to_string()))?;
     Ok(())
+}
+
+#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015"))]
+fn write_dxf_with_report(
+    py: Python<'_>,
+    path: &str,
+    output_path: &str,
+    explode_inserts: bool,
+    max_block_nesting: usize,
+    target_version: &str,
+) -> PyResult<PyObject> {
+    let target_version = parse_dxf_target_version(target_version)?;
+    let parsed = read_document_from_file_with_diagnostics(path).map_err(to_py_err)?;
+    let document = &parsed.document;
+    let validation = validate_block_references(document);
+    let options = ConvertOptions {
+        explode_inserts,
+        max_block_nesting,
+    };
+    let dxf_document = convert_document_with_options(document, options);
+    write_document_to_file_with_version(&dxf_document, output_path, target_version)
+        .map_err(|err| PyIOError::new_err(err.to_string()))?;
+
+    let out = PyDict::new_bound(py);
+    out.set_item("target_version", target_version.acad_version())?;
+    out.set_item("source_version", document.header.version)?;
+    out.set_item("source_entities", document.entities.len())?;
+    out.set_item(
+        "source_entity_counts",
+        entity_counts_to_pydict(py, entity_counts(&document.entities))?,
+    )?;
+    out.set_item("source_block_definitions", document.block_defs.len())?;
+    out.set_item(
+        "source_block_entities",
+        document
+            .block_defs
+            .iter()
+            .map(|block| block.entities.len())
+            .sum::<usize>(),
+    )?;
+    out.set_item(
+        "all_source_entity_counts",
+        all_jww_entity_counts_to_pydict(py, document)?,
+    )?;
+    out.set_item("converted_entities", dxf_document.entities.len())?;
+    out.set_item(
+        "converted_block_entities",
+        dxf_document
+            .blocks
+            .iter()
+            .map(|block| block.entities.len())
+            .sum::<usize>(),
+    )?;
+    out.set_item(
+        "converted_entity_counts",
+        dxf_entity_counts_to_pydict(py, &dxf_document)?,
+    )?;
+    out.set_item(
+        "unsupported_entity_counts",
+        unsupported_entity_counts_to_pydict(py, &dxf_document.unsupported_entities)?,
+    )?;
+    out.set_item(
+        "normalized_layer_names",
+        normalized_layer_name_count(document, &dxf_document),
+    )?;
+    out.set_item(
+        "normalized_block_names",
+        normalized_block_name_count(document, &dxf_document),
+    )?;
+
+    let diagnostics = PyList::empty_bound(py);
+    for diagnostic in &parsed.diagnostics {
+        diagnostics.append(decode_diagnostic_to_pydict(py, diagnostic)?)?;
+    }
+    out.set_item("diagnostics", diagnostics)?;
+    out.set_item(
+        "validation",
+        block_reference_validation_to_pydict(py, &validation)?,
+    )?;
+    Ok(out.unbind().into())
+}
+
+fn parse_dxf_target_version(value: &str) -> PyResult<DxfTargetVersion> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "AC1015" => Ok(DxfTargetVersion::Ac1015),
+        "AC1024" => Ok(DxfTargetVersion::Ac1024),
+        _ => Err(PyValueError::new_err(format!(
+            "unsupported DXF target version {value:?}; expected AC1015 or AC1024"
+        ))),
+    }
 }
 
 fn to_py_err(err: JwwError) -> PyErr {
@@ -513,6 +612,114 @@ fn entity_counts_to_pydict<'py>(
     Ok(out)
 }
 
+fn dxf_entity_counts_to_pydict<'py>(
+    py: Python<'py>,
+    document: &DxfDocument,
+) -> PyResult<Bound<'py, PyDict>> {
+    let mut counts = BTreeMap::<&'static str, usize>::new();
+    for entity in document.entities.iter().chain(
+        document
+            .blocks
+            .iter()
+            .flat_map(|block| block.entities.iter()),
+    ) {
+        *counts.entry(entity.entity_type()).or_insert(0) += 1;
+    }
+    let out = PyDict::new_bound(py);
+    for (kind, count) in counts {
+        out.set_item(kind, count)?;
+    }
+    Ok(out)
+}
+
+fn all_jww_entity_counts_to_pydict<'py>(
+    py: Python<'py>,
+    document: &JwwDocument,
+) -> PyResult<Bound<'py, PyDict>> {
+    let mut counts = BTreeMap::<&'static str, usize>::new();
+    for entity in document.entities.iter().chain(
+        document
+            .block_defs
+            .iter()
+            .flat_map(|block| block.entities.iter()),
+    ) {
+        *counts.entry(entity.entity_type()).or_insert(0) += 1;
+    }
+    let out = PyDict::new_bound(py);
+    for (kind, count) in counts {
+        out.set_item(kind, count)?;
+    }
+    Ok(out)
+}
+
+fn unsupported_entity_counts_to_pydict<'py>(
+    py: Python<'py>,
+    entities: &[String],
+) -> PyResult<Bound<'py, PyDict>> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for entity in entities {
+        *counts.entry(entity.as_str()).or_insert(0) += 1;
+    }
+    let out = PyDict::new_bound(py);
+    for (kind, count) in counts {
+        out.set_item(kind, count)?;
+    }
+    Ok(out)
+}
+
+fn normalized_layer_name_count(document: &JwwDocument, dxf_document: &DxfDocument) -> usize {
+    let mut used_layers = BTreeMap::<(u16, u16), ()>::new();
+    for entity in document.entities.iter().chain(
+        document
+            .block_defs
+            .iter()
+            .flat_map(|block| block.entities.iter()),
+    ) {
+        let base = entity.base();
+        used_layers.insert((base.layer_group, base.layer), ());
+    }
+    used_layers
+        .keys()
+        .filter(|(group, layer)| {
+            if *group >= 16 || *layer >= 16 {
+                return false;
+            }
+            let index = *group as usize * 16 + *layer as usize;
+            let Some(converted) = dxf_document.layers.get(index) else {
+                return false;
+            };
+            let source = document.header.layer_groups[*group as usize].layers[*layer as usize]
+                .name
+                .trim();
+            let original = if source.is_empty() {
+                format!("{group:X}-{layer:X}")
+            } else {
+                source.to_string()
+            };
+            converted.name != original
+        })
+        .count()
+}
+
+fn normalized_block_name_count(document: &JwwDocument, dxf_document: &DxfDocument) -> usize {
+    if dxf_document.blocks.len() != document.block_defs.len() {
+        return 0;
+    }
+    document
+        .block_defs
+        .iter()
+        .zip(&dxf_document.blocks)
+        .filter(|(source, converted)| {
+            let original = if source.name.trim().is_empty() {
+                format!("BLOCK_{}", source.number)
+            } else {
+                source.name.trim().to_string()
+            };
+            converted.name != original
+        })
+        .count()
+}
+
 fn block_def_to_pydict<'py>(
     py: Python<'py>,
     block_def: &BlockDef,
@@ -608,5 +815,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_dxf_document, m)?)?;
     m.add_function(wrap_pyfunction!(read_dxf_string, m)?)?;
     m.add_function(wrap_pyfunction!(write_dxf, m)?)?;
+    m.add_function(wrap_pyfunction!(write_dxf_with_report, m)?)?;
     Ok(())
 }

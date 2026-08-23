@@ -12,9 +12,11 @@ pub use diagnostics::{
     TruncationDiagnosticDetails, CP932_DECODE_REPLACED, ENTITY_LIST_TRUNCATED,
 };
 pub use dxf::{
-    convert_document, convert_document_with_options, document_to_string, write_document_to_file,
+    convert_document, convert_document_with_options, document_to_string,
+    document_to_string_with_version, write_document_to_file, write_document_to_file_with_version,
     ConvertOptions, DxfArc, DxfBlock, DxfCircle, DxfDocument, DxfEllipse, DxfEntity,
-    DxfFilledPolygon, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfText, DxfVertex,
+    DxfFilledPolygon, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfTargetVersion, DxfText,
+    DxfVertex,
 };
 pub use error::JwwError;
 pub use header::{

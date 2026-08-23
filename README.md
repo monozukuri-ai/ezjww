@@ -55,6 +55,7 @@ from ezjww import (
     stats,
     to_dxf_string,
     write_dxf,
+    write_dxf_with_report,
 )
 
 ok = is_jww_file("sample.jww")
@@ -62,6 +63,11 @@ doc = read_document("sample.jww")
 dxf_doc = read_dxf_document("sample.jww")
 dxf_text = to_dxf_string("sample.jww")
 write_dxf("sample.jww", "sample.dxf")
+conversion = write_dxf_with_report(
+    "sample.jww",
+    "sample-r2010.dxf",
+    target_version="AC1024",
+)
 plot_jww("sample.jww", save_path="sample.png")
 
 drawing = readfile("sample.jww")

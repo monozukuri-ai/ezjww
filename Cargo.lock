@@ -31,7 +31,7 @@ dependencies = [
 
 [[package]]
 name = "ezjww"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ezjww-core",
  "pyo3",

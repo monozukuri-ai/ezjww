@@ -28,6 +28,7 @@ from ezjww._core import (
     read_dxf_string,
     read_header,
     write_dxf,
+    write_dxf_with_report,
 )
 from ezjww.plot import plot_dxf_document, plot_jww
 
@@ -51,6 +52,7 @@ __all__ = [
     "read_dxf_string",
     "to_dxf_string",
     "write_dxf",
+    "write_dxf_with_report",
     "plot_dxf_document",
     "plot_jww",
     "report",
@@ -333,6 +335,7 @@ class Drawing:
         *,
         explode_inserts: bool = False,
         max_block_nesting: int = 32,
+        target_version: str = "AC1015",
     ) -> str:
         if self._source_path is None:
             raise ValueError(
@@ -343,6 +346,7 @@ class Drawing:
             self._source_path,
             explode_inserts,
             nesting,
+            target_version,
         )
 
     def saveas(
@@ -351,6 +355,7 @@ class Drawing:
         *,
         explode_inserts: bool = False,
         max_block_nesting: int = 32,
+        target_version: str = "AC1015",
     ) -> None:
         if self._source_path is None:
             raise ValueError("saveas() requires a source-backed drawing. use readfile(path).")
@@ -360,6 +365,7 @@ class Drawing:
             str(output_path),
             explode_inserts,
             nesting,
+            target_version,
         )
 
     def plot(
@@ -433,12 +439,14 @@ def to_dxf_string(
     *,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    target_version: str = "AC1015",
 ) -> str:
     nesting = _normalize_max_block_nesting(max_block_nesting)
     return read_dxf_string(
         str(path),
         explode_inserts,
         nesting,
+        target_version,
     )
 
 
