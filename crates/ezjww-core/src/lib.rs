@@ -23,8 +23,9 @@ pub use header::{
     is_jww_signature, parse_header, read_header_from_file, JwwHeader, LayerGroupHeader, LayerHeader,
 };
 pub use model::{
-    collect_entity_coordinates, coordinates_bbox, Arc, Block, BlockDef, CircleSolid, Coord2D,
-    Dimension, Entity, EntityBase, JwwDocument, Line, Point, Solid, Text,
+    collect_entity_coordinates, collect_metadata_settings, coordinates_bbox,
+    metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Coord2D, Dimension, Entity,
+    EntityBase, JwwDocument, Line, MetadataSetting, Point, Solid, Text,
 };
 pub use parser::{
     block_def_name_map, entity_counts, parse_document, parse_document_with_diagnostics,

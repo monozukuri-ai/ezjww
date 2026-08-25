@@ -64,6 +64,13 @@ class TextPayload(TypedDict):
     content: str
 
 
+class MetadataSetting(TypedDict):
+    entity_index: int
+    key: str
+    value: str
+    raw: str
+
+
 class JwwEntity(TypedDict, total=False):
     type: str
     base: EntityBase
@@ -175,6 +182,7 @@ class DxfWriteReport(TypedDict):
 class JwwDocument(TypedDict):
     header: JwwHeader
     entities: list[JwwEntity]
+    metadata_settings: list[MetadataSetting]
     block_defs: list[BlockDef]
     block_def_names: dict[int, str]
     entity_counts: dict[str, int]

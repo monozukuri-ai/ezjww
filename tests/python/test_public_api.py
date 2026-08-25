@@ -41,6 +41,37 @@ class PublicApiTests(unittest.TestCase):
         document = ezjww.read_document(str(sample_path()))
         self.assertIn("diagnostics", document)
         self.assertIsInstance(document["diagnostics"], list)
+        self.assertEqual(document["metadata_settings"], [])
+
+    def test_internal_settings_are_exposed_but_not_converted_to_dxf_text(self):
+        path = ROOT / "jww_samples" / "block_regressions" / "non_block.jww"
+
+        document = ezjww.read_document(str(path))
+        dxf_document = ezjww.read_dxf_document(str(path))
+
+        self.assertEqual(len(document["metadata_settings"]), 6)
+        self.assertEqual(
+            {setting["key"] for setting in document["metadata_settings"]},
+            {
+                "Printer_Orientation",
+                "Printer_PaperSize",
+                "Printer_D2dBMP",
+                "Printer_BmpZENTAI",
+                "View_Direct2d",
+                "Draw_BmpTOUKA",
+            },
+        )
+        converted_text = {
+            entity.get("content", "")
+            for entity in dxf_document["entities"]
+            if entity.get("type") == "TEXT"
+        }
+        self.assertFalse(
+            any(
+                setting["raw"] in converted_text
+                for setting in document["metadata_settings"]
+            )
+        )
 
     def test_invalid_cp932_is_reported_end_to_end(self):
         raw = bytearray(sample_path().read_bytes())

@@ -92,6 +92,64 @@ pub struct Text {
     pub content: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MetadataSetting {
+    pub entity_index: usize,
+    pub key: String,
+    pub value: String,
+    pub raw: String,
+}
+
+const METADATA_SETTING_KEYS: &[&str] = &[
+    "Printer_Orientation",
+    "Printer_PaperSize",
+    "Printer_D2dBMP",
+    "Printer_BmpZENTAI",
+    "View_Direct2d",
+    "Draw_BmpTOUKA",
+];
+
+/// Return the key/value encoded by a Jw_cad internal setting TEXT record.
+///
+/// Jw_cad stores these records as zero-length `CDataMoji` objects at
+/// `(0, -1000)`. Requiring both the sentinel geometry and a known key avoids
+/// classifying visible user text by its content alone.
+pub fn metadata_setting_from_text(text: &Text) -> Option<(&str, &str)> {
+    let at_sentinel = text.start_x.abs() <= 1e-9
+        && (text.start_y + 1000.0).abs() <= 1e-9
+        && text.end_x.abs() <= 1e-9
+        && (text.end_y + 1000.0).abs() <= 1e-9;
+    if !at_sentinel {
+        return None;
+    }
+
+    let (key, value) = text.content.split_once('=')?;
+    let key = key.trim();
+    if !METADATA_SETTING_KEYS.contains(&key) {
+        return None;
+    }
+    Some((key, value.trim()))
+}
+
+pub fn collect_metadata_settings(entities: &[Entity]) -> Vec<MetadataSetting> {
+    entities
+        .iter()
+        .enumerate()
+        .filter_map(|(entity_index, entity)| {
+            let Entity::Text(text) = entity else {
+                return None;
+            };
+            let (key, value) = metadata_setting_from_text(text)?;
+            Some(MetadataSetting {
+                entity_index,
+                key: key.to_string(),
+                value: value.to_string(),
+                raw: text.content.clone(),
+            })
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Solid {
     pub base: EntityBase,
@@ -423,9 +481,48 @@ pub fn collect_entity_coordinates(entities: &[Entity]) -> Vec<Coord2D> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_entity_coordinates, coordinates_bbox, Arc, Coord2D, Dimension, Entity, EntityBase,
-        Line, Point, Solid, Text,
+        collect_entity_coordinates, collect_metadata_settings, coordinates_bbox,
+        metadata_setting_from_text, Arc, Coord2D, Dimension, Entity, EntityBase, Line, Point,
+        Solid, Text,
     };
+
+    fn text_at(content: &str, x: f64, y: f64) -> Text {
+        Text {
+            base: EntityBase::default(),
+            start_x: x,
+            start_y: y,
+            end_x: x,
+            end_y: y,
+            text_type: 0,
+            size_x: 3.0,
+            size_y: 3.0,
+            spacing: 0.0,
+            angle: 0.0,
+            font_name: String::new(),
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn classifies_only_known_settings_at_the_jw_cad_sentinel() {
+        let setting = text_at("Printer_Orientation = 2", 0.0, -1000.0);
+        assert_eq!(
+            metadata_setting_from_text(&setting),
+            Some(("Printer_Orientation", "2"))
+        );
+
+        let visible_same_text = text_at("Printer_Orientation = 2", 0.0, 0.0);
+        assert_eq!(metadata_setting_from_text(&visible_same_text), None);
+        let unknown_key = text_at("User_Setting = 2", 0.0, -1000.0);
+        assert_eq!(metadata_setting_from_text(&unknown_key), None);
+
+        let records =
+            collect_metadata_settings(&[Entity::Text(visible_same_text), Entity::Text(setting)]);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].entity_index, 1);
+        assert_eq!(records[0].key, "Printer_Orientation");
+        assert_eq!(records[0].value, "2");
+    }
 
     #[test]
     fn line_common_coordinates_and_bbox() {

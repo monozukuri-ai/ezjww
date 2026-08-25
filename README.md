@@ -15,6 +15,8 @@ The core parser/writer is implemented in Rust and exposed to Python with PyO3.
   `docs/DIAGNOSTICS.md`); MFC `CArchive` escaped counts (65535+ entities), NULL
   tags and big object tags are honoured.
 - Read document/header data from Python.
+- Expose Jw_cad's sentinel-positioned printer/view settings separately as
+  `metadata_settings` while preserving the original source entities.
 - Convert parsed JWW entities to DXF intermediate entities.
 - Write ASCII DXF files.
 - Emit DXF handles, `BLOCK_RECORD` table, and `OBJECTS` section for better CAD compatibility.
@@ -60,6 +62,8 @@ from ezjww import (
 
 ok = is_jww_file("sample.jww")
 doc = read_document("sample.jww")
+for setting in doc["metadata_settings"]:
+    print(setting["key"], setting["value"])
 dxf_doc = read_dxf_document("sample.jww")
 dxf_text = to_dxf_string("sample.jww")
 write_dxf("sample.jww", "sample.dxf")

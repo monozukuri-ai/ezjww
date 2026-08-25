@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::Read;
 
 pub use ezjww_core::{
-    block_def_name_map, collect_entity_coordinates, convert_document,
+    block_def_name_map, collect_entity_coordinates, collect_metadata_settings, convert_document,
     convert_document_with_options, coordinates_bbox, document_to_string,
     document_to_string_with_version, entity_counts, is_jww_signature, jww_document_to_dto,
     parse_document, parse_header, read_document_from_file,
@@ -17,7 +17,7 @@ pub use ezjww_core::{
     DxfCircle, DxfDocument, DxfDocumentDto, DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert,
     DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, Entity,
     EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader, LayerGroupHeader, LayerHeader,
-    Line, Point, Solid, Text,
+    Line, MetadataSetting, Point, Solid, Text,
 };
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -60,6 +60,12 @@ fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
         entities.append(entity_to_pydict(py, entity, &block_name_map)?)?;
     }
     out.set_item("entities", entities)?;
+
+    let metadata_settings = PyList::empty_bound(py);
+    for setting in collect_metadata_settings(&document.entities) {
+        metadata_settings.append(metadata_setting_to_pydict(py, &setting)?)?;
+    }
+    out.set_item("metadata_settings", metadata_settings)?;
 
     let block_defs = PyList::empty_bound(py);
     for block_def in &document.block_defs {
@@ -434,6 +440,18 @@ fn text_to_pydict<'py>(py: Python<'py>, text: &Text) -> PyResult<Bound<'py, PyDi
     out.set_item("angle", text.angle)?;
     out.set_item("font_name", &text.font_name)?;
     out.set_item("content", &text.content)?;
+    Ok(out)
+}
+
+fn metadata_setting_to_pydict<'py>(
+    py: Python<'py>,
+    setting: &MetadataSetting,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new_bound(py);
+    out.set_item("entity_index", setting.entity_index)?;
+    out.set_item("key", &setting.key)?;
+    out.set_item("value", &setting.value)?;
+    out.set_item("raw", &setting.raw)?;
     Ok(out)
 }
 

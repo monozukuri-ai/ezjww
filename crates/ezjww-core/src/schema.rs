@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::diagnostics::DecodeDiagnostic;
 use crate::dxf::DxfDocument;
 use crate::header::JwwHeader;
-use crate::model::{BlockDef, JwwDocument};
+use crate::model::{collect_metadata_settings, BlockDef, JwwDocument, MetadataSetting};
 use crate::parser::{block_def_name_map, entity_counts, validate_block_references};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -20,6 +20,7 @@ pub struct BlockReferenceValidationDto {
 pub struct JwwDocumentDto<'a> {
     pub header: &'a JwwHeader,
     pub entities: &'a [crate::model::Entity],
+    pub metadata_settings: Vec<MetadataSetting>,
     pub block_defs: &'a [BlockDef],
     pub block_def_names: BTreeMap<u32, String>,
     pub entity_counts: BTreeMap<String, usize>,
@@ -49,6 +50,7 @@ pub fn jww_document_to_dto_with_diagnostics<'a>(
     JwwDocumentDto {
         header: &document.header,
         entities: &document.entities,
+        metadata_settings: collect_metadata_settings(&document.entities),
         block_defs: &document.block_defs,
         block_def_names,
         entity_counts,
@@ -160,6 +162,7 @@ mod tests {
 
         assert!(value["header"].is_object());
         assert_eq!(value["entities"][0]["type"], "LINE");
+        assert_eq!(value["metadata_settings"], json!([]));
         assert_eq!(value["block_defs"], json!([]));
         assert_eq!(value["entity_counts"]["LINE"], 1);
         assert_eq!(value["validation"]["has_unresolved"], false);

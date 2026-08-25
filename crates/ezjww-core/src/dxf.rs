@@ -8,7 +8,9 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
-use crate::model::{Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text};
+use crate::model::{
+    metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfLayer {
@@ -1423,9 +1425,15 @@ fn convert_entity(
                 })])
             }
         }
-        Entity::Text(v) => Some(vec![DxfEntity::Text(convert_text(
-            v, layer, color, line_type,
-        ))]),
+        Entity::Text(v) => {
+            if metadata_setting_from_text(v).is_some() {
+                Some(Vec::new())
+            } else {
+                Some(vec![DxfEntity::Text(convert_text(
+                    v, layer, color, line_type,
+                ))])
+            }
+        }
         Entity::Solid(v) => Some(vec![DxfEntity::Solid(convert_solid(
             v,
             layer,
@@ -2016,6 +2024,43 @@ mod tests {
         for (pen_style, expected) in cases {
             assert_eq!(map_line_type(pen_style), expected);
         }
+    }
+
+    #[test]
+    fn convert_document_excludes_internal_metadata_text() {
+        let make_text = |content: &str, y: f64| {
+            Entity::Text(Text {
+                base: EntityBase::default(),
+                start_x: 0.0,
+                start_y: y,
+                end_x: 0.0,
+                end_y: y,
+                text_type: 0,
+                size_x: 3.0,
+                size_y: 3.0,
+                spacing: 0.0,
+                angle: 0.0,
+                font_name: String::new(),
+                content: content.to_string(),
+            })
+        };
+        let document = JwwDocument {
+            header: empty_header(),
+            entities: vec![
+                make_text("Printer_PaperSize = 8", -1000.0),
+                make_text("visible note", 10.0),
+            ],
+            block_defs: Vec::new(),
+        };
+
+        let converted = convert_document(&document);
+
+        assert_eq!(converted.entities.len(), 1);
+        match &converted.entities[0] {
+            DxfEntity::Text(text) => assert_eq!(text.content, "visible note"),
+            other => panic!("expected TEXT, got {other:?}"),
+        }
+        assert!(converted.unsupported_entities.is_empty());
     }
 
     #[test]
