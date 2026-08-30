@@ -201,6 +201,7 @@ mod tests {
                 layers: std::array::from_fn(|_| LayerHeader::default()),
                 ..LayerGroupHeader::default()
             }),
+            palette: None,
         }
     }
 }

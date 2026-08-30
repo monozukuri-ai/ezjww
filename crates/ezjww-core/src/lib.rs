@@ -20,7 +20,8 @@ pub use dxf::{
 };
 pub use error::JwwError;
 pub use header::{
-    is_jww_signature, parse_header, read_header_from_file, JwwHeader, LayerGroupHeader, LayerHeader,
+    is_jww_signature, parse_header, read_header_from_file, JwwHeader, JwwPalette, LayerGroupHeader,
+    LayerHeader,
 };
 pub use model::{
     collect_entity_coordinates, collect_metadata_settings, coordinates_bbox,

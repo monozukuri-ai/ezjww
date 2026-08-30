@@ -8,6 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
+use crate::header::JwwPalette;
 use crate::model::{
     metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text,
 };
@@ -297,6 +298,8 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
     let block_name_map = block_name_map(doc);
     let block_defs = block_defs_by_number(&doc.block_defs);
 
+    let palette = doc.header.palette.as_ref();
+
     let mut unsupported_entities = Vec::<String>::new();
     let entities = if options.explode_inserts {
         let mut expanding_stack = Vec::new();
@@ -306,6 +309,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             block_defs: &block_defs,
             unsupported_entities: &mut unsupported_entities,
             options,
+            palette,
         };
         convert_entities_exploded(
             &mut context,
@@ -319,6 +323,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
+            palette,
         )
     };
     let blocks = if options.explode_inserts {
@@ -1016,6 +1021,7 @@ struct ExplodeContext<'a> {
     block_defs: &'a HashMap<u32, &'a BlockDef>,
     unsupported_entities: &'a mut Vec<String>,
     options: ConvertOptions,
+    palette: Option<&'a JwwPalette>,
 }
 
 fn convert_entities_exploded(
@@ -1059,7 +1065,12 @@ fn convert_entities_exploded(
                 expanding_stack.pop();
                 out.extend(expanded);
             }
-            _ => match convert_entity(entity, context.layer_names, context.block_name_map) {
+            _ => match convert_entity(
+                entity,
+                context.layer_names,
+                context.block_name_map,
+                context.palette,
+            ) {
                 Some(converted) => {
                     for dxf_entity in converted {
                         out.extend(transform_entity_for_explode(&dxf_entity, transform));
@@ -1358,6 +1369,7 @@ fn convert_blocks(
             layer_names,
             block_name_map,
             unsupported_entities,
+            doc.header.palette.as_ref(),
         );
         blocks.push(DxfBlock {
             name,
@@ -1374,10 +1386,11 @@ fn convert_entities(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
+    palette: Option<&JwwPalette>,
 ) -> Vec<DxfEntity> {
     let mut out = Vec::<DxfEntity>::new();
     for entity in entities {
-        match convert_entity(entity, layer_names, block_name_map) {
+        match convert_entity(entity, layer_names, block_name_map, palette) {
             Some(converted) => {
                 for e in converted {
                     out.push(e);
@@ -1393,10 +1406,11 @@ fn convert_entity(
     entity: &Entity,
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
+    palette: Option<&JwwPalette>,
 ) -> Option<Vec<DxfEntity>> {
     let base = entity.base();
     let layer = layer_name(layer_names, base.layer_group, base.layer);
-    let color = map_color(base.pen_color);
+    let color = map_color(palette, base.pen_color);
     let line_type = map_line_type(base.pen_style).to_string();
     let line_weight = map_line_weight(base.pen_width);
 
@@ -1434,17 +1448,19 @@ fn convert_entity(
                 ))])
             }
         }
+        // Pen color 10 marks a solid painted in an arbitrary color, and the exact COLORREF is stored on the entity itself.
+        // That beats anything the palette could tell us, so it wins over `color` when present.
         Entity::Solid(v) => Some(vec![DxfEntity::Solid(convert_solid(
             v,
             layer,
-            color,
+            v.color.map_or(color, rgb_to_aci),
             line_type,
             line_weight,
         ))]),
         Entity::CircleSolid(v) => Some(convert_circle_solid(
             v,
             layer,
-            color,
+            v.color.map_or(color, rgb_to_aci),
             line_type,
             line_weight,
         )),
@@ -1908,7 +1924,98 @@ fn layer_name(layer_names: &HashMap<(u16, u16), String>, layer_group: u16, layer
         .unwrap_or_else(|| format!("{layer_group:X}-{layer:X}"))
 }
 
-fn map_color(pen_color: u16) -> i32 {
+/// Maps a JWW pen color number to a DXF color number (ACI).
+///
+/// When the header palette is available, picks the ACI closest to the RGB value the file actually records.
+/// Falls back to the fixed table only when it is not.
+fn map_color(palette: Option<&JwwPalette>, pen_color: u16) -> i32 {
+    match palette.and_then(|p| p.screen_color(pen_color)) {
+        Some(rgb) => rgb_to_aci(rgb),
+        None => map_color_fallback(pen_color),
+    }
+}
+
+/// RGB of a DXF color number (ACI).
+///
+/// The AutoCAD Color Index is a fixed palette defined outside this crate.
+/// 1..=9 are primaries and 250..=255 a gray ramp, both listed here. 10..=249 is 24 hues x 10 shades laid out on a regular grid,
+/// so it is generated rather than tabulated: `LEVEL` is the brightness of each shade pair, odd shades are
+/// the half saturation variant, and the 24 hues walk the six RGB sectors in quarter steps.
+fn aci_rgb(aci: i32) -> (u8, u8, u8) {
+    const PRIMARY: [(u8, u8, u8); 9] = [
+        (0xFF, 0x00, 0x00),
+        (0xFF, 0xFF, 0x00),
+        (0x00, 0xFF, 0x00),
+        (0x00, 0xFF, 0xFF),
+        (0x00, 0x00, 0xFF),
+        (0xFF, 0x00, 0xFF),
+        (0xFF, 0xFF, 0xFF),
+        (0x80, 0x80, 0x80),
+        (0xC0, 0xC0, 0xC0),
+    ];
+    const GRAY: [u8; 6] = [0x54, 0x76, 0x98, 0xBB, 0xDD, 0xFF];
+    const LEVEL: [f64; 5] = [1.0, 0.65, 0.5, 0.3, 0.15];
+
+    match aci {
+        1..=9 => PRIMARY[aci as usize - 1],
+        10..=249 => {
+            let (group, shade) = ((aci - 10) / 10, (aci - 10) % 10);
+            let hi = LEVEL[shade as usize / 2];
+            let lo = if shade % 2 == 1 { hi / 2.0 } else { 0.0 };
+            let step = f64::from(group % 4) / 4.0;
+            let rise = lo + (hi - lo) * step;
+            let fall = hi - (hi - lo) * step;
+            let (r, g, b) = match group / 4 {
+                0 => (hi, rise, lo),
+                1 => (fall, hi, lo),
+                2 => (lo, hi, rise),
+                3 => (lo, fall, hi),
+                4 => (rise, lo, hi),
+                _ => (hi, lo, fall),
+            };
+            let q = |v: f64| (v * 255.0).round() as u8;
+            (q(r), q(g), q(b))
+        }
+        250..=255 => {
+            let v = GRAY[aci as usize - 250];
+            (v, v, v)
+        }
+        _ => (0, 0, 0),
+    }
+}
+
+/// Picks the nearest ACI number for a COLORREF (0x00BBGGRR).
+///
+/// ACI 7 is listed as white, but it is also the default ink and is drawn black on the white background a DXF is normally viewed on.
+/// Jw_cad in turn draws in white on its black screen background, so both ends of the ramp belong on 7.
+/// Black has to be pinned there rather than searched for:
+/// the palette holds no black — its darkest entry is ACI 250 at (84, 84, 84) — so the nearest ACI to #000000 is 18, a dark red.
+fn rgb_to_aci(color: u32) -> i32 {
+    let r = (color & 0xFF) as i32;
+    let g = ((color >> 8) & 0xFF) as i32;
+    let b = ((color >> 16) & 0xFF) as i32;
+
+    // Near-neutral, and at one end or the other. The cutoffs are empirical but boxed in on both sides:
+    // grays from 67 up already reach a neutral ACI on their own, and #C0C0C0 has to stay 9.
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    if max - min < 24 && (max < 40 || min > 215) {
+        return 7;
+    }
+
+    (1..=255)
+        .min_by_key(|&aci| {
+            let (tr, tg, tb) = aci_rgb(aci);
+            let (dr, dg, db) = (r - i32::from(tr), g - i32::from(tg), b - i32::from(tb));
+            dr * dr + dg * dg + db * db
+        })
+        .unwrap_or(7)
+}
+
+/// The previous fixed table, kept for files whose palette could not be read.
+///
+/// Checked against real files its hues rarely match,
+/// but it is still better than dropping color entirely when the palette is unavailable.
+fn map_color_fallback(pen_color: u16) -> i32 {
     match pen_color {
         1 | 8 => 7,
         2 => 5,
@@ -1968,16 +2075,17 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use crate::header::{JwwHeader, LayerGroupHeader, LayerHeader};
+    use crate::header::{JwwHeader, JwwPalette, LayerGroupHeader, LayerHeader};
     use crate::model::{
         Arc, Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Solid, Text,
     };
     use crate::parser::read_document_from_file;
 
     use super::{
-        convert_document, convert_document_with_options, document_to_string,
-        document_to_string_with_version, map_line_type, solid_vertices_cross, ConvertOptions,
-        DxfDocument, DxfEntity, DxfLayer, DxfSolid, DxfTargetVersion, DxfText, DxfVertex,
+        aci_rgb, convert_document, convert_document_with_options, document_to_string,
+        document_to_string_with_version, map_color, map_line_type, solid_vertices_cross,
+        ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfSolid, DxfTargetVersion, DxfText,
+        DxfVertex,
     };
 
     fn empty_header() -> JwwHeader {
@@ -1998,11 +2106,148 @@ mod tests {
                     name: format!("{g:X}-{l:X}"),
                 }),
             }),
+            palette: None,
         }
     }
 
     fn jww_samples_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
+    }
+
+    /// Anchors the generated palette against known AutoCAD Color Index values.
+    ///
+    /// `rgb_to_aci` only returns numbers, so a wrong RGB here would be invisible to the tests below:
+    /// they would happily agree on a number that renders as the wrong color.
+    /// Every entry is a published ACI value, independent of how `aci_rgb` computes it.
+    ///
+    /// Source: <https://www.temblast.com/songview/color3.htm>. Autodesk publishes no official table,
+    /// and the variants in circulation disagree: <https://gohtx.com/acadcolors.php> is a different lineage,
+    /// and some tables are corrected for AutoCAD's default dark model space background.
+    /// Only the table above matches this palette.
+    #[test]
+    fn aci_rgb_matches_known_palette_values() {
+        let cases = [
+            (1, (0xFF, 0x00, 0x00)),
+            (5, (0x00, 0x00, 0xFF)),
+            (7, (0xFF, 0xFF, 0xFF)),
+            (8, (0x80, 0x80, 0x80)),
+            (9, (0xC0, 0xC0, 0xC0)),
+            (10, (0xFF, 0x00, 0x00)),
+            (12, (0xA6, 0x00, 0x00)),
+            (16, (0x4D, 0x00, 0x00)),
+            (17, (0x4D, 0x26, 0x26)),
+            (20, (0xFF, 0x40, 0x00)),
+            (23, (0xA6, 0x68, 0x53)),
+            (30, (0xFF, 0x80, 0x00)),
+            (65, (0x70, 0x80, 0x40)),
+            (100, (0x00, 0xFF, 0x40)),
+            (102, (0x00, 0xA6, 0x29)),
+            (108, (0x00, 0x26, 0x0A)),
+            (131, (0x80, 0xFF, 0xFF)),
+            (134, (0x00, 0x80, 0x80)),
+            (150, (0x00, 0x80, 0xFF)),
+            (179, (0x13, 0x13, 0x26)),
+            (221, (0xFF, 0x80, 0xDF)),
+            (230, (0xFF, 0x00, 0x80)),
+            (250, (0x54, 0x54, 0x54)),
+            (255, (0xFF, 0xFF, 0xFF)),
+        ];
+        for (aci, expected) in cases {
+            assert_eq!(aci_rgb(aci), expected, "wrong RGB for ACI {aci}");
+        }
+    }
+
+    #[test]
+    fn palette_colors_resolve_to_a_near_identical_aci() {
+        // (COLORREF, tolerated RGB distance)
+        let cases = [
+            (0x00FF_FF00, 0),  // #00FFFF cyan
+            (0x00C0_C000, 40), // #00C0C0 darker cyan
+            (0x0000_C000, 30), // #00C000 green
+            (0x0000_FF00, 0),  // #00FF00 green
+            (0x0040_FF00, 0),  // #00FF40 green
+            (0x0000_FFFF, 0),  // #FFFF00 yellow
+            (0x0000_C0C0, 40), // #C0C000 yellow
+            (0x00C0_00C0, 40), // #C000C0 magenta
+            (0x00FF_0000, 0),  // #0000FF blue
+            (0x00FF_2020, 50), // #2020FF blue
+            (0x0080_8000, 0),  // #008080 teal
+            (0x0080_00FF, 0),  // #FF0080 pink
+            (0x0000_00A0, 10), // #A00000 dark red
+            (0x0080_8080, 0),  // #808080 gray
+            (0x00C0_C0C0, 0),  // #C0C0C0 light gray
+        ];
+        for (color, tolerance) in cases {
+            let palette = JwwPalette {
+                pen_colors: [color; 10],
+                sxf_colors: None,
+            };
+            let aci = map_color(Some(&palette), 1);
+            let (r, g, b) = aci_rgb(aci);
+            let (dr, dg, db) = (
+                (color & 0xFF) as i32 - i32::from(r),
+                ((color >> 8) & 0xFF) as i32 - i32::from(g),
+                ((color >> 16) & 0xFF) as i32 - i32::from(b),
+            );
+            let distance = ((dr * dr + dg * dg + db * db) as f64).sqrt();
+            // this fails if the palette is wrong, not just if the choice changes.
+            assert!(
+                distance <= f64::from(tolerance),
+                "COLORREF {color:#010X} resolved to ACI {aci} at distance {distance:.0}, \
+                 which is worse than the tolerated {tolerance}"
+            );
+        }
+    }
+
+    #[test]
+    fn white_and_black_collapse_to_default_ink() {
+        let ink = |color: u32| {
+            let palette = JwwPalette {
+                pen_colors: [color; 10],
+                sxf_colors: None,
+            };
+            map_color(Some(&palette), 1)
+        };
+        assert_eq!(ink(0x0000_0000), 7); // #000000
+        assert_eq!(ink(0x00FF_FFFF), 7); // #FFFFFF
+                                         // Grays in between stay gray rather than collapsing.
+        assert_ne!(ink(0x0080_8080), 7); // #808080
+        assert_ne!(ink(0x00C0_C0C0), 7); // #C0C0C0
+        assert_ne!(ink(0x0040_4040), 7); // #404040
+    }
+
+    #[test]
+    fn sxf_colors_map_through_palette() {
+        let mut sxf = [0u32; 16];
+        sxf[1] = 0x0000_00FF; // 102 = red
+        sxf[4] = 0x0000_FFFF; // 105 = yellow
+        sxf[7] = 0x00FF_FFFF; // 108 = white
+        sxf[15] = 0x0080_8080; // 116 = darkgray, the last standard color
+        let palette = JwwPalette {
+            pen_colors: [0; 10],
+            sxf_colors: Some(sxf),
+        };
+        assert_eq!(aci_rgb(map_color(Some(&palette), 102)), (0xFF, 0x00, 0x00));
+        assert_eq!(aci_rgb(map_color(Some(&palette), 105)), (0xFF, 0xFF, 0x00));
+        assert_eq!(map_color(Some(&palette), 108), 7); // white becomes black ink
+        assert_eq!(aci_rgb(map_color(Some(&palette), 116)), (0x80, 0x80, 0x80));
+    }
+
+    #[test]
+    fn map_color_falls_back_without_palette() {
+        assert_eq!(map_color(None, 1), 7);
+        assert_eq!(map_color(None, 2), 5);
+        assert_eq!(map_color(None, 9), 8);
+        assert_eq!(map_color(None, 108), 108);
+
+        // Same when a palette exists but does not define that number:
+        // pen color 0 is the background and 117 is past the SXF standard colors.
+        let palette = JwwPalette {
+            pen_colors: [0x00FF_FFFF; 10],
+            sxf_colors: Some([0; 16]),
+        };
+        assert_eq!(map_color(Some(&palette), 0), 1);
+        assert_eq!(map_color(Some(&palette), 117), 117);
     }
 
     #[test]
