@@ -298,7 +298,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
     let block_name_map = block_name_map(doc);
     let block_defs = block_defs_by_number(&doc.block_defs);
 
-    let palette = doc.header.palette.as_ref();
+    let colors = ColorTable::new(doc.header.palette.as_ref());
 
     let mut unsupported_entities = Vec::<String>::new();
     let entities = if options.explode_inserts {
@@ -309,7 +309,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             block_defs: &block_defs,
             unsupported_entities: &mut unsupported_entities,
             options,
-            palette,
+            colors: &colors,
         };
         convert_entities_exploded(
             &mut context,
@@ -323,7 +323,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
-            palette,
+            &colors,
         )
     };
     let blocks = if options.explode_inserts {
@@ -334,6 +334,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
+            &colors,
         )
     };
 
@@ -1021,7 +1022,7 @@ struct ExplodeContext<'a> {
     block_defs: &'a HashMap<u32, &'a BlockDef>,
     unsupported_entities: &'a mut Vec<String>,
     options: ConvertOptions,
-    palette: Option<&'a JwwPalette>,
+    colors: &'a ColorTable,
 }
 
 fn convert_entities_exploded(
@@ -1069,7 +1070,7 @@ fn convert_entities_exploded(
                 entity,
                 context.layer_names,
                 context.block_name_map,
-                context.palette,
+                context.colors,
             ) {
                 Some(converted) => {
                     for dxf_entity in converted {
@@ -1357,6 +1358,7 @@ fn convert_blocks(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
+    colors: &ColorTable,
 ) -> Vec<DxfBlock> {
     let mut blocks = Vec::<DxfBlock>::with_capacity(doc.block_defs.len());
     for block_def in &doc.block_defs {
@@ -1369,7 +1371,7 @@ fn convert_blocks(
             layer_names,
             block_name_map,
             unsupported_entities,
-            doc.header.palette.as_ref(),
+            colors,
         );
         blocks.push(DxfBlock {
             name,
@@ -1386,11 +1388,11 @@ fn convert_entities(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
-    palette: Option<&JwwPalette>,
+    colors: &ColorTable,
 ) -> Vec<DxfEntity> {
     let mut out = Vec::<DxfEntity>::new();
     for entity in entities {
-        match convert_entity(entity, layer_names, block_name_map, palette) {
+        match convert_entity(entity, layer_names, block_name_map, colors) {
             Some(converted) => {
                 for e in converted {
                     out.push(e);
@@ -1406,11 +1408,11 @@ fn convert_entity(
     entity: &Entity,
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
-    palette: Option<&JwwPalette>,
+    colors: &ColorTable,
 ) -> Option<Vec<DxfEntity>> {
     let base = entity.base();
     let layer = layer_name(layer_names, base.layer_group, base.layer);
-    let color = map_color(palette, base.pen_color);
+    let color = colors.aci(base.pen_color);
     let line_type = map_line_type(base.pen_style).to_string();
     let line_weight = map_line_weight(base.pen_width);
 
@@ -1924,14 +1926,59 @@ fn layer_name(layer_names: &HashMap<(u16, u16), String>, layer_group: u16, layer
         .unwrap_or_else(|| format!("{layer_group:X}-{layer:X}"))
 }
 
-/// Maps a JWW pen color number to a DXF color number (ACI).
+/// The DXF color number (ACI) of every JWW pen color number a document can use.
 ///
-/// When the header palette is available, picks the ACI closest to the RGB value the file actually records.
-/// Falls back to the fixed table only when it is not.
-fn map_color(palette: Option<&JwwPalette>, pen_color: u16) -> i32 {
-    match palette.and_then(|p| p.screen_color(pen_color)) {
-        Some(rgb) => rgb_to_aci(rgb),
-        None => map_color_fallback(pen_color),
+/// A drawing paints from 25 pen colors but has an entity count in the hundreds of thousands,
+/// and resolving one COLORREF scans all 255 ACI values, so the answers are worked out once per document instead of once per entity.
+struct ColorTable {
+    /// ACI for pen color numbers 0..=9. Number 0 is the screen background, which no entity draws
+    /// with and which `JwwPalette::screen_color` does not report, so slot 0 holds the fallback ACI; keeping it makes the lookup a plain index.
+    basic: [i32; 10],
+    /// ACI for the SXF extended pen colors 101..=116, `None` when the file stores no SXF palette.
+    sxf: Option<[i32; 16]>,
+}
+
+impl ColorTable {
+    /// Resolves every pen color number the palette defines.
+    ///
+    /// When the header palette is available, picks the ACI closest to the RGB value the file actually records.
+    /// Falls back to the fixed table only when it is not, which costs nothing extra because `map_color_fallback` is a plain match.
+    fn new(palette: Option<&JwwPalette>) -> Self {
+        let resolve = |pen_color: u16| match palette.and_then(|p| p.screen_color(pen_color)) {
+            Some(rgb) => rgb_to_aci(rgb),
+            None => map_color_fallback(pen_color),
+        };
+
+        let mut basic = [0; 10];
+        for (pen_color, aci) in basic.iter_mut().enumerate() {
+            *aci = resolve(pen_color as u16);
+        }
+
+        let sxf = palette.and_then(|p| p.sxf_colors).map(|_| {
+            let mut table = [0; 16];
+            for (offset, aci) in table.iter_mut().enumerate() {
+                *aci = resolve(101 + offset as u16);
+            }
+            table
+        });
+
+        Self { basic, sxf }
+    }
+
+    /// ACI for a pen color number.
+    ///
+    /// The ranges matched here mirror the ones `JwwPalette::screen_color` reports, and have to be kept in step with it:
+    /// a number this match does not know about silently takes the fallback table even when the palette defines it.
+    /// `color_table_matches_resolving_on_demand` pins that.
+    fn aci(&self, pen_color: u16) -> i32 {
+        match pen_color {
+            0..=9 => self.basic[pen_color as usize],
+            101..=116 => self.sxf.as_ref().map_or_else(
+                || map_color_fallback(pen_color),
+                |t| t[(pen_color - 101) as usize],
+            ),
+            _ => map_color_fallback(pen_color),
+        }
     }
 }
 
@@ -2083,9 +2130,9 @@ mod tests {
 
     use super::{
         aci_rgb, convert_document, convert_document_with_options, document_to_string,
-        document_to_string_with_version, map_color, map_line_type, solid_vertices_cross,
-        ConvertOptions, DxfDocument, DxfEntity, DxfLayer, DxfSolid, DxfTargetVersion, DxfText,
-        DxfVertex,
+        document_to_string_with_version, map_color_fallback, map_line_type, rgb_to_aci,
+        solid_vertices_cross, ColorTable, ConvertOptions, DxfDocument, DxfEntity, DxfLayer,
+        DxfSolid, DxfTargetVersion, DxfText, DxfVertex,
     };
 
     fn empty_header() -> JwwHeader {
@@ -2182,7 +2229,7 @@ mod tests {
                 pen_colors: [color; 10],
                 sxf_colors: None,
             };
-            let aci = map_color(Some(&palette), 1);
+            let aci = ColorTable::new(Some(&palette)).aci(1);
             let (r, g, b) = aci_rgb(aci);
             let (dr, dg, db) = (
                 (color & 0xFF) as i32 - i32::from(r),
@@ -2206,7 +2253,7 @@ mod tests {
                 pen_colors: [color; 10],
                 sxf_colors: None,
             };
-            map_color(Some(&palette), 1)
+            ColorTable::new(Some(&palette)).aci(1)
         };
         assert_eq!(ink(0x0000_0000), 7); // #000000
         assert_eq!(ink(0x00FF_FFFF), 7); // #FFFFFF
@@ -2227,18 +2274,20 @@ mod tests {
             pen_colors: [0; 10],
             sxf_colors: Some(sxf),
         };
-        assert_eq!(aci_rgb(map_color(Some(&palette), 102)), (0xFF, 0x00, 0x00));
-        assert_eq!(aci_rgb(map_color(Some(&palette), 105)), (0xFF, 0xFF, 0x00));
-        assert_eq!(map_color(Some(&palette), 108), 7); // white becomes black ink
-        assert_eq!(aci_rgb(map_color(Some(&palette), 116)), (0x80, 0x80, 0x80));
+        let colors = ColorTable::new(Some(&palette));
+        assert_eq!(aci_rgb(colors.aci(102)), (0xFF, 0x00, 0x00));
+        assert_eq!(aci_rgb(colors.aci(105)), (0xFF, 0xFF, 0x00));
+        assert_eq!(colors.aci(108), 7); // white becomes black ink
+        assert_eq!(aci_rgb(colors.aci(116)), (0x80, 0x80, 0x80));
     }
 
     #[test]
-    fn map_color_falls_back_without_palette() {
-        assert_eq!(map_color(None, 1), 7);
-        assert_eq!(map_color(None, 2), 5);
-        assert_eq!(map_color(None, 9), 8);
-        assert_eq!(map_color(None, 108), 108);
+    fn color_table_falls_back_without_palette() {
+        let none = ColorTable::new(None);
+        assert_eq!(none.aci(1), 7);
+        assert_eq!(none.aci(2), 5);
+        assert_eq!(none.aci(9), 8);
+        assert_eq!(none.aci(108), 108);
 
         // Same when a palette exists but does not define that number:
         // pen color 0 is the background and 117 is past the SXF standard colors.
@@ -2246,8 +2295,81 @@ mod tests {
             pen_colors: [0x00FF_FFFF; 10],
             sxf_colors: Some([0; 16]),
         };
-        assert_eq!(map_color(Some(&palette), 0), 1);
-        assert_eq!(map_color(Some(&palette), 117), 117);
+        let colors = ColorTable::new(Some(&palette));
+        assert_eq!(colors.aci(0), 1);
+        assert_eq!(colors.aci(117), 117);
+
+        // A file below version 420 carries pen colors but no SXF palette,
+        // so the SXF numbers fall back even though a palette was read.
+        let no_sxf = JwwPalette {
+            pen_colors: [0x00FF_FFFF; 10],
+            sxf_colors: None,
+        };
+        let colors = ColorTable::new(Some(&no_sxf));
+        assert_eq!(colors.aci(105), 105);
+        assert_eq!(colors.aci(116), 116);
+    }
+
+    #[test]
+    fn color_table_matches_resolving_on_demand() {
+        let palettes = [
+            None,
+            Some(JwwPalette {
+                pen_colors: [0; 10],
+                sxf_colors: None,
+            }),
+            Some(JwwPalette {
+                pen_colors: [0x00FF_FFFF; 10],
+                sxf_colors: Some([0; 16]),
+            }),
+            Some(JwwPalette {
+                pen_colors: [
+                    0,
+                    0x00C0_C000,
+                    0x0000_00FF,
+                    0x0000_C000,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0x00C0_C0C0,
+                ],
+                sxf_colors: Some([
+                    0x0000_0000,
+                    0x0000_00FF,
+                    0x0000_8000,
+                    0x0000_FF00,
+                    0x0000_FFFF,
+                    0x00FF_0000,
+                    0x00FF_00FF,
+                    0x00FF_FFFF,
+                    0x0000_0080,
+                    0x0000_4080,
+                    0x0080_8000,
+                    0x0080_0000,
+                    0x0080_0080,
+                    0x0000_8080,
+                    0x00C0_C0C0,
+                    0x0080_8080,
+                ]),
+            }),
+        ];
+
+        for palette in &palettes {
+            let colors = ColorTable::new(palette.as_ref());
+            for pen_color in 0u16..=1000 {
+                let expected = match palette.as_ref().and_then(|p| p.screen_color(pen_color)) {
+                    Some(rgb) => rgb_to_aci(rgb),
+                    None => map_color_fallback(pen_color),
+                };
+                assert_eq!(
+                    colors.aci(pen_color),
+                    expected,
+                    "pen color {pen_color} disagrees with an on demand lookup"
+                );
+            }
+        }
     }
 
     #[test]
