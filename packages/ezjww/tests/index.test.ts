@@ -24,6 +24,10 @@ describe("ezjww wasm wrapper", () => {
 
     expect(header.version).toBe(600);
     expect(header.layer_groups).toHaveLength(16);
+    expect(header.palette?.pen_colors).toHaveLength(10);
+    expect(header.palette?.extended_colors).toHaveLength(257);
+    expect(header.palette?.extended_colors?.[1]).toBe(0x000000);
+    expect(header.palette?.extended_colors?.[2]).toBe(0x0000ff);
   });
 
   it("parses a JWW document with metadata fields", () => {

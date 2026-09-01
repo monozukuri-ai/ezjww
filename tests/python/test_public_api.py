@@ -43,6 +43,18 @@ class PublicApiTests(unittest.TestCase):
         self.assertIsInstance(document["diagnostics"], list)
         self.assertEqual(document["metadata_settings"], [])
 
+    def test_read_header_exposes_the_complete_screen_palette(self):
+        header = ezjww.read_header(str(sample_path()))
+        palette = header["palette"]
+        self.assertIsNotNone(palette)
+        assert palette is not None
+        self.assertEqual(len(palette["pen_colors"]), 10)
+        self.assertIsNotNone(palette["extended_colors"])
+        assert palette["extended_colors"] is not None
+        self.assertEqual(len(palette["extended_colors"]), 257)
+        self.assertEqual(palette["extended_colors"][1], 0x000000)
+        self.assertEqual(palette["extended_colors"][2], 0x0000FF)
+
     def test_internal_settings_are_exposed_but_not_converted_to_dxf_text(self):
         path = ROOT / "jww_samples" / "block_regressions" / "non_block.jww"
 

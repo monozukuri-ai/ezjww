@@ -27,17 +27,20 @@ pub struct LayerGroupHeader {
 }
 
 /// Screen colors recorded in the JWW header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct JwwPalette {
-    /// Screen color for pen color numbers 0..=9, as a Win32 COLORREF (0x00BBGGRR).
+    /// Screen color for pen color numbers 0..=9, normalized to `0x00BBGGRR`.
     ///
     /// Index 0 is the screen background rather than a pen:
     /// it is white on files saved with a white background and black on the rest.
     /// Index 9 is the construction line color. Only 1..=8 are real pen colors.
     pub pen_colors: [u32; 10],
-    /// Screen color for the SXF extended pen colors (numbers 101..=116).
-    /// `None` before JWW version 420, which does not store them.
-    pub sxf_colors: Option<[u32; 16]>,
+    /// Screen colors for extended pen color numbers 100..=356, normalized to
+    /// `0x00BBGGRR`. Number 100 is a spare, 101..=116 are the SXF standard
+    /// colors, and 117..=356 are user-defined colors.
+    ///
+    /// `None` before JWW version 420, which does not store the extended palette.
+    pub extended_colors: Option<Box<[u32]>>,
 }
 
 impl JwwPalette {
@@ -48,7 +51,10 @@ impl JwwPalette {
     pub fn screen_color(&self, pen_color: u16) -> Option<u32> {
         match pen_color {
             1..=9 => Some(self.pen_colors[pen_color as usize]),
-            101..=116 => self.sxf_colors.map(|c| c[(pen_color - 101) as usize]),
+            100..=356 => self
+                .extended_colors
+                .as_ref()
+                .and_then(|colors| colors.get((pen_color - 100) as usize).copied()),
             _ => None,
         }
     }
@@ -166,11 +172,11 @@ fn parse_palette(reader: &mut Reader<'_>, version: u32) -> Result<JwwPalette, Jw
     // Screen color and pen width per pen color number.
     let mut pen_colors = [0u32; 10];
     for color in &mut pen_colors {
-        *color = reader.read_u32()?;
+        *color = normalize_colorref(reader.read_u32()?);
         let _pen_width = reader.read_u32()?;
     }
 
-    let sxf_colors = if version >= 420 {
+    let extended_colors = if version >= 420 {
         reader.skip(
             160          // printer color, width, dot radius per pen: 10 x (u32*2 + f64)
             + 128        // line type patterns 2-9: 8 x u32*4
@@ -183,13 +189,11 @@ fn parse_palette(reader: &mut Reader<'_>, version: u32) -> Result<JwwPalette, Jw
             + 8, // arbitrary solid color flag and its default value
         )?;
         // The file stores 257 entries for pen color numbers 100..=356.
-        // Number 100 is a spare that duplicates black and carries no color name;
-        // the SXF standard colors are 101..=116 ("black" through "darkgray"),
-        // and everything above that is user defined.
-        let _spare = (reader.read_u32()?, reader.read_u32()?);
-        let mut colors = [0u32; 16];
-        for color in &mut colors {
-            *color = reader.read_u32()?;
+        // Number 100 is a spare that duplicates black and carries no color name,
+        // 101..=116 are the SXF standard colors, and 117..=356 are user defined.
+        let mut colors = vec![0u32; 257].into_boxed_slice();
+        for color in colors.iter_mut() {
+            *color = normalize_colorref(reader.read_u32()?);
             let _pen_width = reader.read_u32()?;
         }
         Some(colors)
@@ -199,8 +203,15 @@ fn parse_palette(reader: &mut Reader<'_>, version: u32) -> Result<JwwPalette, Jw
 
     Ok(JwwPalette {
         pen_colors,
-        sxf_colors,
+        extended_colors,
     })
+}
+
+/// Jw_cad may set the Win32 `PALETTERGB` marker (`0x02` in the high byte).
+/// The low three bytes still contain the COLORREF components, so the semantic
+/// palette model strips the GDI marker and exposes a stable `0x00BBGGRR` value.
+const fn normalize_colorref(color: u32) -> u32 {
+    color & 0x00FF_FFFF
 }
 
 fn parse_layer_names(
@@ -274,7 +285,10 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use super::{is_jww_signature, parse_header, read_header_from_file, JwwError, JwwPalette};
+    use super::{
+        is_jww_signature, normalize_colorref, parse_header, read_header_from_file, JwwError,
+        JwwPalette,
+    };
 
     fn jww_samples_dir() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../jww_samples")
@@ -309,41 +323,65 @@ mod tests {
             ]
         );
 
-        // The SXF standard colors run 101..=116, so index 0 is pen color 101.
-        let sxf = palette.sxf_colors.expect("sxf palette");
-        assert_eq!(sxf[0], 0x0000_0000); // 101 = black
-        assert_eq!(sxf[1], 0x0000_00FF); // 102 = red
-        assert_eq!(sxf[4], 0x0000_FFFF); // 105 = yellow
-        assert_eq!(sxf[7], 0x00FF_FFFF); // 108 = white
-        assert_eq!(sxf[14], 0x00C0_C0C0); // 115 = lightgray
-        assert_eq!(sxf[15], 0x0080_8080); // 116 = darkgray, the last standard color
+        // The extended palette starts at pen color 100. The SXF standard colors
+        // occupy 101..=116, followed by user-defined colors through 356.
+        let extended = palette.extended_colors.expect("extended palette");
+        assert_eq!(extended[0], 0x0000_0000); // 100 = spare
+        assert_eq!(extended[1], 0x0000_0000); // 101 = black
+        assert_eq!(extended[2], 0x0000_00FF); // 102 = red
+        assert_eq!(extended[5], 0x0000_FFFF); // 105 = yellow
+        assert_eq!(extended[8], 0x00FF_FFFF); // 108 = white
+        assert_eq!(extended[15], 0x00C0_C0C0); // 115 = lightgray
+        assert_eq!(extended[16], 0x0080_8080); // 116 = darkgray
+        assert_eq!(extended[17], 0x00C0_C0C0); // 117 = first user-defined color
+        assert_eq!(extended.len(), 257);
     }
 
     #[test]
-    fn palette_lookup_covers_basic_and_sxf_numbers() {
+    fn palette_lookup_covers_basic_and_all_extended_numbers() {
         let palette = JwwPalette {
             pen_colors: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-            sxf_colors: Some([101, 102, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 116]),
+            extended_colors: Some((100u32..=356).collect::<Vec<_>>().into_boxed_slice()),
         };
         assert_eq!(palette.screen_color(3), Some(3));
         assert_eq!(palette.screen_color(9), Some(9));
+        assert_eq!(palette.screen_color(100), Some(100));
         assert_eq!(palette.screen_color(101), Some(101));
         assert_eq!(palette.screen_color(102), Some(102));
         assert_eq!(palette.screen_color(116), Some(116));
+        assert_eq!(palette.screen_color(117), Some(117));
+        assert_eq!(palette.screen_color(257), Some(257));
+        assert_eq!(palette.screen_color(356), Some(356));
 
         // Pen color 0 is the background, not a pen.
         assert_eq!(palette.screen_color(0), None);
         // Numbers outside both ranges.
         assert_eq!(palette.screen_color(10), None);
-        assert_eq!(palette.screen_color(100), None);
-        assert_eq!(palette.screen_color(117), None);
+        assert_eq!(palette.screen_color(99), None);
+        assert_eq!(palette.screen_color(357), None);
 
         // Files below version 420 carry no SXF extended colors.
-        let no_sxf = JwwPalette {
-            sxf_colors: None,
+        let no_extended = JwwPalette {
+            extended_colors: None,
             ..palette
         };
-        assert_eq!(no_sxf.screen_color(102), None);
+        assert_eq!(no_extended.screen_color(102), None);
+        assert_eq!(no_extended.screen_color(257), None);
+
+        // A manually constructed public value with an invalid length remains
+        // safe to query, even though parsed version-420 files always hold 257 entries.
+        let truncated = JwwPalette {
+            extended_colors: Some(vec![100].into_boxed_slice()),
+            ..no_extended
+        };
+        assert_eq!(truncated.screen_color(100), Some(100));
+        assert_eq!(truncated.screen_color(101), None);
+    }
+
+    #[test]
+    fn colorref_normalization_strips_the_palettergb_marker() {
+        assert_eq!(normalize_colorref(0x02BF_00FF), 0x00BF_00FF);
+        assert_eq!(normalize_colorref(0x00C0_C000), 0x00C0_C000);
     }
 
     #[test]

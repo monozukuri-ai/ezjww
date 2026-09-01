@@ -15,12 +15,18 @@ export interface LayerGroupHeader {
   layers: LayerHeader[];
 }
 
+export interface JwwPalette {
+  pen_colors: number[];
+  extended_colors: number[] | null;
+}
+
 export interface JwwHeader {
   version: number;
   memo: string;
   paper_size: number;
   write_layer_group: number;
   layer_groups: LayerGroupHeader[];
+  palette: JwwPalette | null;
 }
 
 export interface EntityBase {

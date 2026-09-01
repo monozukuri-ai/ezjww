@@ -138,9 +138,12 @@ class PlotHelperTests(unittest.TestCase):
     def test_aci_to_color(self):
         self.assertEqual(PLOT._aci_to_color(1), "#ff0000")
         self.assertEqual(PLOT._aci_to_color(7), "#000000")
-        fallback = PLOT._aci_to_color(200)
-        self.assertIsInstance(fallback, tuple)
-        self.assertEqual(len(fallback), 3)
+        self.assertEqual(PLOT._aci_to_color(12), "#a60000")
+        self.assertEqual(PLOT._aci_to_color(65), "#708040")
+        self.assertEqual(PLOT._aci_to_color(132), "#00a6a6")
+        self.assertEqual(PLOT._aci_to_color(250), "#545454")
+        self.assertEqual(PLOT._aci_to_color(255), "#ffffff")
+        self.assertEqual(PLOT._aci_to_color(256), "#000000")
 
 
 if __name__ == "__main__":

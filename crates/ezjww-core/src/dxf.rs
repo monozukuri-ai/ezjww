@@ -1928,14 +1928,16 @@ fn layer_name(layer_names: &HashMap<(u16, u16), String>, layer_group: u16, layer
 
 /// The DXF color number (ACI) of every JWW pen color number a document can use.
 ///
-/// A drawing paints from 25 pen colors but has an entity count in the hundreds of thousands,
-/// and resolving one COLORREF scans all 255 ACI values, so the answers are worked out once per document instead of once per entity.
+/// A drawing can reference hundreds of palette slots and contain hundreds of thousands of
+/// entities. Resolving one COLORREF scans all 255 ACI values, so the answers are worked out
+/// once per document instead of once per entity.
 struct ColorTable {
     /// ACI for pen color numbers 0..=9. Number 0 is the screen background, which no entity draws
     /// with and which `JwwPalette::screen_color` does not report, so slot 0 holds the fallback ACI; keeping it makes the lookup a plain index.
     basic: [i32; 10],
-    /// ACI for the SXF extended pen colors 101..=116, `None` when the file stores no SXF palette.
-    sxf: Option<[i32; 16]>,
+    /// ACI for extended pen colors 100..=356, `None` when the file stores no
+    /// extended palette.
+    extended: Option<Box<[i32]>>,
 }
 
 impl ColorTable {
@@ -1954,15 +1956,15 @@ impl ColorTable {
             *aci = resolve(pen_color as u16);
         }
 
-        let sxf = palette.and_then(|p| p.sxf_colors).map(|_| {
-            let mut table = [0; 16];
+        let extended = palette.and_then(|p| p.extended_colors.as_ref()).map(|_| {
+            let mut table = vec![0; 257].into_boxed_slice();
             for (offset, aci) in table.iter_mut().enumerate() {
-                *aci = resolve(101 + offset as u16);
+                *aci = resolve(100 + offset as u16);
             }
             table
         });
 
-        Self { basic, sxf }
+        Self { basic, extended }
     }
 
     /// ACI for a pen color number.
@@ -1973,9 +1975,9 @@ impl ColorTable {
     fn aci(&self, pen_color: u16) -> i32 {
         match pen_color {
             0..=9 => self.basic[pen_color as usize],
-            101..=116 => self.sxf.as_ref().map_or_else(
+            100..=356 => self.extended.as_ref().map_or_else(
                 || map_color_fallback(pen_color),
-                |t| t[(pen_color - 101) as usize],
+                |table| table[(pen_color - 100) as usize],
             ),
             _ => map_color_fallback(pen_color),
         }
@@ -2227,7 +2229,7 @@ mod tests {
         for (color, tolerance) in cases {
             let palette = JwwPalette {
                 pen_colors: [color; 10],
-                sxf_colors: None,
+                extended_colors: None,
             };
             let aci = ColorTable::new(Some(&palette)).aci(1);
             let (r, g, b) = aci_rgb(aci);
@@ -2251,7 +2253,7 @@ mod tests {
         let ink = |color: u32| {
             let palette = JwwPalette {
                 pen_colors: [color; 10],
-                sxf_colors: None,
+                extended_colors: None,
             };
             ColorTable::new(Some(&palette)).aci(1)
         };
@@ -2264,21 +2266,25 @@ mod tests {
     }
 
     #[test]
-    fn sxf_colors_map_through_palette() {
-        let mut sxf = [0u32; 16];
-        sxf[1] = 0x0000_00FF; // 102 = red
-        sxf[4] = 0x0000_FFFF; // 105 = yellow
-        sxf[7] = 0x00FF_FFFF; // 108 = white
-        sxf[15] = 0x0080_8080; // 116 = darkgray, the last standard color
+    fn all_extended_colors_map_through_palette() {
+        let mut extended = vec![0u32; 257].into_boxed_slice();
+        extended[2] = 0x0000_00FF; // 102 = red
+        extended[5] = 0x0000_FFFF; // 105 = yellow
+        extended[8] = 0x00FF_FFFF; // 108 = white
+        extended[16] = 0x0080_8080; // 116 = darkgray, the last standard color
+        extended[17] = 0x0000_00C0; // 117 = user-defined dark red
+        extended[157] = 0x00BF_00FF; // 257 = user-defined #FF00BF
         let palette = JwwPalette {
             pen_colors: [0; 10],
-            sxf_colors: Some(sxf),
+            extended_colors: Some(extended),
         };
         let colors = ColorTable::new(Some(&palette));
         assert_eq!(aci_rgb(colors.aci(102)), (0xFF, 0x00, 0x00));
         assert_eq!(aci_rgb(colors.aci(105)), (0xFF, 0xFF, 0x00));
         assert_eq!(colors.aci(108), 7); // white becomes black ink
         assert_eq!(aci_rgb(colors.aci(116)), (0x80, 0x80, 0x80));
+        assert_eq!(colors.aci(117), 12);
+        assert_eq!(colors.aci(257), 220);
     }
 
     #[test]
@@ -2290,24 +2296,25 @@ mod tests {
         assert_eq!(none.aci(108), 108);
 
         // Same when a palette exists but does not define that number:
-        // pen color 0 is the background and 117 is past the SXF standard colors.
+        // pen color 0 is the background and 357 is past the extended palette.
         let palette = JwwPalette {
             pen_colors: [0x00FF_FFFF; 10],
-            sxf_colors: Some([0; 16]),
+            extended_colors: Some(vec![0; 257].into_boxed_slice()),
         };
         let colors = ColorTable::new(Some(&palette));
         assert_eq!(colors.aci(0), 1);
-        assert_eq!(colors.aci(117), 117);
+        assert_eq!(colors.aci(357), 102);
 
         // A file below version 420 carries pen colors but no SXF palette,
         // so the SXF numbers fall back even though a palette was read.
-        let no_sxf = JwwPalette {
+        let no_extended = JwwPalette {
             pen_colors: [0x00FF_FFFF; 10],
-            sxf_colors: None,
+            extended_colors: None,
         };
-        let colors = ColorTable::new(Some(&no_sxf));
+        let colors = ColorTable::new(Some(&no_extended));
         assert_eq!(colors.aci(105), 105);
         assert_eq!(colors.aci(116), 116);
+        assert_eq!(colors.aci(257), 2);
     }
 
     #[test]
@@ -2316,11 +2323,11 @@ mod tests {
             None,
             Some(JwwPalette {
                 pen_colors: [0; 10],
-                sxf_colors: None,
+                extended_colors: None,
             }),
             Some(JwwPalette {
                 pen_colors: [0x00FF_FFFF; 10],
-                sxf_colors: Some([0; 16]),
+                extended_colors: Some(vec![0; 257].into_boxed_slice()),
             }),
             Some(JwwPalette {
                 pen_colors: [
@@ -2335,24 +2342,30 @@ mod tests {
                     0,
                     0x00C0_C0C0,
                 ],
-                sxf_colors: Some([
-                    0x0000_0000,
-                    0x0000_00FF,
-                    0x0000_8000,
-                    0x0000_FF00,
-                    0x0000_FFFF,
-                    0x00FF_0000,
-                    0x00FF_00FF,
-                    0x00FF_FFFF,
-                    0x0000_0080,
-                    0x0000_4080,
-                    0x0080_8000,
-                    0x0080_0000,
-                    0x0080_0080,
-                    0x0000_8080,
-                    0x00C0_C0C0,
-                    0x0080_8080,
-                ]),
+                extended_colors: Some({
+                    let mut colors = vec![0; 257].into_boxed_slice();
+                    colors[1..=16].copy_from_slice(&[
+                        0x0000_0000,
+                        0x0000_00FF,
+                        0x0000_8000,
+                        0x0000_FF00,
+                        0x0000_FFFF,
+                        0x00FF_0000,
+                        0x00FF_00FF,
+                        0x00FF_FFFF,
+                        0x0000_0080,
+                        0x0000_4080,
+                        0x0080_8000,
+                        0x0080_0000,
+                        0x0080_0080,
+                        0x0000_8080,
+                        0x00C0_C0C0,
+                        0x0080_8080,
+                    ]);
+                    colors[17] = 0x0000_00C0;
+                    colors[157] = 0x00BF_00FF;
+                    colors
+                }),
             }),
         ];
 
