@@ -40,11 +40,47 @@ def _aci_to_color(aci: int) -> Any:
     }
     if aci in mapping:
         return mapping[aci]
-    if aci <= 0 or aci == 256:
-        return "#000000"
-    hue = (aci % 255) / 255.0
-    # fallback color generation for extended ACI indexes
-    return (hue, 0.7, 0.9)
+
+    # Keep this generated AutoCAD Color Index palette in step with
+    # `crates/ezjww-core/src/dxf.rs::aci_rgb`.
+    if 10 <= aci <= 249:
+        levels = (1.0, 0.65, 0.5, 0.3, 0.15)
+        group, shade = divmod(aci - 10, 10)
+        high = levels[shade // 2]
+        low = high / 2.0 if shade % 2 else 0.0
+        step = (group % 4) / 4.0
+        rise = low + (high - low) * step
+        fall = high - (high - low) * step
+        sector = group // 4
+        if sector == 0:
+            red, green, blue = high, rise, low
+        elif sector == 1:
+            red, green, blue = fall, high, low
+        elif sector == 2:
+            red, green, blue = low, high, rise
+        elif sector == 3:
+            red, green, blue = low, fall, high
+        elif sector == 4:
+            red, green, blue = rise, low, high
+        else:
+            red, green, blue = high, low, fall
+
+        # Rust's positive `f64::round` rounds a half away from zero.
+        def quantize(value: float) -> int:
+            return int(value * 255.0 + 0.5)
+
+        return "#{:02x}{:02x}{:02x}".format(
+            quantize(red),
+            quantize(green),
+            quantize(blue),
+        )
+
+    gray = (0x54, 0x76, 0x98, 0xBB, 0xDD, 0xFF)
+    if 250 <= aci <= 255:
+        value = gray[aci - 250]
+        return f"#{value:02x}{value:02x}{value:02x}"
+
+    return "#000000"
 
 
 def _entity_color(aci: int, *, monochrome: bool) -> Any:

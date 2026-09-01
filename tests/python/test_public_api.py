@@ -43,6 +43,18 @@ class PublicApiTests(unittest.TestCase):
         self.assertIsInstance(document["diagnostics"], list)
         self.assertEqual(document["metadata_settings"], [])
 
+    def test_read_header_exposes_the_complete_screen_palette(self):
+        header = ezjww.read_header(str(sample_path()))
+        palette = header["palette"]
+        self.assertIsNotNone(palette)
+        assert palette is not None
+        self.assertEqual(len(palette["pen_colors"]), 10)
+        self.assertIsNotNone(palette["extended_colors"])
+        assert palette["extended_colors"] is not None
+        self.assertEqual(len(palette["extended_colors"]), 257)
+        self.assertEqual(palette["extended_colors"][1], 0x000000)
+        self.assertEqual(palette["extended_colors"][2], 0x0000FF)
+
     def test_internal_settings_are_exposed_but_not_converted_to_dxf_text(self):
         path = ROOT / "jww_samples" / "block_regressions" / "non_block.jww"
 
@@ -119,11 +131,16 @@ class PublicApiTests(unittest.TestCase):
     def test_modelspace_query_selector_filters(self):
         drawing = ezjww.readfile(sample_path())
         msp = drawing.modelspace()
-        with_filters = msp.query('LINE[layer=="#lv4", color==5]')
+        # Pen colors resolve through the screen color palette in the file header,
+        # and the black ink this sample draws with lands on ACI 7.
+        with_filters = msp.query('LINE[layer=="#lv4", color==7]')
         self.assertGreater(len(with_filters), 0)
         self.assertTrue(all(e.get("type") == "LINE" for e in with_filters))
         self.assertTrue(all(e.get("layer") == "#lv4" for e in with_filters))
-        self.assertTrue(all(e.get("color") == 5 for e in with_filters))
+        self.assertTrue(all(e.get("color") == 7 for e in with_filters))
+
+        # The color predicate is really applied: the layer carries no red line.
+        self.assertEqual(len(msp.query('LINE[layer=="#lv4", color==1]')), 0)
 
         all_on_layer = msp.query('[layer=="#lv4"]')
         self.assertGreaterEqual(len(all_on_layer), len(with_filters))

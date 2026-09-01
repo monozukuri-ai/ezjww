@@ -16,12 +16,18 @@ class LayerGroupHeader(TypedDict):
     layers: list[LayerHeader]
 
 
+class JwwPalette(TypedDict):
+    pen_colors: list[int]
+    extended_colors: list[int] | None
+
+
 class JwwHeader(TypedDict):
     version: int
     memo: str
     paper_size: int
     write_layer_group: int
     layer_groups: list[LayerGroupHeader]
+    palette: JwwPalette | None
 
 
 class EntityBase(TypedDict):

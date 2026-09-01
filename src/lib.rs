@@ -16,8 +16,8 @@ pub use ezjww_core::{
     ConvertOptions, Coord2D, DecodeDiagnostic, DiagnosticDetails, Dimension, DxfArc, DxfBlock,
     DxfCircle, DxfDocument, DxfDocumentDto, DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert,
     DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, Entity,
-    EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader, LayerGroupHeader, LayerHeader,
-    Line, MetadataSetting, Point, Solid, Text,
+    EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader, JwwPalette, LayerGroupHeader,
+    LayerHeader, Line, MetadataSetting, Point, Solid, Text,
 };
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -271,6 +271,19 @@ fn header_to_pydict<'py>(py: Python<'py>, header: &JwwHeader) -> PyResult<Bound<
     out.set_item("memo", &header.memo)?;
     out.set_item("paper_size", header.paper_size)?;
     out.set_item("write_layer_group", header.write_layer_group)?;
+
+    if let Some(palette) = &header.palette {
+        let palette_dict = PyDict::new_bound(py);
+        palette_dict.set_item("pen_colors", palette.pen_colors.to_vec())?;
+        if let Some(colors) = &palette.extended_colors {
+            palette_dict.set_item("extended_colors", colors.to_vec())?;
+        } else {
+            palette_dict.set_item("extended_colors", py.None())?;
+        }
+        out.set_item("palette", palette_dict)?;
+    } else {
+        out.set_item("palette", py.None())?;
+    }
 
     let layer_groups = PyList::empty_bound(py);
     for group in &header.layer_groups {
