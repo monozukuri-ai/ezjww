@@ -219,5 +219,3 @@ jobs:
         if: steps.npm-version.outputs.published != 'true'
         run: npm publish
         working-directory: packages/ezjww
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
