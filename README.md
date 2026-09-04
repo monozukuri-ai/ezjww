@@ -93,6 +93,12 @@ full = report("sample.jww", explode_inserts=True)
 flat = drawing.to_dxf(explode_inserts=True, max_block_nesting=32)
 flat_count = len(flat["entities"])
 # max_block_nesting must be >= 1
+
+# JWW pitches text by its own character cells, so every TEXT carries a DXF width factor (group 41) that reproduces the width Jw_cad recorded for it.
+# text_em_scale states how large an em box the target renderer draws per unit of text height: the DXF text height (group 40) is pre-divided so the drawn glyphs land back on 文字高さ.
+# It must be a positive finite number, and it only affects that height -- audit/bbox/stats read back the same numbers whatever it is set to.
+scaled = drawing.to_dxf(text_em_scale=1.364)
+write_dxf("sample.jww", "sample.dxf", text_em_scale=1.364)
 ```
 
 ## CLI
@@ -123,6 +129,9 @@ ezjww to-dxf jww_samples/Test1.jww -o /tmp/Test1.dxf --report json
 
 # convert one file with INSERT expansion
 ezjww to-dxf jww_samples/Test1.jww -o /tmp/Test1.dxf --explode-inserts
+
+# convert one file for a renderer that substitutes a larger CJK face
+ezjww to-dxf jww_samples/Test1.jww -o /tmp/Test1.dxf --text-em-scale 1.364
 
 # convert directory (recursive)
 ezjww to-dxf-dir jww_samples -o /tmp/dxf_out -r

@@ -94,35 +94,50 @@ fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
     Ok(out.unbind().into())
 }
 
-#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32))]
+/// Conversion options for the four DXF entry points, rejecting a scale that cannot divide a text height.
+/// Without the check a caller gets unusable geometry instead of an error, and `Drawing`'s DXF cache -- keyed on this value -- would miss a NaN key forever.
+fn convert_options(
+    explode_inserts: bool,
+    max_block_nesting: usize,
+    text_em_scale: f64,
+) -> PyResult<ConvertOptions> {
+    if !text_em_scale.is_finite() || text_em_scale <= 0.0 {
+        return Err(PyValueError::new_err(
+            "text_em_scale must be a positive finite number",
+        ));
+    }
+    Ok(ConvertOptions {
+        explode_inserts,
+        max_block_nesting,
+        text_em_scale,
+    })
+}
+
+#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, text_em_scale=1.0))]
 fn read_dxf_document(
     py: Python<'_>,
     path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
+    text_em_scale: f64,
 ) -> PyResult<PyObject> {
+    let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
     let document = read_document_from_file(path).map_err(to_py_err)?;
-    let options = ConvertOptions {
-        explode_inserts,
-        max_block_nesting,
-    };
     let dxf_document = convert_document_with_options(&document, options);
     Ok(dxf_document_to_pydict(py, &dxf_document)?.unbind().into())
 }
 
-#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, target_version="AC1015"))]
+#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0))]
 fn read_dxf_string(
     path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
     target_version: &str,
+    text_em_scale: f64,
 ) -> PyResult<String> {
     let target_version = parse_dxf_target_version(target_version)?;
+    let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
     let document = read_document_from_file(path).map_err(to_py_err)?;
-    let options = ConvertOptions {
-        explode_inserts,
-        max_block_nesting,
-    };
     let dxf_document = convert_document_with_options(&document, options);
     Ok(document_to_string_with_version(
         &dxf_document,
@@ -130,27 +145,25 @@ fn read_dxf_string(
     ))
 }
 
-#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015"))]
+#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0))]
 fn write_dxf(
     path: &str,
     output_path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
     target_version: &str,
+    text_em_scale: f64,
 ) -> PyResult<()> {
     let target_version = parse_dxf_target_version(target_version)?;
+    let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
     let document = read_document_from_file(path).map_err(to_py_err)?;
-    let options = ConvertOptions {
-        explode_inserts,
-        max_block_nesting,
-    };
     let dxf_document = convert_document_with_options(&document, options);
     write_document_to_file_with_version(&dxf_document, output_path, target_version)
         .map_err(|err| PyIOError::new_err(err.to_string()))?;
     Ok(())
 }
 
-#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015"))]
+#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0))]
 fn write_dxf_with_report(
     py: Python<'_>,
     path: &str,
@@ -158,15 +171,13 @@ fn write_dxf_with_report(
     explode_inserts: bool,
     max_block_nesting: usize,
     target_version: &str,
+    text_em_scale: f64,
 ) -> PyResult<PyObject> {
     let target_version = parse_dxf_target_version(target_version)?;
+    let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
     let parsed = read_document_from_file_with_diagnostics(path).map_err(to_py_err)?;
     let document = &parsed.document;
     let validation = validate_block_references(document);
-    let options = ConvertOptions {
-        explode_inserts,
-        max_block_nesting,
-    };
     let dxf_document = convert_document_with_options(document, options);
     write_document_to_file_with_version(&dxf_document, output_path, target_version)
         .map_err(|err| PyIOError::new_err(err.to_string()))?;
@@ -584,6 +595,7 @@ fn dxf_entity_to_pydict<'py>(py: Python<'py>, entity: &DxfEntity) -> PyResult<Bo
             out.set_item("end_x", v.end_x)?;
             out.set_item("end_y", v.end_y)?;
             out.set_item("height", v.height)?;
+            out.set_item("width_factor", v.width_factor)?;
             out.set_item("rotation", v.rotation)?;
             out.set_item("content", &v.content)?;
             out.set_item("style", &v.style)?;

@@ -234,6 +234,7 @@ class DxfEntity(TypedDict, total=False):
     end_x: float
     end_y: float
     height: float
+    width_factor: float
     rotation: float
     content: str
     style: str
@@ -269,12 +270,14 @@ def read_dxf_document(
     path: str,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    text_em_scale: float = 1.0,
 ) -> DxfDocument: ...
 def read_dxf_string(
     path: str,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
 ) -> str: ...
 def write_dxf(
     path: str,
@@ -282,6 +285,7 @@ def write_dxf(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
 ) -> None: ...
 def write_dxf_with_report(
     path: str,
@@ -289,4 +293,5 @@ def write_dxf_with_report(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
 ) -> DxfWriteReport: ...

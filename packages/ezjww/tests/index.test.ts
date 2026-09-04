@@ -81,4 +81,30 @@ describe("ezjww wasm wrapper", () => {
       "maxBlockNesting must be an integer >= 1",
     );
   });
+
+  it("rejects a text scale that cannot divide the height", () => {
+    for (const textEmScale of [0, -1, Number.NaN]) {
+      expect(() => readDxfDocument(sample, { textEmScale })).toThrow(
+        "textEmScale must be a positive finite number",
+      );
+    }
+  });
+
+  it("scales only the DXF text height for a substituting renderer", () => {
+    // group 41 carries the JWW pitch; only group 40 may move.
+    const inflating = 1.364;
+    const texts = (document: ReturnType<typeof readDxfDocument>) =>
+      document.entities.filter((entity) => entity.type === "TEXT");
+
+    const spec = texts(readDxfDocument(sample));
+    const scaled = texts(readDxfDocument(sample, { textEmScale: inflating }));
+
+    expect(spec.length).toBeGreaterThan(0);
+    expect(scaled.length).toBe(spec.length);
+    spec.forEach((plain, index) => {
+      const corrected = scaled[index];
+      expect(corrected.width_factor).toBeCloseTo(plain.width_factor!, 12);
+      expect(corrected.height).toBeCloseTo(plain.height! / inflating, 12);
+    });
+  });
 });

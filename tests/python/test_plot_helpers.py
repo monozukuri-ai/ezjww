@@ -106,6 +106,29 @@ class PlotHelperTests(unittest.TestCase):
             (3.0, 4.0, "left", "bottom"),
         )
 
+    def test_text_em_height_undoes_a_renderer_specific_group_40(self):
+        # Group 40 pre-divided for an inflating renderer has to read back as 文字高さ 3.
+        self.assertAlmostEqual(PLOT._text_em_height({"height": 3.0 / 1.364}, 1.364), 3.0)
+        # A spec-conforming document is left alone.
+        self.assertAlmostEqual(PLOT._text_em_height({"height": 3.0}, 1.0), 3.0)
+        self.assertAlmostEqual(PLOT._text_em_height({}, 1.0), 2.5)
+
+    def test_text_em_height_ignores_the_width_factor(self):
+        entity = {
+            "x": 0.0,
+            "y": 0.0,
+            "end_x": 40.0,
+            "end_y": 0.0,
+            "content": "A",
+            "height": 3.0,
+            "width_factor": 20.0,
+        }
+        self.assertAlmostEqual(PLOT._text_em_height(entity, 1.0), 3.0)
+
+    def test_text_em_height_survives_an_unusable_scale(self):
+        for scale in (float("nan"), float("inf"), None):
+            self.assertAlmostEqual(PLOT._text_em_height({"height": 2.0}, scale), 2.0, msg=scale)
+
     @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is required for rendering tests")
     def test_axes_are_hidden_by_default(self):
         import matplotlib

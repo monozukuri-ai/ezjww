@@ -109,9 +109,9 @@ class Drawing:
     ) -> None:
         self._source_path = source_path
         self._jww_document = jww_document
-        self._dxf_cache: dict[tuple[bool, int], dict[str, Any]] = {}
+        self._dxf_cache: dict[tuple[bool, int, float], dict[str, Any]] = {}
         if dxf_document is not None:
-            self._dxf_cache[(False, 32)] = dxf_document
+            self._dxf_cache[(False, 32, 1.0)] = dxf_document
 
     @classmethod
     def from_file(cls, path: str | Path) -> "Drawing":
@@ -151,9 +151,11 @@ class Drawing:
         *,
         explode_inserts: bool = False,
         max_block_nesting: int = 32,
+        text_em_scale: float = 1.0,
     ) -> dict[str, Any]:
         nesting = _normalize_max_block_nesting(max_block_nesting)
-        key = (bool(explode_inserts), nesting)
+        scale = _normalize_text_em_scale(text_em_scale)
+        key = (bool(explode_inserts), nesting, scale)
         if key not in self._dxf_cache:
             if self._source_path is None:
                 self._dxf_cache[key] = {
@@ -167,6 +169,7 @@ class Drawing:
                     self._source_path,
                     explode_inserts,
                     nesting,
+                    scale,
                 )
         return self._dxf_cache[key]
 
@@ -175,11 +178,13 @@ class Drawing:
         *,
         explode_inserts: bool = False,
         max_block_nesting: int = 32,
+        text_em_scale: float = 1.0,
     ) -> Modelspace:
         return Modelspace(
             self.to_dxf(
                 explode_inserts=explode_inserts,
                 max_block_nesting=max_block_nesting,
+                text_em_scale=text_em_scale,
             ).get("entities", [])
         )
 
@@ -336,17 +341,20 @@ class Drawing:
         explode_inserts: bool = False,
         max_block_nesting: int = 32,
         target_version: str = "AC1015",
+        text_em_scale: float = 1.0,
     ) -> str:
         if self._source_path is None:
             raise ValueError(
                 "to_dxf_string() requires a source-backed drawing. use readfile(path)."
             )
         nesting = _normalize_max_block_nesting(max_block_nesting)
+        scale = _normalize_text_em_scale(text_em_scale)
         return read_dxf_string(
             self._source_path,
             explode_inserts,
             nesting,
             target_version,
+            scale,
         )
 
     def saveas(
@@ -356,16 +364,19 @@ class Drawing:
         explode_inserts: bool = False,
         max_block_nesting: int = 32,
         target_version: str = "AC1015",
+        text_em_scale: float = 1.0,
     ) -> None:
         if self._source_path is None:
             raise ValueError("saveas() requires a source-backed drawing. use readfile(path).")
         nesting = _normalize_max_block_nesting(max_block_nesting)
+        scale = _normalize_text_em_scale(text_em_scale)
         write_dxf(
             self._source_path,
             str(output_path),
             explode_inserts,
             nesting,
             target_version,
+            scale,
         )
 
     def plot(
@@ -373,6 +384,7 @@ class Drawing:
         *,
         explode_inserts: bool = True,
         max_block_nesting: int = 32,
+        text_em_scale: float = 1.0,
         **kwargs: Any,
     ):
         nesting = _normalize_max_block_nesting(max_block_nesting)
@@ -380,7 +392,9 @@ class Drawing:
             self.to_dxf(
                 explode_inserts=explode_inserts,
                 max_block_nesting=nesting,
+                text_em_scale=text_em_scale,
             ),
+            text_em_scale=text_em_scale,
             **kwargs,
         )
 
@@ -440,13 +454,16 @@ def to_dxf_string(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
 ) -> str:
     nesting = _normalize_max_block_nesting(max_block_nesting)
+    scale = _normalize_text_em_scale(text_em_scale)
     return read_dxf_string(
         str(path),
         explode_inserts,
         nesting,
         target_version,
+        scale,
     )
 
 
@@ -575,6 +592,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=32,
         help="maximum block nesting depth for INSERT expansion",
     )
+    to_dxf.add_argument(
+        "--text-em-scale",
+        type=float,
+        default=1.0,
+        help="em box the target renderer draws per unit of text height",
+    )
 
     to_dxf_dir = subparsers.add_parser(
         "to-dxf-dir", help="convert all .jww files in a directory"
@@ -606,6 +629,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=32,
         help="maximum block nesting depth for INSERT expansion",
+    )
+    to_dxf_dir.add_argument(
+        "--text-em-scale",
+        type=float,
+        default=1.0,
+        help="em box the target renderer draws per unit of text height",
     )
 
     plot = subparsers.add_parser("plot", help="render JWW to image with matplotlib")
@@ -955,6 +984,13 @@ def _normalize_max_block_nesting(max_block_nesting: int) -> int:
     return value
 
 
+def _normalize_text_em_scale(text_em_scale: float) -> float:
+    value = float(text_em_scale)
+    if not math.isfinite(value) or value <= 0.0:
+        raise ValueError("text_em_scale must be a positive finite number")
+    return value
+
+
 def _parse_figsize(value: str) -> tuple[float, float]:
     parts = [part.strip() for part in value.lower().replace("x", ",").split(",")]
     if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -1158,6 +1194,7 @@ def _run(argv: list[str] | None = None) -> int:
         input_path = Path(args.path)
         try:
             max_block_nesting = _normalize_max_block_nesting(args.max_block_nesting)
+            text_em_scale = _normalize_text_em_scale(args.text_em_scale)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -1171,6 +1208,7 @@ def _run(argv: list[str] | None = None) -> int:
                 output,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
+                text_em_scale=text_em_scale,
             )
             print(f"wrote: {output}")
             exit_code = 0
@@ -1186,6 +1224,7 @@ def _run(argv: list[str] | None = None) -> int:
             "error": error,
             "explode_inserts": bool(args.explode_inserts),
             "max_block_nesting": int(max_block_nesting),
+            "text_em_scale": float(text_em_scale),
             "audit": (
                 drawing.audit(
                     explode_inserts=args.explode_inserts,
@@ -1263,6 +1302,7 @@ def _run(argv: list[str] | None = None) -> int:
     output_dir = Path(args.output_dir) if args.output_dir else input_dir
     try:
         max_block_nesting = _normalize_max_block_nesting(args.max_block_nesting)
+        text_em_scale = _normalize_text_em_scale(args.text_em_scale)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -1284,6 +1324,7 @@ def _run(argv: list[str] | None = None) -> int:
                 dst,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
+                text_em_scale=text_em_scale,
             )
             success += 1
             report_items.append(
@@ -1294,6 +1335,7 @@ def _run(argv: list[str] | None = None) -> int:
                     "error": None,
                     "explode_inserts": bool(args.explode_inserts),
                     "max_block_nesting": int(max_block_nesting),
+                    "text_em_scale": float(text_em_scale),
                     "audit": drawing.audit(
                         explode_inserts=args.explode_inserts,
                         max_block_nesting=max_block_nesting,
@@ -1312,6 +1354,7 @@ def _run(argv: list[str] | None = None) -> int:
                     "error": err_text,
                     "explode_inserts": bool(args.explode_inserts),
                     "max_block_nesting": int(max_block_nesting),
+                    "text_em_scale": float(text_em_scale),
                     "audit": None,
                 }
             )
@@ -1322,6 +1365,7 @@ def _run(argv: list[str] | None = None) -> int:
                     "recursive": bool(args.recursive),
                     "explode_inserts": bool(args.explode_inserts),
                     "max_block_nesting": int(max_block_nesting),
+                    "text_em_scale": float(text_em_scale),
                     "converted": success,
                     "failed": failed,
                     "items": report_items,
@@ -1336,6 +1380,7 @@ def _run(argv: list[str] | None = None) -> int:
         "recursive": bool(args.recursive),
         "explode_inserts": bool(args.explode_inserts),
         "max_block_nesting": int(max_block_nesting),
+        "text_em_scale": float(text_em_scale),
         "converted": success,
         "failed": failed,
         "items": report_items,
