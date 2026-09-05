@@ -33,8 +33,9 @@ pub fn read_dxf_document(
     data: &[u8],
     explode_inserts: bool,
     max_block_nesting: usize,
+    text_em_scale: f64,
 ) -> Result<JsValue, JsValue> {
-    let options = convert_options(explode_inserts, max_block_nesting)?;
+    let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
     let document = parse_document(data).map_err(to_js_error)?;
     let dxf_document = convert_document_with_options(&document, options);
     to_js_value(&dxf_document)
@@ -45,8 +46,9 @@ pub fn read_dxf_string(
     data: &[u8],
     explode_inserts: bool,
     max_block_nesting: usize,
+    text_em_scale: f64,
 ) -> Result<String, JsValue> {
-    let options = convert_options(explode_inserts, max_block_nesting)?;
+    let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
     let document = parse_document(data).map_err(to_js_error)?;
     let dxf_document = convert_document_with_options(&document, options);
     Ok(document_to_string(&dxf_document))
@@ -55,20 +57,26 @@ pub fn read_dxf_string(
 fn convert_options(
     explode_inserts: bool,
     max_block_nesting: usize,
+    text_em_scale: f64,
 ) -> Result<ConvertOptions, JsValue> {
-    validate_convert_options(explode_inserts, max_block_nesting).map_err(js_error)
+    validate_convert_options(explode_inserts, max_block_nesting, text_em_scale).map_err(js_error)
 }
 
 fn validate_convert_options(
     explode_inserts: bool,
     max_block_nesting: usize,
+    text_em_scale: f64,
 ) -> Result<ConvertOptions, &'static str> {
     if max_block_nesting == 0 {
         return Err("max_block_nesting must be >= 1");
     }
+    if !text_em_scale.is_finite() || text_em_scale <= 0.0 {
+        return Err("text_em_scale must be a positive finite number");
+    }
     Ok(ConvertOptions {
         explode_inserts,
         max_block_nesting,
+        text_em_scale,
     })
 }
 
@@ -96,13 +104,23 @@ mod tests {
 
     #[test]
     fn convert_options_rejects_zero_nesting() {
-        assert!(validate_convert_options(false, 0).is_err());
+        assert!(validate_convert_options(false, 0, 1.0).is_err());
     }
 
     #[test]
     fn convert_options_accepts_positive_nesting() {
-        let options = validate_convert_options(true, 16).unwrap();
+        let options = validate_convert_options(true, 16, 1.0).unwrap();
         assert!(options.explode_inserts);
         assert_eq!(options.max_block_nesting, 16);
+        assert_eq!(options.text_em_scale, 1.0);
+    }
+
+    #[test]
+    fn convert_options_rejects_a_text_scale_that_cannot_divide() {
+        // The scale divides the text height,
+        // so a bad value would silently produce unusable geometry rather than fail.
+        assert!(validate_convert_options(false, 32, 0.0).is_err());
+        assert!(validate_convert_options(false, 32, -1.0).is_err());
+        assert!(validate_convert_options(false, 32, f64::NAN).is_err());
     }
 }

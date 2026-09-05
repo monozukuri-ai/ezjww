@@ -197,6 +197,7 @@ export interface DxfEntity {
   x?: number;
   y?: number;
   height?: number;
+  width_factor?: number;
   rotation?: number;
   content?: string;
   style?: string;
@@ -226,6 +227,7 @@ export interface DxfDocument {
 export interface DxfOptions {
   explodeInserts?: boolean;
   maxBlockNesting?: number;
+  textEmScale?: number;
 }
 
 export type JwwInput = Uint8Array | ArrayBuffer | ArrayBufferView;
@@ -251,6 +253,7 @@ export function readDxfDocument(
     toUint8Array(input),
     normalized.explodeInserts,
     normalized.maxBlockNesting,
+    normalized.textEmScale,
   ) as DxfDocument;
 }
 
@@ -263,6 +266,7 @@ export function readDxfString(
     toUint8Array(input),
     normalized.explodeInserts,
     normalized.maxBlockNesting,
+    normalized.textEmScale,
   ) as string;
 }
 
@@ -273,9 +277,14 @@ function normalizeDxfOptions(options: DxfOptions): Required<DxfOptions> {
   if (!Number.isInteger(maxBlockNesting) || maxBlockNesting < 1) {
     throw new RangeError("maxBlockNesting must be an integer >= 1");
   }
+  const textEmScale = options.textEmScale ?? 1;
+  if (!Number.isFinite(textEmScale) || textEmScale <= 0) {
+    throw new RangeError("textEmScale must be a positive finite number");
+  }
   return {
     explodeInserts: options.explodeInserts ?? false,
     maxBlockNesting,
+    textEmScale,
   };
 }
 
