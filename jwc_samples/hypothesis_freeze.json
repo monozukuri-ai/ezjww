@@ -1,0 +1,24 @@
+{
+  "revision": "v3",
+  "frozen_at_utc": "2026-09-05T14:53:40.813183+00:00",
+  "status": "experimental_not_promoted",
+  "fresh_holdout_ids": [
+    "r080",
+    "r081"
+  ],
+  "fresh_holdout_native_outputs_exist": false,
+  "previous_evidence": [
+    "evidence/hypothesis_v1/",
+    "evidence/hypothesis_v2/"
+  ],
+  "change": "Text records point to a shared CP932 string pool; separate CSV31 and CSV32 observations; A3/A4, temporary layers, independent text presets, ellipse and state/protection checks.",
+  "files": {
+    "scripts/jwc/inspect_fixture.py": "e2ff9273fc27c75855e671924be0d4245a03bdb1cc1fa12222a7c6ac3e4e6c37",
+    "scripts/jwc/verify_fixtures.py": "e5e6af6339120489ced4220bbcaf3b709e773593c0d210e1c20437c3b8b25fba",
+    "scripts/jwc/verify_followup.py": "0be5edfb8995e8617924be9d6bcc552d61e7760e6aeea1e79ca53752769901b2",
+    "scripts/jwc/make_inputs.py": "c054c4b380fb6eef562b6ff1e5db1f8e5adf7245043f44a4d50fdfb3e59957b1",
+    "jwc_samples/cases.json": "10e18464035fda557f4267e628c80268d551edefdeee4ebf969449ad7ed42d40",
+    "jwc_samples/followup_cases.json": "b5c0519e9b2954509e3f072607852cb88b3c7fac5e8d64648ebd8704a2f52cd6"
+  },
+  "preflight": "All 52 previous cases and 26 new candidates passed JWW and DXF checks before this final pre-native freeze."
+}

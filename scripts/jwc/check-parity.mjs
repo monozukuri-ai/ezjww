@@ -22,7 +22,7 @@ export function checkJwcParity({ root, api, python }) {
   }));
   assert.equal(new Set(cases.map(c => c.id)).size, 80, "duplicate relative sample ID");
   for (const sample of cases) assert.equal(sha(readFileSync(sample.path)), sample.sha256, sample.id);
-  const p4 = JSON.parse(readFileSync(resolve(root, ".internal/jwc/jwc_p4_artifact_validation.json"), "utf8"));
+  const p4 = JSON.parse(readFileSync(resolve(root, "jwc_samples/expected_dxf.json"), "utf8"));
   const code = String.raw`
 import hashlib, json, sys
 import ezjww

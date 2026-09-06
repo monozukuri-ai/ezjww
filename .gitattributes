@@ -1,5 +1,7 @@
 # Pinned native fixtures and frozen P0 rules are hashed as bytes on every OS.
 jwc_samples/** -text
+# Preserve native DXF byte fixtures, including their CRLF and legacy encoding.
+jwc_samples/generated/*.dxf -diff
 scripts/jwc/inspect_fixture.py -text
 scripts/jwc/verify_fixtures.py -text
 scripts/jwc/verify_followup.py -text
