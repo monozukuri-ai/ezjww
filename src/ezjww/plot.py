@@ -210,21 +210,33 @@ def _data_unit_to_points(ax: Any) -> float:
     return min(scales) if scales else 1.0
 
 
-def _text_fontsize(height: Any, text_scale: float, unit_to_points: float) -> float:
+def _text_em_height(entity: dict[str, Any], text_em_scale: float) -> float:
+    return _as_float(entity.get("height"), 2.5) * _as_float(text_em_scale, 1.0)
+
+
+def _as_float(value: Any, fallback: float) -> float:
     try:
-        size = float(height)
+        result = float(value)
     except (TypeError, ValueError):
-        size = 2.5
+        return fallback
+    return result if math.isfinite(result) else fallback
+
+
+def _text_fontsize(height: Any, text_scale: float, unit_to_points: float) -> float:
+    size = _as_float(height, 2.5)
     return max(0.1, size * float(text_scale) * float(unit_to_points))
 
 
-def _text_anchor(entity: dict[str, Any]) -> tuple[float, float, str, str]:
+def _text_anchor(
+    entity: dict[str, Any],
+    text_em_scale: float = 1.0,
+) -> tuple[float, float, str, str]:
     x = float(entity["x"])
     y = float(entity["y"])
     try:
         end_x = float(entity["end_x"])
         end_y = float(entity["end_y"])
-        height = float(entity.get("height", 2.5))
+        height = _text_em_height(entity, text_em_scale)
     except (KeyError, TypeError, ValueError):
         return x, y, "left", "bottom"
 
@@ -336,7 +348,8 @@ _JWC_ACI_COLORS = {
 
 
 def _draw_jwc_text(
-    ax: Any, entity: dict[str, Any], color: Any, font: Any, text_scale: float
+    ax: Any, entity: dict[str, Any], color: Any, font: Any, text_scale: float,
+    text_em_scale: float = 1.0,
 ) -> None:
     from matplotlib.patches import PathPatch
     from matplotlib.textpath import TextPath
@@ -345,7 +358,7 @@ def _draw_jwc_text(
     content = str(entity.get("content", ""))
     if not content.strip():
         return
-    height = float(entity.get("height", 2.5)) * float(text_scale)
+    height = _text_em_height(entity, text_em_scale) * float(text_scale)
     path = TextPath((0, 0), content, size=1, prop=font, usetex=False)
     cap_height = (
         TextPath((0, 0), "X", size=1, prop=font, usetex=False).get_extents().height
@@ -363,6 +376,40 @@ def _draw_jwc_text(
     )
 
 
+def _draw_jww_text(
+    ax: Any, entity: dict[str, Any], color: Any, font: Any, text_scale: float,
+    text_em_scale: float,
+) -> None:
+    from matplotlib.patches import PathPatch
+    from matplotlib.textpath import TextPath
+    from matplotlib.transforms import Affine2D
+
+    content = str(entity.get("content", ""))
+    if not content.strip():
+        return
+    path = TextPath((0, 0), content, size=1, prop=font, usetex=False)
+    bounds = path.get_extents()
+    x, y, horizontal, vertical = _text_anchor(entity, text_em_scale)
+    offset_x = (bounds.x0 + bounds.x1) / 2 if horizontal == "center" else bounds.x0
+    offset_y = (bounds.y0 + bounds.y1) / 2 if vertical == "center" else bounds.y0
+    height = max(0.0, _text_em_height(entity, text_em_scale) * float(text_scale))
+    width = _as_float(entity.get("width_factor"), 1.0)
+    if width <= 0.0:
+        width = 1.0
+    # Apply group 41 along the glyph baseline before rotating into the drawing.
+    # TextPath uses an em size; JWC's separate path retains its cap-height policy.
+    transform = (
+        Affine2D()
+        .translate(-offset_x, -offset_y)
+        .scale(height * width, height)
+        .rotate_deg(_as_float(entity.get("rotation"), 0.0))
+        .translate(x, y)
+    )
+    ax.add_patch(
+        PathPatch(transform.transform_path(path), facecolor=color, edgecolor="none")
+    )
+
+
 def plot_dxf_document(
     dxf_document: dict[str, Any],
     *,
@@ -374,6 +421,7 @@ def plot_dxf_document(
     draw_points: bool = True,
     draw_inserts: bool = True,
     text_scale: float = 1.0,
+    text_em_scale: float = 1.0,
     fill_alpha: float = 0.3,
     draw_fill_edges: bool = False,
     monochrome: bool = False,
@@ -532,7 +580,13 @@ def plot_dxf_document(
         elif entity_type == "TEXT":
             if draw_text:
                 if is_jwc:
-                    _draw_jwc_text(ax, entity, color, font_properties, text_scale)
+                    _draw_jwc_text(
+                        ax, entity, color, font_properties, text_scale, text_em_scale
+                    )
+                elif "width_factor" in entity:
+                    _draw_jww_text(
+                        ax, entity, color, font_properties, text_scale, text_em_scale
+                    )
                 else:
                     pending_text.append((entity, color))
         elif entity_type == "SOLID":
@@ -631,15 +685,17 @@ def plot_dxf_document(
         artist.set_linestyle((0, (dash, dash)))
     for entity, color in pending_text:
         content = str(entity.get("content", ""))
-        text_x, text_y, horizontal_alignment, vertical_alignment = _text_anchor(entity)
+        text_x, text_y, horizontal_alignment, vertical_alignment = _text_anchor(
+            entity,
+            text_em_scale,
+        )
+        em_height = _text_em_height(entity, text_em_scale)
         ax.text(
             text_x,
             text_y,
             content,
             color=color,
-            fontsize=_text_fontsize(
-                entity.get("height", 2.5), text_scale, unit_to_points
-            ),
+            fontsize=_text_fontsize(em_height, text_scale, unit_to_points),
             rotation=float(entity.get("rotation", 0.0)),
             rotation_mode="anchor",
             ha=horizontal_alignment,
@@ -663,6 +719,7 @@ def plot_jww(
     *,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    text_em_scale: float = 1.0,
     jwc_coordinates: str = "paper_millimeters",
     **kwargs: Any,
 ) -> Any:
@@ -672,6 +729,7 @@ def plot_jww(
         str(path),
         explode_inserts,
         max_block_nesting,
+        text_em_scale,
         jwc_coordinates=jwc_coordinates,
     )
-    return plot_dxf_document(dxf_document, **kwargs)
+    return plot_dxf_document(dxf_document, text_em_scale=text_em_scale, **kwargs)

@@ -13,7 +13,7 @@ use crate::dxf::{
 };
 use crate::{ConvertOptions, DxfDocument, DxfEntity, DxfTargetVersion, Entity};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct JwcConvertOptions {
     pub coordinates: JwcCoordinateSpace,
     pub dxf: ConvertOptions,
@@ -135,7 +135,8 @@ pub fn convert_jwc_document(
                 let Entity::Text(text) = entity else {
                     return Err(invalid(Some(index), "text mapping mismatch"));
                 };
-                text_width_factors.push(text.size_x / text.size_y);
+                v.width_factor = text.size_x / text.size_y;
+                text_width_factors.push(v.width_factor);
             }
             _ => return Err(invalid(Some(index), "unexpected converted entity kind")),
         }

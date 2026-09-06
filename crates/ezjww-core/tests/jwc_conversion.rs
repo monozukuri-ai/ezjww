@@ -188,7 +188,9 @@ fn text_presets_width_rotation_and_missing_font_are_explicit() {
     let lines: Vec<_> = text.lines().collect();
     let start = lines.iter().position(|line| *line == "TEXT").unwrap() + 1;
     let width = lines[start..]
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .find(|pair| pair[0].trim() == "41")
         .unwrap()[1]
         .parse::<f64>()
@@ -225,7 +227,8 @@ fn unsupported_options_and_mutated_documents_return_errors_not_panics() {
             JwcConvertOptions {
                 dxf: ConvertOptions {
                     explode_inserts: true,
-                    max_block_nesting: 0
+                    max_block_nesting: 0,
+                    ..Default::default()
                 },
                 ..Default::default()
             }
@@ -266,6 +269,7 @@ fn both_dxf_versions_and_block_options_preserve_supported_geometry() {
                 dxf: ConvertOptions {
                     explode_inserts: true,
                     max_block_nesting: 1,
+                    ..Default::default()
                 },
                 ..Default::default()
             },

@@ -216,6 +216,7 @@ class DxfEntity(TypedDict, total=False):
     end_x: float
     end_y: float
     height: float
+    width_factor: float
     rotation: float
     content: str
     style: str
@@ -447,6 +448,7 @@ def read_dxf_document(
     path: str,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    text_em_scale: float = 1.0,
     *,
     jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> DxfDocument: ...
@@ -455,6 +457,7 @@ def read_dxf_string(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
     *,
     jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> str: ...
@@ -464,6 +467,7 @@ def write_dxf(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
     *,
     jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> None: ...
@@ -473,6 +477,7 @@ def write_dxf_with_report(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
     *,
     jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> DxfWriteReport | JwcDxfWriteReport: ...

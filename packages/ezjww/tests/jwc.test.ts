@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import * as rawWasm from "../wasm/ezjww_wasm";
 import {
   detectFileFormat, isJwcFile, isJwwFile, readCadDocument, readDocument,
   readDxfDocument, readDxfString, readHeader, readJwcDocument, readJwcHeader,
@@ -91,5 +92,20 @@ describe("JWC public API", () => {
     const diagnostics = readJwcDocument(input).diagnostics;
     expect(diagnostics[0].code).toBe("CP932_DECODE_REPLACED");
     expect(readDxfDocument(input).jwc_conversion_report?.diagnostics).toEqual(diagnostics);
+  });
+
+  it("preserves JWC option positions and text widths with an optional em scale", () => {
+    const input = sample("r014");
+    const options = { jwcCoordinates: "model_millimeters", targetVersion: "AC1024" } as const;
+    const plain = readDxfDocument(input, options);
+    expect(rawWasm.readDxfDocument(input, false, 32, options.jwcCoordinates)).toEqual(plain);
+    expect(rawWasm.readDxfString(input, false, 32, options.jwcCoordinates, options.targetVersion))
+      .toBe(readDxfString(input, options));
+    const scaled = readDxfDocument(input, { ...options, textEmScale: 1.364 });
+    expect(scaled.entities[0].height).toBeCloseTo(plain.entities[0].height! / 1.364, 10);
+    expect(scaled.entities[0].width_factor).toBeCloseTo(3 / 4.2, 10);
+    expect(scaled.text_width_factors).toEqual(plain.text_width_factors);
+    expect(rawWasm.readDxfString(input, false, 32, options.jwcCoordinates, options.targetVersion, 1.364))
+      .toBe(readDxfString(input, { ...options, textEmScale: 1.364 }));
   });
 });

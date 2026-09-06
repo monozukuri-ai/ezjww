@@ -1,0 +1,2390 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-09-05T13:56:33.770994+00:00",
+  "repository_revision": "dcfb79490a0098b939a22680bdddbfffd380c9de",
+  "experiment_id": "jwc-jw10021-p0",
+  "profile_promoted": false,
+  "creator": "ezjww P0 original fixture generation (Codex-assisted)",
+  "license": "MIT; repository LICENSE",
+  "redistribution": "Original geometric inputs and resulting drawing fixtures use the repository license. No third-party drawings, application binaries, bundled samples, or fonts are included.",
+  "runtime": {
+    "application": "Jw_cad",
+    "application_version": "10.02.1",
+    "pe_version": "10.2.1.0",
+    "executable_sha256": "95e6b11c4ee014e0079f288429ae2c6e5eed41141a963e4b8770d2e8ead87acf",
+    "jwc_internal_version": null,
+    "wine": "9.0 (Ubuntu 9.0~repack-4build3)",
+    "host": "Linux",
+    "windows_hardware_validation": false,
+    "ansi_code_page": 932,
+    "locale": "ja_JP.UTF-8",
+    "screen": "Xvfb 1280x900x24",
+    "python": "3.11.9 Windows embeddable amd64",
+    "python_zip_sha256": "009d6bf7e3b2ddca3d784fa09f90fe54336d5b60f0e0f305c37f400bf83cfd3b",
+    "dxf_hdr_dat_sha256": "78d8cfb8c1f630078205a0d612b98c82075e350801412d8fc282820253ffc430",
+    "declared_input_font": "ＭＳ ゴシック",
+    "actual_font_substitution_validated": false
+  },
+  "method": [
+    "Generate controlled JWW input from cases.json and a native header template using documented JWW entity serialization.",
+    "Open input in pinned Jw_cad; save JWC; wait for output and normal process exit.",
+    "Launch Jw_cad with the saved JWC; save JWW and DXF references; verify normal process exit.",
+    "Hash native outputs and compare JWC geometry with known inputs and raw native DXF ENTITIES tags."
+  ],
+  "input_header_template": {
+    "path": "inputs/header_700.bin",
+    "size": 16558,
+    "sha256": "7d66238bef9a66e3030a39a58936ba6aedc2189a3ebe46d582c908bf43622572",
+    "origin": "Header preceding the first entity of a native JWW exported after importing an original DXF line. All 16 group scales changed to 1. No third-party drawing geometry.",
+    "source_specification": "https://www.jwcad.net/jwdatafmt.txt",
+    "specification_scope": "JWW input serialization only; not a JWC specification"
+  },
+  "validation": {
+    "file": "validation.json",
+    "successful_current_cases": 79,
+    "candidate_cases": 74,
+    "v1_holdouts_passed": [
+      "q080",
+      "q081",
+      "q082"
+    ],
+    "v1_failed_holdout_now_candidate": "q083",
+    "v2_fresh_holdout": "q084",
+    "damaged_input_boundary_checks": 13,
+    "native_dxf_full_conformance_validated": false,
+    "product_jwc_parser_implemented": false,
+    "p0_complete": false,
+    "followup_file": "followup_validation.json",
+    "previous_cases_jww_file": "evidence/v3_previous52_jww.json",
+    "native_generated_cases": 80,
+    "v3_fresh_holdouts_passed": [
+      "r081"
+    ],
+    "v3_fresh_holdouts_failed": [
+      "r080"
+    ]
+  },
+  "samples": [
+    {
+      "id": "q000",
+      "label": "empty",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q000.jww",
+          "size": 16566,
+          "sha256": "945c52bb692cdba129eb0fda2e3cef84435e697f4d226434eb68e218d88789bb"
+        },
+        "jwc": {
+          "path": "generated/q000.jwc",
+          "size": 4725,
+          "sha256": "2137eb0c286713c7208a38053b1957a4930bcb8d6e665b1ed0ed1426ea36fa8e"
+        },
+        "reopened_jww": {
+          "path": "generated/q000rt.jww",
+          "size": 17451,
+          "sha256": "e3812472cfbcc81ae8871a15e6bcca23b3ee6be49458957ea2811c1ba6f98464"
+        },
+        "reopened_dxf": {
+          "path": "generated/q000rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "q000"
+    },
+    {
+      "id": "q001",
+      "label": "horizontal",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q001.jww",
+          "size": 16627,
+          "sha256": "428e4e901867dcc274e6fcc3bfa48e7bdb05895da4b55675b4b4c0033af2a2e0"
+        },
+        "jwc": {
+          "path": "generated/q001.jwc",
+          "size": 4747,
+          "sha256": "51b646b95403d93e30e230c4efc8540a7a9998f2a5e326d2c1f9e8baef719165"
+        },
+        "reopened_jww": {
+          "path": "generated/q001rt.jww",
+          "size": 17512,
+          "sha256": "6cf52b71c4a2d83f817e2d2605f8e728a69a8a760390ba33096997bd29976f67"
+        },
+        "reopened_dxf": {
+          "path": "generated/q001rt.dxf",
+          "size": 8890,
+          "sha256": "9be523db06547e4cb09c93535bb433329dd4cf618b3cf3a2ec3e5eed3ecb2e47"
+        }
+      },
+      "native_log_id": "q001"
+    },
+    {
+      "id": "q002",
+      "label": "end_x_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q002.jww",
+          "size": 16627,
+          "sha256": "459a62b67e6aae2427055f7610b66cbe685c8d605d8e7385717640f94e8449f7"
+        },
+        "jwc": {
+          "path": "generated/q002.jwc",
+          "size": 4747,
+          "sha256": "42349a57769c1fbfe48ab464627f5bfe2f068dc96596a32ada28fdeccc7a5279"
+        },
+        "reopened_jww": {
+          "path": "generated/q002rt.jww",
+          "size": 17512,
+          "sha256": "11a028a3359a167ccb6a2d76cd3777137ea887a32ba223f659fe0fe46e570b1c"
+        },
+        "reopened_dxf": {
+          "path": "generated/q002rt.dxf",
+          "size": 8891,
+          "sha256": "3a596e6066d5eaf4f35395fe7ed33c16ecc281e4d92301ecebec7583b60c9b2b"
+        }
+      },
+      "native_log_id": "q002"
+    },
+    {
+      "id": "q003",
+      "label": "vertical",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q003.jww",
+          "size": 16627,
+          "sha256": "44c4de697d12364f7900367cb92f815e4380ee64134866c54a2090e81a121e33"
+        },
+        "jwc": {
+          "path": "generated/q003.jwc",
+          "size": 4747,
+          "sha256": "37f217520e91548aef10d1f7d3260a399da736e624a87cd26ac8ffebe1cb714b"
+        },
+        "reopened_jww": {
+          "path": "generated/q003rt.jww",
+          "size": 17512,
+          "sha256": "5259d6f939325dc90bf6dcb36afc015839e275530ae8c97e3a932c606d261dcf"
+        },
+        "reopened_dxf": {
+          "path": "generated/q003rt.dxf",
+          "size": 8891,
+          "sha256": "432f8f53421e496ce43cc8c670873ff08a5a615709dd115d979da0040975fe01"
+        }
+      },
+      "native_log_id": "q003"
+    },
+    {
+      "id": "q004",
+      "label": "negative_fraction",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q004.jww",
+          "size": 16627,
+          "sha256": "0eb16719d1e83f75671f026986a9f4078ee1f763d70cfdfa95df3ab4e05dc88d"
+        },
+        "jwc": {
+          "path": "generated/q004.jwc",
+          "size": 4747,
+          "sha256": "51304af155ee7f875e4ec895626b1c5c279f680319c6b27c58f9eddd2f6ab2d7"
+        },
+        "reopened_jww": {
+          "path": "generated/q004rt.jww",
+          "size": 17512,
+          "sha256": "180662003348dfd0d2b55ad4ed1ca5a5a6955e8733b8f764310bd083cd61ccdf"
+        },
+        "reopened_dxf": {
+          "path": "generated/q004rt.dxf",
+          "size": 8889,
+          "sha256": "c2f3adcb250cec3ac7ac0283bb36173fb20f4d26e18264ed0d261ff49adc1d8c"
+        }
+      },
+      "native_log_id": "q004"
+    },
+    {
+      "id": "q005",
+      "label": "large",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q005.jww",
+          "size": 16627,
+          "sha256": "be14b8658989731e1424e081bd91a824d1cd626915f6680b0805a4ddd2db2c1b"
+        },
+        "jwc": {
+          "path": "generated/q005.jwc",
+          "size": 4747,
+          "sha256": "acfb2d859c94fdfc0f2b1c28b6de614685cf9237a6d90fc3df226360d135cf68"
+        },
+        "reopened_jww": {
+          "path": "generated/q005rt.jww",
+          "size": 17512,
+          "sha256": "54aecff8efdb9cce54b10b28c50afefa59f049831f58bf9d25960f34c9b5f083"
+        },
+        "reopened_dxf": {
+          "path": "generated/q005rt.dxf",
+          "size": 8893,
+          "sha256": "470bb1577f0278415b81dcdeccb6240aedddf106eb19c983cb41bc88d23a8b6a"
+        }
+      },
+      "native_log_id": "q005"
+    },
+    {
+      "id": "q010",
+      "label": "circle",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q010.jww",
+          "size": 16656,
+          "sha256": "19bc4f2ce71d1cb4335b77ddf48681f62461583edf519a17ccfbdd219e2f266b"
+        },
+        "jwc": {
+          "path": "generated/q010.jwc",
+          "size": 4757,
+          "sha256": "b7b79dd9f4002962aec6198d4f14bf549742b264929ef4fbb7cd4c9b746f02c1"
+        },
+        "reopened_jww": {
+          "path": "generated/q010rt.jww",
+          "size": 17541,
+          "sha256": "d703bfd77e0d0d3b093cd54a69ae4df8c601c37217c51e5a951397d7d62dc83c"
+        },
+        "reopened_dxf": {
+          "path": "generated/q010rt.dxf",
+          "size": 8868,
+          "sha256": "66a1178b4ec467c616593e81d3d4a27cd066590b0e2367e3e6fb46f092ddc752"
+        }
+      },
+      "native_log_id": "q010"
+    },
+    {
+      "id": "q011",
+      "label": "radius_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q011.jww",
+          "size": 16656,
+          "sha256": "f9600264b99b2642709201cc6550f04d63528a7fc9d3511e220502a3562d5fa0"
+        },
+        "jwc": {
+          "path": "generated/q011.jwc",
+          "size": 4757,
+          "sha256": "479ebd9817e9e095785e367760925fcf8426bcec0801f6c2b16e42d97ea8f6d2"
+        },
+        "reopened_jww": {
+          "path": "generated/q011rt.jww",
+          "size": 17541,
+          "sha256": "5abd62f5027c10ad42627017ddd09f39f76eb896e3f9c641e24d811394b7f897"
+        },
+        "reopened_dxf": {
+          "path": "generated/q011rt.dxf",
+          "size": 8867,
+          "sha256": "50b9084578c24b2304de592b81ecf7ef0cc94d2c7390585ef92696b71c5b6582"
+        }
+      },
+      "native_log_id": "q011"
+    },
+    {
+      "id": "q012",
+      "label": "arc",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q012.jww",
+          "size": 16656,
+          "sha256": "29fcd37a5ad10c46f7a17b9c6442419a9ebf28607eafd65b66af6aecadcc973c"
+        },
+        "jwc": {
+          "path": "generated/q012.jwc",
+          "size": 4757,
+          "sha256": "d503a8c6cabcd1c9f498cf4207eeeef98321010c7164d0726124b6963a9ad16d"
+        },
+        "reopened_jww": {
+          "path": "generated/q012rt.jww",
+          "size": 17541,
+          "sha256": "510bbf18856159fc7bf1b2766004c1b10b0fbafdb4d7df478d1e2952ca6a89c7"
+        },
+        "reopened_dxf": {
+          "path": "generated/q012rt.dxf",
+          "size": 8915,
+          "sha256": "7d3148ccc510b78f3c4624ab08654d1e7c377242a4001d9d627012b53ef9684b"
+        }
+      },
+      "native_log_id": "q012"
+    },
+    {
+      "id": "q013",
+      "label": "arc_cross_zero",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q013.jww",
+          "size": 16656,
+          "sha256": "0c0d03016697d5d4a58354e694f4708cd062d743e25f04dcb9be9d22d2c59a9a"
+        },
+        "jwc": {
+          "path": "generated/q013.jwc",
+          "size": 4757,
+          "sha256": "dcf65410eafab68e570b1caa28ad50928a7148465f34dd0413e3f3d624f3a246"
+        },
+        "reopened_jww": {
+          "path": "generated/q013rt.jww",
+          "size": 17541,
+          "sha256": "ce60d12d187217644f88b0400b798a2a90c1dc2b1f26b4d5d5b6da98d1833417"
+        },
+        "reopened_dxf": {
+          "path": "generated/q013rt.dxf",
+          "size": 8899,
+          "sha256": "bb198f1063ccee2a33d81a2f6b641271534df6fee0da6e073c7306bf923681cc"
+        }
+      },
+      "native_log_id": "q013"
+    },
+    {
+      "id": "q014",
+      "label": "arc_quarter",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q014.jww",
+          "size": 16656,
+          "sha256": "fd00ab8076a9c7941c21d1a98e983db17600d1b01c7e2e81ce18bf699b4df48b"
+        },
+        "jwc": {
+          "path": "generated/q014.jwc",
+          "size": 4757,
+          "sha256": "6ba05d2d5f5d411da897bc95e5fabb70a5c607b6fc427b24c697d889cce6f235"
+        },
+        "reopened_jww": {
+          "path": "generated/q014rt.jww",
+          "size": 17541,
+          "sha256": "ba79847661f2f286fdc4dbb3e8063d9136a21e5dc13982a80de2aa38e9f29fe8"
+        },
+        "reopened_dxf": {
+          "path": "generated/q014rt.dxf",
+          "size": 8882,
+          "sha256": "7733df8a9ff62ef55b0e4074d084c95afbc46cb10820a643a9d58a1bfcd18985"
+        }
+      },
+      "native_log_id": "q014"
+    },
+    {
+      "id": "q020",
+      "label": "point",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q020.jww",
+          "size": 16615,
+          "sha256": "1da1e25268143c0a8fa955bc2f3fc2283723372c4661cbb720d55fec3292b5dc"
+        },
+        "jwc": {
+          "path": "generated/q020.jwc",
+          "size": 4737,
+          "sha256": "54a9faa1cab1d4de5caf598b5d3dffeed0e826ae790ad437901960f7ce3863d0"
+        },
+        "reopened_jww": {
+          "path": "generated/q020rt.jww",
+          "size": 17500,
+          "sha256": "75e15c9d39257f566b86ed4c95300b4726e7b023484c11380d0af296f10d7aee"
+        },
+        "reopened_dxf": {
+          "path": "generated/q020rt.dxf",
+          "size": 8825,
+          "sha256": "021ee1782b565e4a9e68b8bc1b4427de3a315ef966cf341b6f14259bd81542b6"
+        }
+      },
+      "native_log_id": "q020"
+    },
+    {
+      "id": "q021",
+      "label": "temporary_point",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q021.jww",
+          "size": 16615,
+          "sha256": "887b9ec67e3197d76e101e26049e4643bbd79bb7c8e2e439068c16114ce06668"
+        },
+        "jwc": {
+          "path": "generated/q021.jwc",
+          "size": 4725,
+          "sha256": "46b208bf0564b52e4ae07d2e38716467da3d41023b49cc2ea5f14bc25a6a0d12"
+        },
+        "reopened_jww": {
+          "path": "generated/q021rt.jww",
+          "size": 17500,
+          "sha256": "54b6c0f280dc1dee5711e7124db63594fc8a4051fa7ceca922ebd2ce33540645"
+        },
+        "reopened_dxf": {
+          "path": "generated/q021rt.dxf",
+          "size": 8825,
+          "sha256": "c35c82af6fc998c9bf6fc291220da7d1c3f95f55181a6e1daf9edc480a771012"
+        }
+      },
+      "native_log_id": "q021"
+    },
+    {
+      "id": "q022",
+      "label": "two_temporary_points",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q022.jww",
+          "size": 16652,
+          "sha256": "a3a8947b084b85c2a31861e5cd7a0eedc206d809eda19a833134b6f79ab2decc"
+        },
+        "jwc": {
+          "path": "generated/q022.jwc",
+          "size": 4725,
+          "sha256": "a8d6563274d32ce1132f104d103d843eeaf3e347dd6d8792fd68c2ad9ca81cc5"
+        },
+        "reopened_jww": {
+          "path": "generated/q022rt.jww",
+          "size": 17537,
+          "sha256": "456ebe7ccf9a646f1dc574a35216cca6e257432ff53be658a14d0394c83cc52a"
+        },
+        "reopened_dxf": {
+          "path": "generated/q022rt.dxf",
+          "size": 8912,
+          "sha256": "85e8839f93e0df731b93f16397325539978dbb8c932bfb1a6574a9d535df31df"
+        }
+      },
+      "native_log_id": "q022"
+    },
+    {
+      "id": "q023",
+      "label": "point_group_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q023.jww",
+          "size": 16615,
+          "sha256": "9315d57a3cc7750c2946dca0cad91cdae853216d1b58758722aa3bf964c1801a"
+        },
+        "jwc": {
+          "path": "generated/q023.jwc",
+          "size": 4737,
+          "sha256": "a3878d1ef868d5fe47f259e0ce812e80d403af3f63786485cc265f5f77d07c6c"
+        },
+        "reopened_jww": {
+          "path": "generated/q023rt.jww",
+          "size": 17500,
+          "sha256": "3150b33b8cad2bb69ed1f8b0eb232cb47782ab12b1b45d9769e3e8801fc9ae46"
+        },
+        "reopened_dxf": {
+          "path": "generated/q023rt.dxf",
+          "size": 8823,
+          "sha256": "dff1cf1c2deb6b8a91940d5bf8cee1770429214fbe6963605ecbd8316a4e287f"
+        }
+      },
+      "native_log_id": "q023"
+    },
+    {
+      "id": "q030",
+      "label": "ascii",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q030.jww",
+          "size": 16692,
+          "sha256": "c585ea7f111d6498ebcde21772c070391f6d343849a6d01bbfbf8ea455407c72"
+        },
+        "jwc": {
+          "path": "generated/q030.jwc",
+          "size": 4753,
+          "sha256": "f20cc277fac06cb6ba13ebfe393f1b77b13280cc922f70192aa82ab3388e8693"
+        },
+        "reopened_jww": {
+          "path": "generated/q030rt.jww",
+          "size": 17564,
+          "sha256": "fc8c8e92468a02af375a232aab1c88514a100eaecdfc3ed18ebf1aa8d02e25be"
+        },
+        "reopened_dxf": {
+          "path": "generated/q030rt.dxf",
+          "size": 8858,
+          "sha256": "cee2a5323dc3aeb2998b6e7b96fa8ca8dcffa578c5b3e21687b4cb503c6707b7"
+        }
+      },
+      "native_log_id": "q030"
+    },
+    {
+      "id": "q031",
+      "label": "text_byte_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q031.jww",
+          "size": 16692,
+          "sha256": "ef586b2208130f197abff7f21da189b79e81022a7d9f62840b95b1efb3ed277a"
+        },
+        "jwc": {
+          "path": "generated/q031.jwc",
+          "size": 4753,
+          "sha256": "af4ff8d7ff00d8885fcafbafe1a50d4ea99a4166246884f161a1b7b3f11f7029"
+        },
+        "reopened_jww": {
+          "path": "generated/q031rt.jww",
+          "size": 17564,
+          "sha256": "f95badb218fe776cdcfc3812c1cfc9e2dd9ae0adad463b07a625e1d6c3db69d1"
+        },
+        "reopened_dxf": {
+          "path": "generated/q031rt.dxf",
+          "size": 8858,
+          "sha256": "2ace902c97701f28bb79e270de4637bef645e192d647f8958077eb62315487e3"
+        }
+      },
+      "native_log_id": "q031"
+    },
+    {
+      "id": "q032",
+      "label": "japanese",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q032.jww",
+          "size": 16692,
+          "sha256": "4ad73a8b23f300803bae140b9bb3ea64190541f7fcb9da44610055a93e42453a"
+        },
+        "jwc": {
+          "path": "generated/q032.jwc",
+          "size": 4756,
+          "sha256": "93a36dbb80ab7582db3e3a8e35ee59ddb7443202baaa3d2a2d8422f9b1053438"
+        },
+        "reopened_jww": {
+          "path": "generated/q032rt.jww",
+          "size": 17564,
+          "sha256": "45e8533f3ad2dc46f297ab546f9308c9ca3463a1c40dfc504f0cead0d835a1ef"
+        },
+        "reopened_dxf": {
+          "path": "generated/q032rt.dxf",
+          "size": 8861,
+          "sha256": "e5e68759427738ab8334651dbfcb4bc98c11f2a8968c5d3c45dbfdddae4e78ef"
+        }
+      },
+      "native_log_id": "q032"
+    },
+    {
+      "id": "q033",
+      "label": "halfwidth_kana",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q033.jww",
+          "size": 16690,
+          "sha256": "fbc5e095d3e252ce77dda1e76c76b53affa53e6d2d5094bad5a272ad811fbec5"
+        },
+        "jwc": {
+          "path": "generated/q033.jwc",
+          "size": 4752,
+          "sha256": "cb7011db786aa951163a39070ebc239641d8079134cdfa3325a4db63aa9c56fa"
+        },
+        "reopened_jww": {
+          "path": "generated/q033rt.jww",
+          "size": 17562,
+          "sha256": "462b26f3c93c04d9f962f3e95562be134edd1d23400ddb1a643af448e05b3bc4"
+        },
+        "reopened_dxf": {
+          "path": "generated/q033rt.dxf",
+          "size": 8857,
+          "sha256": "777ee48abdf15c68e0e2f1c4c62f0d462fd4df3cad3f77d531b742d40e9e6840"
+        }
+      },
+      "native_log_id": "q033"
+    },
+    {
+      "id": "q034",
+      "label": "mixed_text",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q034.jww",
+          "size": 16698,
+          "sha256": "1408277abc902fc8d6373e7e98fc196cb3ad97d928604dff8ac94c8f680dd7ac"
+        },
+        "jwc": {
+          "path": "generated/q034.jwc",
+          "size": 4758,
+          "sha256": "5612fe1e768897a0339a6c9dc3213ad40309b42c4df49e9b5fbd5faa7d882c39"
+        },
+        "reopened_jww": {
+          "path": "generated/q034rt.jww",
+          "size": 17570,
+          "sha256": "39dc17382183a1314f670660fce847af4b77be1003860d1384e080a9404eb84d"
+        },
+        "reopened_dxf": {
+          "path": "generated/q034rt.dxf",
+          "size": 8863,
+          "sha256": "9ff60df38164db50f5f42033f8b28f85187a16f1c855bb0a5d99a2bf05b59905"
+        }
+      },
+      "native_log_id": "q034"
+    },
+    {
+      "id": "q035",
+      "label": "empty_text",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q035.jww",
+          "size": 16686,
+          "sha256": "e494261cf490d977c3c97df47963d36f6f6b8f27c251c8a681f8630c17291595"
+        },
+        "jwc": {
+          "path": "generated/q035.jwc",
+          "size": 4725,
+          "sha256": "c951b0d2fd6adbe9e9ab8790bbd6b55dbd7d2ceed78a08419e3f1933fac5a484"
+        },
+        "reopened_jww": {
+          "path": "generated/q035rt.jww",
+          "size": 17451,
+          "sha256": "25465157bea869578f6409cfb2ab483e150c6880d435eb977ed6a01fa22988fc"
+        },
+        "reopened_dxf": {
+          "path": "generated/q035rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "q035"
+    },
+    {
+      "id": "q036",
+      "label": "text_254",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q036.jww",
+          "size": 17194,
+          "sha256": "da1b66bfbd766f038182f297de2a19b6325c3de0f1599e5db0ba151d3cbcca8f"
+        },
+        "jwc": {
+          "path": "generated/q036.jwc",
+          "size": 5004,
+          "sha256": "4bedce802a85701add49f0ca753768b9312b6d9f4577e42e451c70880fc3733a"
+        },
+        "reopened_jww": {
+          "path": "generated/q036rt.jww",
+          "size": 18066,
+          "sha256": "1258e3b22aff309b69672f4dd08849a88837191eb485566759554d005dbaae1b"
+        },
+        "reopened_dxf": {
+          "path": "generated/q036rt.dxf",
+          "size": 9108,
+          "sha256": "5ca14e9eddc1c93e36aa0244489287e7d5b9fc9536f8ab47610dcf1b9075a107"
+        }
+      },
+      "native_log_id": "q036"
+    },
+    {
+      "id": "q037",
+      "label": "text_255",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q037.jww",
+          "size": 17198,
+          "sha256": "0ed481d287958f655d399b42023f8721d9768f323277fe66eea99f8578ee26ea"
+        },
+        "jwc": {
+          "path": "generated/q037.jwc",
+          "size": 5005,
+          "sha256": "ed510916cd257a26b0d3a16212385e6746671fd71ec12d944a64d64779dca2e4"
+        },
+        "reopened_jww": {
+          "path": "generated/q037rt.jww",
+          "size": 18070,
+          "sha256": "214c465ddca8a3ffeffae4d3c3bfb330e3fc18e3c044ee0047fa31dba9910ed7"
+        },
+        "reopened_dxf": {
+          "path": "generated/q037rt.dxf",
+          "size": 9110,
+          "sha256": "1065e1241ec86fa061cfaef1b96f2c07e1f66fa6e1e0e4579f3ff43a8071a273"
+        }
+      },
+      "native_log_id": "q037"
+    },
+    {
+      "id": "q038",
+      "label": "text_256",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q038.jww",
+          "size": 17200,
+          "sha256": "4037e30ef3df80896217ca7878c7494d2c02799a78c09b9ec0382c8c360a1564"
+        },
+        "jwc": {
+          "path": "generated/q038.jwc",
+          "size": 5006,
+          "sha256": "7d36c84f6e8cd0329f33612c49a71b16466b2718fb24aa8f29247adc8bab3056"
+        },
+        "reopened_jww": {
+          "path": "generated/q038rt.jww",
+          "size": 18072,
+          "sha256": "a15f9dfef1128e567a5f34c6e62f30fb0565ee98f47e71952df1bcd9003ee5a2"
+        },
+        "reopened_dxf": {
+          "path": "generated/q038rt.dxf",
+          "size": 9111,
+          "sha256": "01ef7621debf2a3737cab4d5a4bfdcc10ccbd74e4583aa2119e1218a3ea6ec21"
+        }
+      },
+      "native_log_id": "q038"
+    },
+    {
+      "id": "q039",
+      "label": "rotated_text",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q039.jww",
+          "size": 16692,
+          "sha256": "b4e767b41d552b153dd03a13f6899e5938ea23886fa8c7e98abe754a7d3fdfd7"
+        },
+        "jwc": {
+          "path": "generated/q039.jwc",
+          "size": 4753,
+          "sha256": "0e5cfe7985626ea5804a29338caaa6464feb222725468684b4e88406bfa32ae5"
+        },
+        "reopened_jww": {
+          "path": "generated/q039rt.jww",
+          "size": 17564,
+          "sha256": "d14ed029e89081649b82faf95f277dbccf9d874398968eb9f91317f58e2b7934"
+        },
+        "reopened_dxf": {
+          "path": "generated/q039rt.dxf",
+          "size": 8874,
+          "sha256": "e25455a6868a78e57fad8bbfe8944fb3ad3fd8954fdf5d82a3c0ced1f5eeb32f"
+        }
+      },
+      "native_log_id": "q039"
+    },
+    {
+      "id": "q040",
+      "label": "text_width",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q040.jww",
+          "size": 16692,
+          "sha256": "067c959fd49137b44cb43cb97786dbb11b3772243c603712de2212b8129998fb"
+        },
+        "jwc": {
+          "path": "generated/q040.jwc",
+          "size": 4753,
+          "sha256": "d44e75731c7bb18fce356750f45bc458354765948fb5bad773343ca08cc3cf7d"
+        },
+        "reopened_jww": {
+          "path": "generated/q040rt.jww",
+          "size": 17564,
+          "sha256": "f2c366cfea9622d5c7e29e6f4495d41b8552cf174a10898391ac12452d99202b"
+        },
+        "reopened_dxf": {
+          "path": "generated/q040rt.dxf",
+          "size": 8858,
+          "sha256": "900777f12628d14bdb7a77c33f225bad7f9ed8205b033826f671c6542a01c104"
+        }
+      },
+      "native_log_id": "q040"
+    },
+    {
+      "id": "q041",
+      "label": "text_spacing",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q041.jww",
+          "size": 16692,
+          "sha256": "d3f055a351f48e38b876eaae88ce0b54c2efbf7c46ee5755b51fcc22202c6c5c"
+        },
+        "jwc": {
+          "path": "generated/q041.jwc",
+          "size": 4753,
+          "sha256": "b70b10b71cad2520e86d225b499c84c0806b0ec08465ef909152dfb24b04c3d3"
+        },
+        "reopened_jww": {
+          "path": "generated/q041rt.jww",
+          "size": 17564,
+          "sha256": "e854e16193b9d2363065d9183ecb73dc300233161a56485a3f06117edab4c37a"
+        },
+        "reopened_dxf": {
+          "path": "generated/q041rt.dxf",
+          "size": 8858,
+          "sha256": "cc3d88bc632b1cdfb0988f33720f43b9d71ff91fad0bfb9786e9583b622f7e6c"
+        }
+      },
+      "native_log_id": "q041"
+    },
+    {
+      "id": "q042",
+      "label": "text_type",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q042.jww",
+          "size": 16692,
+          "sha256": "d0ed41113485b237fe63025cc819ae34203f8b2a19b6bd56bfa424eab238693b"
+        },
+        "jwc": {
+          "path": "generated/q042.jwc",
+          "size": 4753,
+          "sha256": "f20cc277fac06cb6ba13ebfe393f1b77b13280cc922f70192aa82ab3388e8693"
+        },
+        "reopened_jww": {
+          "path": "generated/q042rt.jww",
+          "size": 17564,
+          "sha256": "9ead68ed22d868fe47a6e69ed466213ae570eb0d71a4970d3989e10c7f7aa27e"
+        },
+        "reopened_dxf": {
+          "path": "generated/q042rt.dxf",
+          "size": 8858,
+          "sha256": "cee2a5323dc3aeb2998b6e7b96fa8ca8dcffa578c5b3e21687b4cb503c6707b7"
+        }
+      },
+      "native_log_id": "q042"
+    },
+    {
+      "id": "q044",
+      "label": "text_color_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q044.jww",
+          "size": 16692,
+          "sha256": "bda9aad1efcb9a3cd30dc1b12dcb3447ccd405bb02a5ceb9046a3e52e9ce2078"
+        },
+        "jwc": {
+          "path": "generated/q044.jwc",
+          "size": 4753,
+          "sha256": "f20cc277fac06cb6ba13ebfe393f1b77b13280cc922f70192aa82ab3388e8693"
+        },
+        "reopened_jww": {
+          "path": "generated/q044rt.jww",
+          "size": 17564,
+          "sha256": "9ead68ed22d868fe47a6e69ed466213ae570eb0d71a4970d3989e10c7f7aa27e"
+        },
+        "reopened_dxf": {
+          "path": "generated/q044rt.dxf",
+          "size": 8858,
+          "sha256": "cee2a5323dc3aeb2998b6e7b96fa8ca8dcffa578c5b3e21687b4cb503c6707b7"
+        }
+      },
+      "native_log_id": "q044"
+    },
+    {
+      "id": "q045",
+      "label": "text_layer_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q045.jww",
+          "size": 16692,
+          "sha256": "f48c7d5f925ff915aa6f896e888307b6e50e418c1f436eb47982555e3ccf9246"
+        },
+        "jwc": {
+          "path": "generated/q045.jwc",
+          "size": 4753,
+          "sha256": "7975fd57d4334352bc8913ab73ad36f7aaf1f35b549618071ac58a4d2643477d"
+        },
+        "reopened_jww": {
+          "path": "generated/q045rt.jww",
+          "size": 17564,
+          "sha256": "82941bb6f07bf0dff202917ea0fb56d36b4b4a2ce335072c2a44283a558d4a2b"
+        },
+        "reopened_dxf": {
+          "path": "generated/q045rt.dxf",
+          "size": 8856,
+          "sha256": "fbaf1ba1b9d20d956a04bce81506faf833a08f657fae1e627321067028b09756"
+        }
+      },
+      "native_log_id": "q045"
+    },
+    {
+      "id": "q046",
+      "label": "text_group_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q046.jww",
+          "size": 16692,
+          "sha256": "8e1927c221009ae4ed57d1b73c3e1d2e14e2e5e6032129e796e8f6667f9f8438"
+        },
+        "jwc": {
+          "path": "generated/q046.jwc",
+          "size": 4753,
+          "sha256": "645986d1cd64aa08eecef3554f73e0bb230ed4b4bcea0d1c179db602d3b7f03b"
+        },
+        "reopened_jww": {
+          "path": "generated/q046rt.jww",
+          "size": 17564,
+          "sha256": "80f3ab82bad6a9beeb3d57d55eb4f1d9a2113ebe05b9740aa2a5347781b51828"
+        },
+        "reopened_dxf": {
+          "path": "generated/q046rt.dxf",
+          "size": 8856,
+          "sha256": "a4d386a2633e8df1bf97c071d79bddebed5bdb4c6fd04e85abb7728bf912f320"
+        }
+      },
+      "native_log_id": "q046"
+    },
+    {
+      "id": "q047",
+      "label": "text_height_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q047.jww",
+          "size": 16692,
+          "sha256": "ff8efaa961579de736f6bd588941a275f0ba9c35a69309c8b08de2939fd90a28"
+        },
+        "jwc": {
+          "path": "generated/q047.jwc",
+          "size": 4753,
+          "sha256": "f20cc277fac06cb6ba13ebfe393f1b77b13280cc922f70192aa82ab3388e8693"
+        },
+        "reopened_jww": {
+          "path": "generated/q047rt.jww",
+          "size": 17564,
+          "sha256": "9ead68ed22d868fe47a6e69ed466213ae570eb0d71a4970d3989e10c7f7aa27e"
+        },
+        "reopened_dxf": {
+          "path": "generated/q047rt.dxf",
+          "size": 8858,
+          "sha256": "cee2a5323dc3aeb2998b6e7b96fa8ca8dcffa578c5b3e21687b4cb503c6707b7"
+        }
+      },
+      "native_log_id": "q047"
+    },
+    {
+      "id": "q050",
+      "label": "scale_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q050.jww",
+          "size": 16627,
+          "sha256": "f01b5d186dfc3e519fdcf7172607f794f29d58cad39cf3223f8d28d49d02935b"
+        },
+        "jwc": {
+          "path": "generated/q050.jwc",
+          "size": 4747,
+          "sha256": "02b07cb15cac4de930648b2dd24a585ffec1314506e81bd65c384a5c206af9a0"
+        },
+        "reopened_jww": {
+          "path": "generated/q050rt.jww",
+          "size": 17512,
+          "sha256": "3c669ca7501e1b1eecb926ca5433b5f2c0a99e9176a5763d7af7349612a7759a"
+        },
+        "reopened_dxf": {
+          "path": "generated/q050rt.dxf",
+          "size": 8905,
+          "sha256": "2d2602a609670afd50a0949c5833e53f25c5a6ddb50f0bca28dc3d24576b4407"
+        }
+      },
+      "native_log_id": "q050"
+    },
+    {
+      "id": "q051",
+      "label": "layer_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q051.jww",
+          "size": 16627,
+          "sha256": "087282b94a93dcab9a7df0672876f116ef9ceccd21c158c5f65d2f8b1571c4b9"
+        },
+        "jwc": {
+          "path": "generated/q051.jwc",
+          "size": 4747,
+          "sha256": "9e007aed4cfb5ffaa782c8e6a8108a5ccf88c51481200c8791b6cc32820df8f3"
+        },
+        "reopened_jww": {
+          "path": "generated/q051rt.jww",
+          "size": 17512,
+          "sha256": "b7a6df0e5ac4b129349dcf525f1323543a1635181f5680c158f36f43b15a6910"
+        },
+        "reopened_dxf": {
+          "path": "generated/q051rt.dxf",
+          "size": 8888,
+          "sha256": "3a5cf0854538d7138d2dd86335ed91d512fcfeb35ae9b2a8b17c54ab54395c9b"
+        }
+      },
+      "native_log_id": "q051"
+    },
+    {
+      "id": "q052",
+      "label": "group_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q052.jww",
+          "size": 16627,
+          "sha256": "78e62d4adbe15a8ed3fbb4c56437cd67cb62142422b041bd68ff1497a6504dc3"
+        },
+        "jwc": {
+          "path": "generated/q052.jwc",
+          "size": 4747,
+          "sha256": "1feaf27d0e4a9d0212cad9d05a08487b3fb65cded8968d03f5eff3576036918e"
+        },
+        "reopened_jww": {
+          "path": "generated/q052rt.jww",
+          "size": 17512,
+          "sha256": "727738c4e2dd3b3145f9978b830a4313ba628c25040267c4d3add94d8d700ce8"
+        },
+        "reopened_dxf": {
+          "path": "generated/q052rt.dxf",
+          "size": 8888,
+          "sha256": "18d5932c9f0df52a51fe60b876502c6f636653f4dc587250f88cbacdc05a0cd8"
+        }
+      },
+      "native_log_id": "q052"
+    },
+    {
+      "id": "q053",
+      "label": "hidden_layer",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q053.jww",
+          "size": 16627,
+          "sha256": "6a744060a1f203e24b030ed4e1985d3e889ae16e33b7bec7727e59ee3a359002"
+        },
+        "jwc": {
+          "path": "generated/q053.jwc",
+          "size": 4747,
+          "sha256": "dd11c0a70218e187d0a72045d8407a6fdd9dbf739897b3f0715c9f05cbd308f0"
+        },
+        "reopened_jww": {
+          "path": "generated/q053rt.jww",
+          "size": 17512,
+          "sha256": "e38474cc1a004d2b5f8a26c9edf2e3ef445b4d196701cd085f963f32dfc191ad"
+        },
+        "reopened_dxf": {
+          "path": "generated/q053rt.dxf",
+          "size": 8888,
+          "sha256": "3a5cf0854538d7138d2dd86335ed91d512fcfeb35ae9b2a8b17c54ab54395c9b"
+        }
+      },
+      "native_log_id": "q053"
+    },
+    {
+      "id": "q054",
+      "label": "group_scale",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q054.jww",
+          "size": 16627,
+          "sha256": "ad516576b4f30eebc685f16a0165a0ef1e19ecdd205177abf416a62f102370f8"
+        },
+        "jwc": {
+          "path": "generated/q054.jwc",
+          "size": 4747,
+          "sha256": "96b3cdc091c31ee809ffb799e2722ec760beeb4ee5cd40e5f7635a8771f71935"
+        },
+        "reopened_jww": {
+          "path": "generated/q054rt.jww",
+          "size": 17512,
+          "sha256": "482606bcd7ff4b90e577bd78044c212b3e03985804060d44037537c65b41f81c"
+        },
+        "reopened_dxf": {
+          "path": "generated/q054rt.dxf",
+          "size": 8888,
+          "sha256": "18d5932c9f0df52a51fe60b876502c6f636653f4dc587250f88cbacdc05a0cd8"
+        }
+      },
+      "native_log_id": "q054"
+    },
+    {
+      "id": "q055",
+      "label": "paper_A2",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q055.jww",
+          "size": 16627,
+          "sha256": "f3bba00e25f7399f1e83a12080b9dda93d15ae673219f49b274dd948750b6cc1"
+        },
+        "jwc": {
+          "path": "generated/q055.jwc",
+          "size": 4747,
+          "sha256": "b1787ec0e1aec7d10090a4b12c56f7fb2f952525f6983707c93c6976206ea578"
+        },
+        "reopened_jww": {
+          "path": "generated/q055rt.jww",
+          "size": 17512,
+          "sha256": "827eb5ef31e2f8d225b3e4d5112b9cc4beb69a554aa4407597e45aa2cdcfdfe0"
+        },
+        "reopened_dxf": {
+          "path": "generated/q055rt.dxf",
+          "size": 8889,
+          "sha256": "b9df8cc10c340424799404b1b276df3d21e06e2e498c0848ed097e666e805c4b"
+        }
+      },
+      "native_log_id": "q055"
+    },
+    {
+      "id": "q056",
+      "label": "paper_A0",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q056.jww",
+          "size": 16627,
+          "sha256": "d747a5c6040c72fd1d65331f0f74d2d8f1e80dc45eb1722b6df25521792913d3"
+        },
+        "jwc": {
+          "path": "generated/q056.jwc",
+          "size": 4747,
+          "sha256": "6bce95a244f8d2f61e1b2a357b4871b6d3c3530e9163db37dcdc697deec949f1"
+        },
+        "reopened_jww": {
+          "path": "generated/q056rt.jww",
+          "size": 17512,
+          "sha256": "30c97ffc56aa00efacb63ee75c7c5578ad1b42465d0f9fa985e041ec3609bbf8"
+        },
+        "reopened_dxf": {
+          "path": "generated/q056rt.dxf",
+          "size": 8895,
+          "sha256": "f6faac468c5dae4259b59094b7a24139e8eb118304dfe957cb2926b8204d059e"
+        }
+      },
+      "native_log_id": "q056"
+    },
+    {
+      "id": "q057",
+      "label": "layer_name",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q057.jww",
+          "size": 16635,
+          "sha256": "efb9bab5e4088d491ce828d5412d8d3ca2bc6b5ce6af5aaceac5f088afea0a5c"
+        },
+        "jwc": {
+          "path": "generated/q057.jwc",
+          "size": 4747,
+          "sha256": "aa0f2606f9c22a75331be7e13df5ae59dd41a4064724b337438fa586bb8b8027"
+        },
+        "reopened_jww": {
+          "path": "generated/q057rt.jww",
+          "size": 17518,
+          "sha256": "e0636520693e478735f7a24e1eeaf6a2c7921f84727b64dedf865b09d590c165"
+        },
+        "reopened_dxf": {
+          "path": "generated/q057rt.dxf",
+          "size": 8902,
+          "sha256": "23f77e5b121cbac3c6a659d42aed5ab56c8ba424e68298f68d7de2d4aec7002f"
+        }
+      },
+      "native_log_id": "q057"
+    },
+    {
+      "id": "q058",
+      "label": "group_name",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q058.jww",
+          "size": 16637,
+          "sha256": "a5890834920578cd236438dbf08e71ebc7e505dd22d3d7c48f88388761f90f90"
+        },
+        "jwc": {
+          "path": "generated/q058.jwc",
+          "size": 4747,
+          "sha256": "5650712d4b9080a10f2125fe6a9fe7fc8c655cbf040d19cb4167a68b8f518cfb"
+        },
+        "reopened_jww": {
+          "path": "generated/q058rt.jww",
+          "size": 17522,
+          "sha256": "d73cee9eae255c880f3eab0de815a793a5e542050f8da1df328310d5dace9b9a"
+        },
+        "reopened_dxf": {
+          "path": "generated/q058rt.dxf",
+          "size": 8890,
+          "sha256": "9be523db06547e4cb09c93535bb433329dd4cf618b3cf3a2ec3e5eed3ecb2e47"
+        }
+      },
+      "native_log_id": "q058"
+    },
+    {
+      "id": "q059",
+      "label": "display_only_layer",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q059.jww",
+          "size": 16627,
+          "sha256": "cbe3dc0e65e325a521cdf3d8c001d4f92e726a719b9f38f7ceb42478e546992e"
+        },
+        "jwc": {
+          "path": "generated/q059.jwc",
+          "size": 4747,
+          "sha256": "16d4063e2f32a521e354cfa0c089a4f6f7987f1f5a3cda9c5f3170755950a9a4"
+        },
+        "reopened_jww": {
+          "path": "generated/q059rt.jww",
+          "size": 17512,
+          "sha256": "fd99dd451e9bad31de802697c021f011b5a2887a6f11e0d7ecc3e1ff93858d85"
+        },
+        "reopened_dxf": {
+          "path": "generated/q059rt.dxf",
+          "size": 8888,
+          "sha256": "3a5cf0854538d7138d2dd86335ed91d512fcfeb35ae9b2a8b17c54ab54395c9b"
+        }
+      },
+      "native_log_id": "q059"
+    },
+    {
+      "id": "q060",
+      "label": "color_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q060.jww",
+          "size": 16627,
+          "sha256": "26ab98203e205bc662558182d458b222a57b8770fc6efe32aa5668d4aa3fe0e6"
+        },
+        "jwc": {
+          "path": "generated/q060.jwc",
+          "size": 4747,
+          "sha256": "8e9a1e0c0f02f5fc4c944b38bfc7e5d1fb4b98a5b437d493ff2510449d60d69d"
+        },
+        "reopened_jww": {
+          "path": "generated/q060rt.jww",
+          "size": 17512,
+          "sha256": "f259bac2fcf6fbfeb69d1fec5dafb4685c7e386305f2262b8e8d5ed022b5b90e"
+        },
+        "reopened_dxf": {
+          "path": "generated/q060rt.dxf",
+          "size": 8890,
+          "sha256": "de51eed5859c3df4ab86a8ed1148dac4d2465b79aa9e84bcd9434d3e32d5af36"
+        }
+      },
+      "native_log_id": "q060"
+    },
+    {
+      "id": "q061",
+      "label": "style_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q061.jww",
+          "size": 16627,
+          "sha256": "3d014dd97880a0153b5c6b70ca70e744bf1d733e33db4df2b99763e398449606"
+        },
+        "jwc": {
+          "path": "generated/q061.jwc",
+          "size": 4747,
+          "sha256": "3e6f7a846f94275dec5bd70ade1d73c2b00c5b9f7b77168033c9baf3a53ccf33"
+        },
+        "reopened_jww": {
+          "path": "generated/q061rt.jww",
+          "size": 17512,
+          "sha256": "bc8a38f1dd166694e26116970ed3823d53d7b5440da138c90ed5a9c7bc225fa1"
+        },
+        "reopened_dxf": {
+          "path": "generated/q061rt.dxf",
+          "size": 8887,
+          "sha256": "dee99553c14115a2ce67d1de15e271dfe1fd419b8bc47a76147f01efbcd95c55"
+        }
+      },
+      "native_log_id": "q061"
+    },
+    {
+      "id": "q063",
+      "label": "write_group_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q063.jww",
+          "size": 16566,
+          "sha256": "a37f91db8ecd1c6a9c92a8dfb775cf4b818c035778fbae4377a52419baf1a42a"
+        },
+        "jwc": {
+          "path": "generated/q063.jwc",
+          "size": 4725,
+          "sha256": "83315055ae6dddb7e5388cbde3a58725de1f4959178c6bb74e489c1b5e8db518"
+        },
+        "reopened_jww": {
+          "path": "generated/q063rt.jww",
+          "size": 17451,
+          "sha256": "e7f15d9c42df167b854e1679f8eab76357d3e7d0c3adc745722df4d4bd5c41fa"
+        },
+        "reopened_dxf": {
+          "path": "generated/q063rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "q063"
+    },
+    {
+      "id": "q064",
+      "label": "write_layer_only",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q064.jww",
+          "size": 16566,
+          "sha256": "521ff9a85d81cb3039202f50ccbc5fb9bef507bc51a3aca96abce700b818013b"
+        },
+        "jwc": {
+          "path": "generated/q064.jwc",
+          "size": 4725,
+          "sha256": "0ed4b826faedbd34e48805265e7b61b8e19ff3fecce1782c206b9ae0833f6afe"
+        },
+        "reopened_jww": {
+          "path": "generated/q064rt.jww",
+          "size": 17451,
+          "sha256": "891f14eef477f9629ca7e6518a2a71f7ba5ac3e9e2c9ee76d4e93e8bdb4a8c86"
+        },
+        "reopened_dxf": {
+          "path": "generated/q064rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "q064"
+    },
+    {
+      "id": "q070",
+      "label": "mixed",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q070.jww",
+          "size": 16892,
+          "sha256": "2f1c5f1b901e380b938876de35bcd592c1ceb7c906907db47ccb44787bd57a40"
+        },
+        "jwc": {
+          "path": "generated/q070.jwc",
+          "size": 4819,
+          "sha256": "0b85784f55ec80fe2b80596ef346eb5b8af34d0e34e7c87dbe53a9563a8c9dc7"
+        },
+        "reopened_jww": {
+          "path": "generated/q070rt.jww",
+          "size": 17764,
+          "sha256": "5beb5f0c267dbe0eac997d1cd03a2cb27ae9edc2721d44d4e54f6656196f661b"
+        },
+        "reopened_dxf": {
+          "path": "generated/q070rt.dxf",
+          "size": 9227,
+          "sha256": "bcfd7cd9c0e7f2fac1fb48eabb99af03dff517fdb8b7f3f924ef47cf797376fe"
+        }
+      },
+      "native_log_id": "q070"
+    },
+    {
+      "id": "q080",
+      "label": "holdout_line",
+      "role": "holdout",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q080.jww",
+          "size": 16627,
+          "sha256": "a24c25bcb139429e37cfeb6f4ab61c9e7049f8ceac30ce6d26ee6e187cee7c61"
+        },
+        "jwc": {
+          "path": "generated/q080.jwc",
+          "size": 4747,
+          "sha256": "12dbf9139d8d4d162de7558b030820591e7927571e3de427e4e1739e02583d64"
+        },
+        "reopened_jww": {
+          "path": "generated/q080rt.jww",
+          "size": 17512,
+          "sha256": "57dfd177e6472b9d57a4354ba414a912ce6da0675110147edf6236e0d4e57a42"
+        },
+        "reopened_dxf": {
+          "path": "generated/q080rt.dxf",
+          "size": 8884,
+          "sha256": "b7be212b5ee080495efb363dee9765650e473c7df12159be6093f07e1afd74d4"
+        }
+      },
+      "native_log_id": "q080"
+    },
+    {
+      "id": "q081",
+      "label": "holdout_arc",
+      "role": "holdout",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q081.jww",
+          "size": 16656,
+          "sha256": "8f6b5e2868336c8d2e77836fbb88e4fb4a3229b8f66e48b607ad9d3dd7268cf5"
+        },
+        "jwc": {
+          "path": "generated/q081.jwc",
+          "size": 4757,
+          "sha256": "3de0c95b87b9e3848520a23e1ade534d5f6971f7e0000cfe51ac1c2ed39895bf"
+        },
+        "reopened_jww": {
+          "path": "generated/q081rt.jww",
+          "size": 17541,
+          "sha256": "f7739569f500c07b033ac9e2b75279d04666d35aa2e281660f86c4db1770dc3f"
+        },
+        "reopened_dxf": {
+          "path": "generated/q081rt.dxf",
+          "size": 8883,
+          "sha256": "c1a5a36a60a569f58224edaaf1cc6d95c69061af518308af446d88119f66b419"
+        }
+      },
+      "native_log_id": "q081"
+    },
+    {
+      "id": "q082",
+      "label": "holdout_text",
+      "role": "holdout",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q082.jww",
+          "size": 16696,
+          "sha256": "92ce376787b0f1d435d4b4143a33c762036f1f4bd51f6198f8d7639a87894c96"
+        },
+        "jwc": {
+          "path": "generated/q082.jwc",
+          "size": 4757,
+          "sha256": "8e6caeb9faa3a0c57abb5c6950bb80d92573f07b510b278a8d2879055adb7c8a"
+        },
+        "reopened_jww": {
+          "path": "generated/q082rt.jww",
+          "size": 17568,
+          "sha256": "7767ad16f6533a8fb41552b654c9b5c0e11d60c7ecebe02b2c4e8ab1d1d84b5e"
+        },
+        "reopened_dxf": {
+          "path": "generated/q082rt.dxf",
+          "size": 8879,
+          "sha256": "2f6fdda5cf61886d417b6afe356b008b230b71ea5e73d0e9dde7d9df87c38c39"
+        }
+      },
+      "native_log_id": "q082"
+    },
+    {
+      "id": "q083",
+      "label": "holdout_point",
+      "role": "candidate",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q083.jww",
+          "size": 16615,
+          "sha256": "e18be8e2e2959d7debc7bdf9245fb959a52050df9ef6e596ba54d9410d347f68"
+        },
+        "jwc": {
+          "path": "generated/q083.jwc",
+          "size": 4737,
+          "sha256": "1ad3cc0d3fb8435ea164b8a776d53d74832ec0c04ba5c704ac117092520b0092"
+        },
+        "reopened_jww": {
+          "path": "generated/q083rt.jww",
+          "size": 17500,
+          "sha256": "0470998bbfcc3e9cf3ef53dc848c74228b468ed454a363c22cd7abb93838bbd5"
+        },
+        "reopened_dxf": {
+          "path": "generated/q083rt.dxf",
+          "size": 8822,
+          "sha256": "a844983cefa407116ebba890a3f365cdedf8a42942a79dd7f8cd2360845c14b6"
+        }
+      },
+      "native_log_id": "q083"
+    },
+    {
+      "id": "q084",
+      "label": "fresh_holdout_point_v2",
+      "role": "holdout",
+      "case_definition": "cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/q084.jww",
+          "size": 16615,
+          "sha256": "006522709ca2fcbffe487fb8e917fd23eb2515a7c9473d5409a4f205065d0919"
+        },
+        "jwc": {
+          "path": "generated/q084.jwc",
+          "size": 4737,
+          "sha256": "39ba1b838636cf14a7da4afd22e20061ede468d8b4bf2b8378f997ff11d1ca50"
+        },
+        "reopened_jww": {
+          "path": "generated/q084rt.jww",
+          "size": 17500,
+          "sha256": "6f6a803e706e6144ab2e90704925cf7dbb97030b1b354cf8521bb27b53d28567"
+        },
+        "reopened_dxf": {
+          "path": "generated/q084rt.dxf",
+          "size": 8823,
+          "sha256": "dcbc49c0bb1ba6fb5b7d083baf0184b85f9cd9963286a8f63a0907b444959301"
+        }
+      },
+      "native_log_id": "q084"
+    },
+    {
+      "id": "r000",
+      "label": "Two text records, unequal CP932 byte lengths",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r000.jww",
+          "size": 16805,
+          "sha256": "c774a4bdb16eb8867240998ca9044ae9070a041624ef75d0cb7367966c9332b0"
+        },
+        "jwc": {
+          "path": "generated/r000.jwc",
+          "size": 4783,
+          "sha256": "288ee83635886f6725629542b7a414dc33bf92363154d7986f6b00419b39e80a"
+        },
+        "reopened_jww": {
+          "path": "generated/r000rt.jww",
+          "size": 17677,
+          "sha256": "fecba55d02d47ea10eb0f3294006fedcb73807817581eefa774a203a62f59dd9"
+        },
+        "reopened_dxf": {
+          "path": "generated/r000rt.dxf",
+          "size": 8980,
+          "sha256": "686d53908c92d66de88bf87eeb0d1d0c2c1ffabed61b3239de33d7680a6a0523"
+        }
+      },
+      "native_log_id": "r000"
+    },
+    {
+      "id": "r001",
+      "label": "Three text records and normal point; determine string pool ordering",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r001.jww",
+          "size": 16963,
+          "sha256": "5c156140f69a3dc8ebae1b1d4d07e49288079c0be26f4ecf9f652f1fbb2d26d8"
+        },
+        "jwc": {
+          "path": "generated/r001.jwc",
+          "size": 4821,
+          "sha256": "a9f8e22118a4de35d46c8b09304649e1132a487d3f311e0cd28c722066b35305"
+        },
+        "reopened_jww": {
+          "path": "generated/r001rt.jww",
+          "size": 17835,
+          "sha256": "813a4dffd95f410b1e5b666ad2022394f107147450b3349f534b0b418f07ec54"
+        },
+        "reopened_dxf": {
+          "path": "generated/r001rt.dxf",
+          "size": 9184,
+          "sha256": "5c0c661450fa5fdd7ef842184632f9f49b9f152e5f8c65e700b7a5c2e9d7ea96"
+        }
+      },
+      "native_log_id": "r001"
+    },
+    {
+      "id": "r002",
+      "label": "Temporary point packed layer 0x35",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r002.jww",
+          "size": 16615,
+          "sha256": "74911ea04306a92949ca74ef3cfb14d26a46bf6de05902047133b91c9e430029"
+        },
+        "jwc": {
+          "path": "generated/r002.jwc",
+          "size": 4725,
+          "sha256": "9384a01b3e9655e544791ae637e2d8bedc25378cefb2094f4110ae0a8cb0fb5e"
+        },
+        "reopened_jww": {
+          "path": "generated/r002rt.jww",
+          "size": 17500,
+          "sha256": "cf8123f2b4ef4693695988781702624f35d3626cbf8ccafbb6b328372fc5ba73"
+        },
+        "reopened_dxf": {
+          "path": "generated/r002rt.dxf",
+          "size": 8823,
+          "sha256": "98af786c3bdf48ffe05aa82a130b7200cf40c3fe0e7e12312b6cb0636a989faa"
+        }
+      },
+      "native_log_id": "r002"
+    },
+    {
+      "id": "r003",
+      "label": "Temporary point capacity 100",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r003.jww",
+          "size": 20278,
+          "sha256": "e95da6c3cb01b86c00cfa858fe4e17752ad78843f118c76608f6a7545eaebd1b"
+        },
+        "jwc": {
+          "path": "generated/r003.jwc",
+          "size": 4725,
+          "sha256": "4cf8d3108d003fc50ffa6f76399aa15f9fa1fed3345c451c5b5294096f23a02e"
+        },
+        "reopened_jww": {
+          "path": "generated/r003rt.jww",
+          "size": 21163,
+          "sha256": "ef2eed08e57a2ba7769593791d9f114c3b31547cfd20e4b318eb63b9ee804bb0"
+        },
+        "reopened_dxf": {
+          "path": "generated/r003rt.dxf",
+          "size": 23760,
+          "sha256": "7152960f900c7ff95dac12e99a64833d582c1e11460a970f4bc5b5ec2b26df54"
+        }
+      },
+      "native_log_id": "r003"
+    },
+    {
+      "id": "r004",
+      "label": "A3 line",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r004.jww",
+          "size": 16627,
+          "sha256": "df34e8a6b592738a071e9b6de1daa684bdf63f433a3233478651dc3969d98802"
+        },
+        "jwc": {
+          "path": "generated/r004.jwc",
+          "size": 4747,
+          "sha256": "4f30f8bfd1d9934270bc5b7414129ec00ab9a99f584110abd1b7a1bec21b24ea"
+        },
+        "reopened_jww": {
+          "path": "generated/r004rt.jww",
+          "size": 17512,
+          "sha256": "29ed6530b46395d2eee9836f1e1df6af87c8cb44624a09aad20dae74d0e52e6a"
+        },
+        "reopened_dxf": {
+          "path": "generated/r004rt.dxf",
+          "size": 8891,
+          "sha256": "fc04a4de4badbd2bf1030c89203fc4cc9a12e294a83e653024d53e73ef9a6c46"
+        }
+      },
+      "native_log_id": "r004"
+    },
+    {
+      "id": "r005",
+      "label": "A4 line",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r005.jww",
+          "size": 16627,
+          "sha256": "a888cfe15e39fb060b599ffad2516aff9943ddcaf9d7c2333693d53e240a3972"
+        },
+        "jwc": {
+          "path": "generated/r005.jwc",
+          "size": 4747,
+          "sha256": "42281f4a672bb8c2f9130bae00e4aac475845afd898b8ec67d1896cef28353d2"
+        },
+        "reopened_jww": {
+          "path": "generated/r005rt.jww",
+          "size": 17512,
+          "sha256": "f8b62df5d55bf81062eef9d872b400f06693aa5252c0231b5836f8a29b63e962"
+        },
+        "reopened_dxf": {
+          "path": "generated/r005rt.dxf",
+          "size": 8891,
+          "sha256": "65f1ec15fabe546932724b38aab55e60e6e55d7c96b347b07b15e319af5d9238"
+        }
+      },
+      "native_log_id": "r005"
+    },
+    {
+      "id": "r006",
+      "label": "Line curve group 123",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r006.jww",
+          "size": 16627,
+          "sha256": "7587e0a91eaf04181dd9a98ae2c21787491df268c4b43bbfcdb0c6218a07d01b"
+        },
+        "jwc": {
+          "path": "generated/r006.jwc",
+          "size": 4747,
+          "sha256": "1d0ac5f245cd7bcc0f217cc5926f85a3ecb2912ffe7c1c0b622ff9474d2d7b24"
+        },
+        "reopened_jww": {
+          "path": "generated/r006rt.jww",
+          "size": 17512,
+          "sha256": "f049f0b185dda00b9f58dfff34a73d4dbc4ce5ceabb13b60abe6bc369b10993d"
+        },
+        "reopened_dxf": {
+          "path": "generated/r006rt.dxf",
+          "size": 8890,
+          "sha256": "9be523db06547e4cb09c93535bb433329dd4cf618b3cf3a2ec3e5eed3ecb2e47"
+        }
+      },
+      "native_log_id": "r006"
+    },
+    {
+      "id": "r007",
+      "label": "Point curve group 123",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r007.jww",
+          "size": 16615,
+          "sha256": "a6fab22b7c6026457a732b34eee5d0adc3d20f567c20df730550656dfdd458ae"
+        },
+        "jwc": {
+          "path": "generated/r007.jwc",
+          "size": 4737,
+          "sha256": "54a9faa1cab1d4de5caf598b5d3dffeed0e826ae790ad437901960f7ce3863d0"
+        },
+        "reopened_jww": {
+          "path": "generated/r007rt.jww",
+          "size": 17500,
+          "sha256": "461174d36b35dd283b63bc46868bef37036597fa7fe85e680e8997ecc138721b"
+        },
+        "reopened_dxf": {
+          "path": "generated/r007rt.dxf",
+          "size": 8825,
+          "sha256": "021ee1782b565e4a9e68b8bc1b4427de3a315ef966cf341b6f14259bd81542b6"
+        }
+      },
+      "native_log_id": "r007"
+    },
+    {
+      "id": "r008",
+      "label": "Arc curve group 123",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r008.jww",
+          "size": 16656,
+          "sha256": "bd2e9c6b074c4f92d52e58c8b7c9118c7f2dc7ed733611e1215c0008e2199f23"
+        },
+        "jwc": {
+          "path": "generated/r008.jwc",
+          "size": 4757,
+          "sha256": "9e089e050518b5e4bcf55a2d67d90056ab56a20ad2a7ab40b98036fc6a283a67"
+        },
+        "reopened_jww": {
+          "path": "generated/r008rt.jww",
+          "size": 17541,
+          "sha256": "d703bfd77e0d0d3b093cd54a69ae4df8c601c37217c51e5a951397d7d62dc83c"
+        },
+        "reopened_dxf": {
+          "path": "generated/r008rt.dxf",
+          "size": 8868,
+          "sha256": "66a1178b4ec467c616593e81d3d4a27cd066590b0e2367e3e6fb46f092ddc752"
+        }
+      },
+      "native_log_id": "r008"
+    },
+    {
+      "id": "r009",
+      "label": "Text curve group 123",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r009.jww",
+          "size": 16692,
+          "sha256": "ec1d6351fb99b3db1815125046fbe284bec62bd636ac8b2295cf22db8dd286a0"
+        },
+        "jwc": {
+          "path": "generated/r009.jwc",
+          "size": 4753,
+          "sha256": "f20cc277fac06cb6ba13ebfe393f1b77b13280cc922f70192aa82ab3388e8693"
+        },
+        "reopened_jww": {
+          "path": "generated/r009rt.jww",
+          "size": 17564,
+          "sha256": "fc8c8e92468a02af375a232aab1c88514a100eaecdfc3ed18ebf1aa8d02e25be"
+        },
+        "reopened_dxf": {
+          "path": "generated/r009rt.dxf",
+          "size": 8858,
+          "sha256": "cee2a5323dc3aeb2998b6e7b96fa8ca8dcffa578c5b3e21687b4cb503c6707b7"
+        }
+      },
+      "native_log_id": "r009"
+    },
+    {
+      "id": "r010",
+      "label": "Line pen width 25",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r010.jww",
+          "size": 16627,
+          "sha256": "b99962cbf58d632eb546ee0d9716daa5292898fd1e8b60df899f3ae1b82a8ec7"
+        },
+        "jwc": {
+          "path": "generated/r010.jwc",
+          "size": 4747,
+          "sha256": "28957ac84007dc5571df5f8f41003df1a8494a06bb352a167a44cab1e60171fd"
+        },
+        "reopened_jww": {
+          "path": "generated/r010rt.jww",
+          "size": 17512,
+          "sha256": "7c2a103f3a1317b359d8cfdbe67ae1231db60c56a02608f65f83d9064e75ce4c"
+        },
+        "reopened_dxf": {
+          "path": "generated/r010rt.dxf",
+          "size": 8890,
+          "sha256": "9be523db06547e4cb09c93535bb433329dd4cf618b3cf3a2ec3e5eed3ecb2e47"
+        }
+      },
+      "native_log_id": "r010"
+    },
+    {
+      "id": "r011",
+      "label": "Line flags 2",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r011.jww",
+          "size": 16627,
+          "sha256": "415abf6995f675b71fe9176fad7be7076a2fa8d9aba3d724d78b0357abc24365"
+        },
+        "jwc": {
+          "path": "generated/r011.jwc",
+          "size": 4747,
+          "sha256": "e6246976daf194fe3ffe50df56e27c7e5cd1ee0a75edc9bd9ce2c991e6c07536"
+        },
+        "reopened_jww": {
+          "path": "generated/r011rt.jww",
+          "size": 17512,
+          "sha256": "7c2a103f3a1317b359d8cfdbe67ae1231db60c56a02608f65f83d9064e75ce4c"
+        },
+        "reopened_dxf": {
+          "path": "generated/r011rt.dxf",
+          "size": 8890,
+          "sha256": "9be523db06547e4cb09c93535bb433329dd4cf618b3cf3a2ec3e5eed3ecb2e47"
+        }
+      },
+      "native_log_id": "r011"
+    },
+    {
+      "id": "r012",
+      "label": "Ellipse flatness 0.5",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r012.jww",
+          "size": 16656,
+          "sha256": "92be4f512d4a65ee1034b37da79f40ac1c71f24f3fb87e928c3297bcc679690b"
+        },
+        "jwc": {
+          "path": "generated/r012.jwc",
+          "size": 4757,
+          "sha256": "d27de15306b03d6fb3aef0e64b32e316874e4e7032cbf945fcd636288d58fb70"
+        },
+        "reopened_jww": {
+          "path": "generated/r012rt.jww",
+          "size": 17541,
+          "sha256": "84954f1f7ac9ff044b7bf5de90a3f6a5978053f934c6d81ff29f10ba3d3aa780"
+        },
+        "reopened_dxf": {
+          "path": "generated/r012rt.dxf",
+          "size": 14538,
+          "sha256": "487f213e4f17da43fef266435ddb857cdd9e8e70c210ec47cbaae63cdcc31b6c"
+        }
+      },
+      "native_log_id": "r012"
+    },
+    {
+      "id": "r013",
+      "label": "Ellipse tilt 30 degrees",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r013.jww",
+          "size": 16656,
+          "sha256": "faf05cbbef180cddf3868f52e8f8b6bfbdc9db09b5f059e194d438cb5911e6b6"
+        },
+        "jwc": {
+          "path": "generated/r013.jwc",
+          "size": 4757,
+          "sha256": "29c473eadcb76d7e8c3a9e533b9ecc6afe1fd38b38723191748141cd80019c73"
+        },
+        "reopened_jww": {
+          "path": "generated/r013rt.jww",
+          "size": 17541,
+          "sha256": "ca1c9bbc8ef67b2beae28d08fdaecb7278606e087c0c16033203c809c751cb34"
+        },
+        "reopened_dxf": {
+          "path": "generated/r013rt.dxf",
+          "size": 14532,
+          "sha256": "b256054523873cefb1a2d6fe98f5f95278e238e55d406eec371ac5512a3e6573"
+        }
+      },
+      "native_log_id": "r013"
+    },
+    {
+      "id": "r014",
+      "label": "Text preset 3 height only",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r014.jww",
+          "size": 16692,
+          "sha256": "0384a72baa28c30e18dce09b732a55fab8c2a76e8f04414befb072241f032b77"
+        },
+        "jwc": {
+          "path": "generated/r014.jwc",
+          "size": 4753,
+          "sha256": "577b67bb5e1404346afc77bd31d866e8e4af376359a5a4ce393952bb03c09a78"
+        },
+        "reopened_jww": {
+          "path": "generated/r014rt.jww",
+          "size": 17564,
+          "sha256": "7bc30d1f3d025141cc6b8b2e78ee3675dd9e829afd0d48166307341bc36a01e6"
+        },
+        "reopened_dxf": {
+          "path": "generated/r014rt.dxf",
+          "size": 8892,
+          "sha256": "01f28780c9c723944c0d7bb6046c765172c0496fdbb2e2739b4db219272f41f4"
+        }
+      },
+      "native_log_id": "r014"
+    },
+    {
+      "id": "r015",
+      "label": "Text preset 3 spacing only",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r015.jww",
+          "size": 16692,
+          "sha256": "aa6affa826929bc8fc757965913dc87376b9c6a7c9d1367b4fee3f28b7afe616"
+        },
+        "jwc": {
+          "path": "generated/r015.jwc",
+          "size": 4753,
+          "sha256": "edd4720f1547ea005677c9d9c579c529c29adb32a43a9eaff7e5cdd710d7a595"
+        },
+        "reopened_jww": {
+          "path": "generated/r015rt.jww",
+          "size": 17564,
+          "sha256": "ffc9b1dae828418df38ddfa80d7f3345680b8ae912afe9eb74220eb82c94cbe0"
+        },
+        "reopened_dxf": {
+          "path": "generated/r015rt.dxf",
+          "size": 8857,
+          "sha256": "70fb9bf5df7d338b46ff280ebf0f6c4b2eb339096b3eb9f5a03ee48620e46c09"
+        }
+      },
+      "native_log_id": "r015"
+    },
+    {
+      "id": "r016",
+      "label": "Text preset 3 color only",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r016.jww",
+          "size": 16692,
+          "sha256": "0a1bf357c48ca84928ba1608ba31168cd9d71da58565cf2a636e5ca02c13069a"
+        },
+        "jwc": {
+          "path": "generated/r016.jwc",
+          "size": 4753,
+          "sha256": "ea49738bd4610c7e518ab6522b2357f753998cb6f2d049d26e4b55a1ac032ada"
+        },
+        "reopened_jww": {
+          "path": "generated/r016rt.jww",
+          "size": 17564,
+          "sha256": "bff2eb685fccd09f5fbf75b53364edcf4e4e7b04785f6284f72f00269e1fff55"
+        },
+        "reopened_dxf": {
+          "path": "generated/r016rt.dxf",
+          "size": 8858,
+          "sha256": "aab1ccf446c4e0bc023f232bf360df72b76e5c04a220accd0f15d108dd9734e5"
+        }
+      },
+      "native_log_id": "r016"
+    },
+    {
+      "id": "r017",
+      "label": "Text preset 3 width only",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r017.jww",
+          "size": 16692,
+          "sha256": "3b6fbf62449aa6681f8a5e60845250ccf215edbfde75859e58d9445ab2949899"
+        },
+        "jwc": {
+          "path": "generated/r017.jwc",
+          "size": 4753,
+          "sha256": "ab0e6044b90b99f9de8700349421e7a24d1b55d70f91f95ecda739cd1720f16c"
+        },
+        "reopened_jww": {
+          "path": "generated/r017rt.jww",
+          "size": 17564,
+          "sha256": "aa47c1275e1f9f713e648274e81cb9afa095831b5eb35f79272f8a6d2c2ba02c"
+        },
+        "reopened_dxf": {
+          "path": "generated/r017rt.dxf",
+          "size": 8860,
+          "sha256": "bc885087da35a824677ed72656cb62eede2a7804656b46843ed4b569011606b2"
+        }
+      },
+      "native_log_id": "r017"
+    },
+    {
+      "id": "r018",
+      "label": "Group 2 hidden",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r018.jww",
+          "size": 16566,
+          "sha256": "6139a253b75793ae6acd18335c4e52b3d6e95d2d7d9b42f6bf5f0955767cbe26"
+        },
+        "jwc": {
+          "path": "generated/r018.jwc",
+          "size": 4725,
+          "sha256": "5d548a03ed09f3fc5b76f63e1262276b8397499d999470375e85b87bf76eab5b"
+        },
+        "reopened_jww": {
+          "path": "generated/r018rt.jww",
+          "size": 17451,
+          "sha256": "8c6fad4dd93b9c085abba6e70e00f87b8b9583779a7546816a054882127fb50b"
+        },
+        "reopened_dxf": {
+          "path": "generated/r018rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "r018"
+    },
+    {
+      "id": "r019",
+      "label": "Group 2 display only",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r019.jww",
+          "size": 16566,
+          "sha256": "f4b39d5ce6b1c5a38e100162435fc2dd355bf2bfed1f38ae5630f5541bc81ba4"
+        },
+        "jwc": {
+          "path": "generated/r019.jwc",
+          "size": 4725,
+          "sha256": "1e9489d72703be2102cc525170df921ffdcd37a167a63fef6a89f16d0a0e5546"
+        },
+        "reopened_jww": {
+          "path": "generated/r019rt.jww",
+          "size": 17451,
+          "sha256": "1ff49267c4be1973a3ec8a4ac094456604921b2ad6722283da9c706ca14d7a3a"
+        },
+        "reopened_dxf": {
+          "path": "generated/r019rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "r019"
+    },
+    {
+      "id": "r020",
+      "label": "Group 2 protected",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r020.jww",
+          "size": 16566,
+          "sha256": "b80238b49bd2b311cf142c8904b313da62d31d01a66a8823b51e5c256bbd33a6"
+        },
+        "jwc": {
+          "path": "generated/r020.jwc",
+          "size": 4725,
+          "sha256": "0fbdc790eb9f9dd13c9a78dc876b7fa927b9ba5f0ca47abc7d7aff80d370d9a0"
+        },
+        "reopened_jww": {
+          "path": "generated/r020rt.jww",
+          "size": 17451,
+          "sha256": "a6b8fb1ebc8a9a8db4a14b9ad24f3e47a10e0a242cc6a7360209c47499868ae6"
+        },
+        "reopened_dxf": {
+          "path": "generated/r020rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "r020"
+    },
+    {
+      "id": "r021",
+      "label": "Layer 3 protected",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r021.jww",
+          "size": 16566,
+          "sha256": "6db6e40f5e9074d59d1f7efd4b58a0b02d7c0bd535b2723720e970bac4791594"
+        },
+        "jwc": {
+          "path": "generated/r021.jwc",
+          "size": 4725,
+          "sha256": "f156dd6fa00dcf8a42c029a5a98834071c7473a795de7a5daa7237cedaea7147"
+        },
+        "reopened_jww": {
+          "path": "generated/r021rt.jww",
+          "size": 17451,
+          "sha256": "cf47bb2d9e92e846cce606a30c128e9da256b849e5430753091f013467c7cf94"
+        },
+        "reopened_dxf": {
+          "path": "generated/r021rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "r021"
+    },
+    {
+      "id": "r022",
+      "label": "Name CP932 truncation at lead-byte boundary",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r022.jww",
+          "size": 16608,
+          "sha256": "ea591b7552d3d6e7f8e60f7341d6f7ab4122080ef2be3bc00d5a8b23d9276637"
+        },
+        "jwc": {
+          "path": "generated/r022.jwc",
+          "size": 4725,
+          "sha256": "03777445d550bd84ce280ac8615c65620f5a1a34cfdbabb373a6bdecfd657eca"
+        },
+        "reopened_jww": {
+          "path": "generated/r022rt.jww",
+          "size": 17491,
+          "sha256": "ce7a8d63b440548dd0349069e170675f41a7419c0e3cbd4f657329f7d9243370"
+        },
+        "reopened_dxf": {
+          "path": "generated/r022rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "r022"
+    },
+    {
+      "id": "r023",
+      "label": "Text nonpreset size 3.7",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r023.jww",
+          "size": 16692,
+          "sha256": "d2cc9bc8d875c53da94c9eda452454258d0ce4d54bb2f4991b09c4cc02733949"
+        },
+        "jwc": {
+          "path": "generated/r023.jwc",
+          "size": 4753,
+          "sha256": "8e430fbb6a9a1341f25ed362cb82455592cf91ddf1faac6e0c0f98c7b5e77ac3"
+        },
+        "reopened_jww": {
+          "path": "generated/r023rt.jww",
+          "size": 17564,
+          "sha256": "4d90f105c58332d7febd5b40d88dfd7658da7447ee45a8d8d784c3ee3c76e785"
+        },
+        "reopened_dxf": {
+          "path": "generated/r023rt.dxf",
+          "size": 8858,
+          "sha256": "5100d3bd9bd3b4f9e2653bfe450b4890f2cf489e0d2949838b45f7459a5ad34e"
+        }
+      },
+      "native_log_id": "r023"
+    },
+    {
+      "id": "r024",
+      "label": "Multiple contiguous curve groups and singleton lines",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r024.jww",
+          "size": 16872,
+          "sha256": "324ea49c80d3efe1fa778f201da8deba071e4a69e60383ff9e69b5c2abfc2352"
+        },
+        "jwc": {
+          "path": "generated/r024.jwc",
+          "size": 4857,
+          "sha256": "b36fa856bce78f71ec0af65338176d9b3fde9175c57403aec8cf4eeb31633678"
+        },
+        "reopened_jww": {
+          "path": "generated/r024rt.jww",
+          "size": 17757,
+          "sha256": "334d6e1f23b019ad24560f88f966befb85c42eea18651916a2d19161ac99b0b9"
+        },
+        "reopened_dxf": {
+          "path": "generated/r024rt.dxf",
+          "size": 9652,
+          "sha256": "d4fc8f69289d44a2aafb9538d4a46ba4ddf530d314e13d769c312b42814215d2"
+        }
+      },
+      "native_log_id": "r024"
+    },
+    {
+      "id": "r025",
+      "label": "ASCII layer 7/8-byte and group 15/16-byte name boundaries",
+      "role": "candidate",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r025.jww",
+          "size": 16638,
+          "sha256": "add796ff4af35de853eb9fb58eac4e8833556d1d2d5141f204cec631d29b4ca0"
+        },
+        "jwc": {
+          "path": "generated/r025.jwc",
+          "size": 4725,
+          "sha256": "d110c95a4f3ecda397763091a2a1ea665fb9d9369c668e1a4a0854be926c6f12"
+        },
+        "reopened_jww": {
+          "path": "generated/r025rt.jww",
+          "size": 17519,
+          "sha256": "95907b4f7bc55f5a9fbbfd0d1be255bb6866d038da5e81dec7a255805152888f"
+        },
+        "reopened_dxf": {
+          "path": "generated/r025rt.dxf",
+          "size": 8672,
+          "sha256": "6af7736fd4a7d59fe32b297f4718eb769fde3d69b9239b2f8fc7a50723515dda"
+        }
+      },
+      "native_log_id": "r025"
+    },
+    {
+      "id": "r080",
+      "label": "Fresh pooled CP932 texts over 255 bytes, mixed records and custom text table",
+      "role": "holdout",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r080.jww",
+          "size": 17193,
+          "sha256": "aa6a30e876d7749eecf9218b50eea3aeef106d435baf4bdff88fb4f065045ec7"
+        },
+        "jwc": {
+          "path": "generated/r080.jwc",
+          "size": 5095,
+          "sha256": "a40da09ad7eee35227f4dfebc6f58780ac456109954b6d75decb9912e75e7172"
+        },
+        "reopened_jww": {
+          "path": "generated/r080rt.jww",
+          "size": 18039,
+          "sha256": "89463f9639a86fce96e4e2e3dbe4086b282eb430718c6e1511e436b5ece81813"
+        },
+        "reopened_dxf": {
+          "path": "generated/r080rt.dxf",
+          "size": 9666,
+          "sha256": "38980c9a3f891914232cf1cd6b04895125d62196c53eec6a20d3ca4280673e7c"
+        }
+      },
+      "native_log_id": "r080"
+    },
+    {
+      "id": "r081",
+      "label": "Fresh tilted ellipse with untested flatness and A0 paper",
+      "role": "holdout",
+      "case_definition": "followup_cases.json",
+      "files": {
+        "input_jww": {
+          "path": "inputs/r081.jww",
+          "size": 16656,
+          "sha256": "495ef4679af2e38d5c7e4712af76686d0830de36d1b9b23672170f443fd9f876"
+        },
+        "jwc": {
+          "path": "generated/r081.jwc",
+          "size": 4757,
+          "sha256": "fb0f41e739fc4b4a75f34f4aee47ce1c083d809677567dc9352f39485f07c3a5"
+        },
+        "reopened_jww": {
+          "path": "generated/r081rt.jww",
+          "size": 17541,
+          "sha256": "f38a9f73c0ec112f8e7d925e476405fc41c92bfd5523b10987aebee44e3143b8"
+        },
+        "reopened_dxf": {
+          "path": "generated/r081rt.dxf",
+          "size": 14379,
+          "sha256": "4ec42a04c90b5c8f2fbb009236b93c7afbcf459fafc89e24eaf80611ddb18529"
+        }
+      },
+      "native_log_id": "r081"
+    }
+  ],
+  "updated_at_utc": "2026-09-05T14:55:44.937538+00:00"
+}

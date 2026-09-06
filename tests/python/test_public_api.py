@@ -348,6 +348,7 @@ class PublicApiTests(unittest.TestCase):
             self.assertIn("audit", report)
             self.assertIn("explode_inserts", report)
             self.assertIn("max_block_nesting", report)
+            self.assertEqual(report["text_em_scale"], 1.0)
 
     def test_print_json_fallback_for_non_utf8_stdout(self):
         class _AsciiStdout:
@@ -528,6 +529,189 @@ class PublicApiTests(unittest.TestCase):
             self.assertEqual(len(report["items"]), report["converted"])
             self.assertIn("explode_inserts", report)
             self.assertIn("max_block_nesting", report)
+            self.assertEqual(report["text_em_scale"], 1.0)
+
+    def test_dxf_text_carries_the_jww_width_correction(self):
+        entities = ezjww.read_dxf_document(str(sample_path()))["entities"]
+        texts = [e for e in entities if e["type"] == "TEXT"]
+        self.assertTrue(texts, "sample has no TEXT to check")
+        for text in texts:
+            self.assertIn("width_factor", text)
+            self.assertGreater(text["width_factor"], 0.0)
+
+    def test_text_em_scale_moves_only_the_dxf_height(self):
+        # group 41 carries the JWW pitch; only group 40 may move.
+        inflating = 1.364
+        spec = ezjww.read_dxf_document(str(sample_path()))["entities"]
+        scaled = ezjww.read_dxf_document(
+            str(sample_path()),
+            text_em_scale=inflating,
+        )["entities"]
+
+        spec_texts = [e for e in spec if e["type"] == "TEXT"]
+        scaled_texts = [e for e in scaled if e["type"] == "TEXT"]
+        self.assertEqual(len(spec_texts), len(scaled_texts))
+        self.assertTrue(spec_texts, "sample has no TEXT to check")
+        for plain, corrected in zip(spec_texts, scaled_texts):
+            self.assertAlmostEqual(plain["width_factor"], corrected["width_factor"])
+            self.assertAlmostEqual(
+                plain["height"] / inflating,
+                corrected["height"],
+            )
+
+    def test_text_em_scale_rejects_a_value_that_cannot_divide(self):
+        path = str(sample_path())
+        for scale in (0.0, -1.0, float("nan"), float("inf")):
+            with self.assertRaises(ValueError, msg=scale) as caught:
+                ezjww.read_dxf_document(path, text_em_scale=scale)
+            self.assertIn("text_em_scale", str(caught.exception))
+            # The wrappers reject it before reaching the extension.
+            with self.assertRaises(ValueError, msg=scale):
+                ezjww.readfile(path).to_dxf(text_em_scale=scale)
+            with self.assertRaises(ValueError, msg=scale):
+                ezjww.to_dxf_string(path, text_em_scale=scale)
+
+    def test_modelspace_reflects_the_text_em_scale(self):
+        drawing = ezjww.readfile(sample_path())
+        inflating = 1.364
+        spec = drawing.modelspace().query("TEXT")
+        scaled = drawing.modelspace(text_em_scale=inflating).query("TEXT")
+
+        self.assertTrue(spec, "sample has no TEXT to check")
+        self.assertEqual(len(spec), len(scaled))
+        for plain, corrected in zip(spec, scaled):
+            self.assertAlmostEqual(plain["height"] / inflating, corrected["height"])
+            self.assertAlmostEqual(plain["width_factor"], corrected["width_factor"])
+
+        with self.assertRaises(ValueError):
+            drawing.modelspace(text_em_scale=0.0)
+
+    def test_analysis_results_do_not_move_with_the_text_em_scale(self):
+        # Why the flag is wired into modelspace/to-dxf only: nothing an analysis reads back depends on group 40,
+        # so offering the option there would be noise.
+        drawing = ezjww.readfile(sample_path())
+        inflating = 1.364
+        for explode in (False, True):
+            spec = drawing.to_dxf(explode_inserts=explode)
+            scaled = drawing.to_dxf(explode_inserts=explode, text_em_scale=inflating)
+            self.assertEqual(
+                ezjww._dxf_bbox(spec),
+                ezjww._dxf_bbox(scaled),
+                msg=f"explode_inserts={explode}",
+            )
+            self.assertEqual(
+                ezjww._dxf_stats(spec),
+                ezjww._dxf_stats(scaled),
+                msg=f"explode_inserts={explode}",
+            )
+            self.assertEqual(
+                spec["unsupported_entities"],
+                scaled["unsupported_entities"],
+                msg=f"explode_inserts={explode}",
+            )
+
+    def test_cli_to_dxf_applies_and_reports_the_text_em_scale(self):
+        with tempfile.TemporaryDirectory(prefix="ezjww_test_") as tmp_dir:
+            tmp = Path(tmp_dir)
+            spec_out = tmp / "spec.dxf"
+            scaled_out = tmp / "scaled.dxf"
+            report_out = tmp / "report.json"
+
+            self.assertEqual(
+                ezjww._run(["to-dxf", str(sample_path()), "-o", str(spec_out)]),
+                0,
+            )
+            code = ezjww._run(
+                [
+                    "to-dxf",
+                    str(sample_path()),
+                    "-o",
+                    str(scaled_out),
+                    "--text-em-scale",
+                    "1.364",
+                    "--report",
+                    "json",
+                    "--report-path",
+                    str(report_out),
+                ]
+            )
+            self.assertEqual(code, 0)
+            report = json.loads(report_out.read_text(encoding="utf-8"))
+            self.assertAlmostEqual(report["text_em_scale"], 1.364)
+            # The flag has to reach the writer, not just the report.
+            self.assertNotEqual(
+                spec_out.read_text(encoding="utf-8"),
+                scaled_out.read_text(encoding="utf-8"),
+            )
+
+    def test_cli_to_dxf_rejects_an_unusable_text_em_scale(self):
+        with tempfile.TemporaryDirectory(prefix="ezjww_test_") as tmp_dir:
+            dxf_out = Path(tmp_dir) / "out.dxf"
+            for scale in ("0", "-1", "nan"):
+                code = ezjww._run(
+                    [
+                        "to-dxf",
+                        str(sample_path()),
+                        "-o",
+                        str(dxf_out),
+                        "--text-em-scale",
+                        scale,
+                    ]
+                )
+                self.assertEqual(code, 2, msg=scale)
+                self.assertFalse(dxf_out.exists(), msg=scale)
+
+    def test_cli_to_dxf_dir_reports_the_text_em_scale(self):
+        with tempfile.TemporaryDirectory(prefix="ezjww_test_") as tmp_dir:
+            tmp = Path(tmp_dir)
+            report_out = tmp / "dir_report.json"
+            code = ezjww._run(
+                [
+                    "to-dxf-dir",
+                    str(ROOT / "jww_samples"),
+                    "-o",
+                    str(tmp / "dxf"),
+                    "--text-em-scale",
+                    "1.364",
+                    "--report",
+                    "json",
+                    "--report-path",
+                    str(report_out),
+                ]
+            )
+            self.assertEqual(code, 0)
+            report = json.loads(report_out.read_text(encoding="utf-8"))
+            self.assertAlmostEqual(report["text_em_scale"], 1.364)
+            self.assertTrue(report["items"])
+            for item in report["items"]:
+                self.assertAlmostEqual(item["text_em_scale"], 1.364)
+
+    def test_cli_to_dxf_dir_rejects_an_unusable_text_em_scale(self):
+        with tempfile.TemporaryDirectory(prefix="ezjww_test_") as tmp_dir:
+            tmp = Path(tmp_dir)
+            out_dir = tmp / "dxf"
+            code = ezjww._run(
+                [
+                    "to-dxf-dir",
+                    str(ROOT / "jww_samples"),
+                    "-o",
+                    str(out_dir),
+                    "--text-em-scale",
+                    "0",
+                ]
+            )
+            self.assertEqual(code, 2)
+            self.assertFalse(out_dir.exists())
+
+    def test_rejecting_a_scale_leaves_no_cache_entry(self):
+        drawing = ezjww.readfile(str(sample_path()))
+        for scale in (float("nan"), 0.0):
+            with self.assertRaises(ValueError):
+                drawing.to_dxf(text_em_scale=scale)
+        self.assertEqual(len(drawing._dxf_cache), 0)
+        drawing.to_dxf()
+        drawing.to_dxf()
+        self.assertEqual(len(drawing._dxf_cache), 1)
 
 
 if __name__ == "__main__":

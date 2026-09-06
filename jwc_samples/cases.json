@@ -1,0 +1,802 @@
+[
+  {
+    "id": "q000",
+    "label": "empty",
+    "role": "candidate",
+    "entities": []
+  },
+  {
+    "id": "q001",
+    "label": "horizontal",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q002",
+    "label": "end_x_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          21,
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q003",
+    "label": "vertical",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          1,
+          12
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q004",
+    "label": "negative_fraction",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          -1.25,
+          2.5,
+          3.75,
+          -4.5
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q005",
+    "label": "large",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          123456.125,
+          -56789.5,
+          123467.25,
+          -56788.25
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q010",
+    "label": "circle",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": true
+      }
+    ]
+  },
+  {
+    "id": "q011",
+    "label": "radius_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 9,
+        "full": true
+      }
+    ]
+  },
+  {
+    "id": "q012",
+    "label": "arc",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": false,
+        "start_deg": 30,
+        "sweep_deg": 60
+      }
+    ]
+  },
+  {
+    "id": "q013",
+    "label": "arc_cross_zero",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": false,
+        "start_deg": 350,
+        "sweep_deg": 30
+      }
+    ]
+  },
+  {
+    "id": "q014",
+    "label": "arc_quarter",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": false,
+        "start_deg": 0,
+        "sweep_deg": 90
+      }
+    ]
+  },
+  {
+    "id": "q020",
+    "label": "point",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q021",
+    "label": "temporary_point",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ],
+        "temporary": true
+      }
+    ]
+  },
+  {
+    "id": "q022",
+    "label": "two_temporary_points",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ],
+        "temporary": true
+      },
+      {
+        "type": "point",
+        "xy": [
+          5,
+          7
+        ],
+        "temporary": true
+      }
+    ],
+    "role": "candidate"
+  },
+  {
+    "id": "q023",
+    "label": "point_group_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ],
+        "layer_group": 2
+      }
+    ]
+  },
+  {
+    "id": "q030",
+    "label": "ascii",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC"
+      }
+    ]
+  },
+  {
+    "id": "q031",
+    "label": "text_byte_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABD"
+      }
+    ]
+  },
+  {
+    "id": "q032",
+    "label": "japanese",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "日本語"
+      }
+    ]
+  },
+  {
+    "id": "q033",
+    "label": "halfwidth_kana",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ｶﾅ"
+      }
+    ]
+  },
+  {
+    "id": "q034",
+    "label": "mixed_text",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "A日本ｶﾅ1"
+      }
+    ]
+  },
+  {
+    "id": "q035",
+    "label": "empty_text",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": ""
+      }
+    ]
+  },
+  {
+    "id": "q036",
+    "label": "text_254",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ]
+  },
+  {
+    "id": "q037",
+    "label": "text_255",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ]
+  },
+  {
+    "id": "q038",
+    "label": "text_256",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    ]
+  },
+  {
+    "id": "q039",
+    "label": "rotated_text",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "angle": 30,
+        "end_xy": [
+          11.392304845413264,
+          7.999999999999999
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q040",
+    "label": "text_width",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "size_x": 5
+      }
+    ]
+  },
+  {
+    "id": "q041",
+    "label": "text_spacing",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "spacing": 1
+      }
+    ]
+  },
+  {
+    "id": "q042",
+    "label": "text_type",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "text_type": 2
+      }
+    ]
+  },
+  {
+    "id": "q044",
+    "label": "text_color_only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "pen_color": 3
+      }
+    ],
+    "role": "candidate"
+  },
+  {
+    "id": "q045",
+    "label": "text_layer_only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "layer": 3
+      }
+    ],
+    "role": "candidate"
+  },
+  {
+    "id": "q046",
+    "label": "text_group_only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "layer_group": 2
+      }
+    ],
+    "role": "candidate"
+  },
+  {
+    "id": "q047",
+    "label": "text_height_only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "size_y": 5
+      }
+    ],
+    "role": "candidate"
+  },
+  {
+    "id": "q050",
+    "label": "scale_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "scales": {
+      "0": 100
+    }
+  },
+  {
+    "id": "q051",
+    "label": "layer_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "layer": 3
+      }
+    ]
+  },
+  {
+    "id": "q052",
+    "label": "group_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "layer_group": 2
+      }
+    ]
+  },
+  {
+    "id": "q053",
+    "label": "hidden_layer",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "layer": 3
+      }
+    ],
+    "layer_states": {
+      "3": 0
+    }
+  },
+  {
+    "id": "q054",
+    "label": "group_scale",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "layer_group": 2
+      }
+    ],
+    "scales": {
+      "2": 50
+    }
+  },
+  {
+    "id": "q055",
+    "label": "paper_A2",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "paper_size": 2
+  },
+  {
+    "id": "q056",
+    "label": "paper_A0",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "paper_size": 0
+  },
+  {
+    "id": "q057",
+    "label": "layer_name",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "names": {
+      "0": "検証層AB"
+    },
+    "role": "candidate"
+  },
+  {
+    "id": "q058",
+    "label": "group_name",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "names": {
+      "256": "検証群AB"
+    },
+    "role": "candidate"
+  },
+  {
+    "id": "q059",
+    "label": "display_only_layer",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "layer": 3
+      }
+    ],
+    "layer_states": {
+      "3": 1
+    }
+  },
+  {
+    "id": "q060",
+    "label": "color_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "pen_color": 2
+      }
+    ]
+  },
+  {
+    "id": "q061",
+    "label": "style_only",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "pen_style": 2
+      }
+    ]
+  },
+  {
+    "id": "q063",
+    "label": "write_group_only",
+    "role": "candidate",
+    "entities": [],
+    "write_layer_group": 2
+  },
+  {
+    "id": "q064",
+    "label": "write_layer_only",
+    "role": "candidate",
+    "entities": [],
+    "write_layers": {
+      "2": 4
+    }
+  },
+  {
+    "id": "q070",
+    "label": "mixed",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      },
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": true
+      },
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ]
+      },
+      {
+        "type": "text",
+        "content": "ABC"
+      }
+    ]
+  },
+  {
+    "id": "q080",
+    "label": "holdout_line",
+    "role": "holdout",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          -23.125,
+          47.5,
+          91.75,
+          -8.25
+        ],
+        "pen_color": 3,
+        "pen_style": 3,
+        "layer": 5
+      }
+    ]
+  },
+  {
+    "id": "q081",
+    "label": "holdout_arc",
+    "role": "holdout",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          -12.5,
+          17.25
+        ],
+        "radius": 4.125,
+        "full": false,
+        "start_deg": 271,
+        "sweep_deg": 123
+      }
+    ]
+  },
+  {
+    "id": "q082",
+    "label": "holdout_text",
+    "role": "holdout",
+    "entities": [
+      {
+        "type": "text",
+        "content": "検証Bｺ3",
+        "xy": [
+          -17.5,
+          12.25
+        ],
+        "angle": 15,
+        "end_xy": [
+          -5.90889008453118,
+          15.355828541230249
+        ]
+      }
+    ]
+  },
+  {
+    "id": "q083",
+    "label": "holdout_point",
+    "role": "candidate",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          -7.875,
+          23.625
+        ],
+        "layer": 4,
+        "pen_color": 4
+      }
+    ],
+    "previous_role": "failed_holdout_v1"
+  },
+  {
+    "id": "q084",
+    "label": "fresh_holdout_point_v2",
+    "role": "holdout",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          17.3125,
+          -19.875
+        ],
+        "layer": 6,
+        "layer_group": 3,
+        "pen_color": 5
+      }
+    ]
+  }
+]

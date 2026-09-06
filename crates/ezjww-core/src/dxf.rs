@@ -92,6 +92,7 @@ pub struct DxfText {
     pub end_x: f64,
     pub end_y: f64,
     pub height: f64,
+    pub width_factor: f64,
     pub rotation: f64,
     pub content: String,
     pub style: String,
@@ -273,10 +274,17 @@ impl DxfTargetVersion {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct ConvertOptions {
     pub explode_inserts: bool,
     pub max_block_nesting: usize,
+    /// Em the target renderer draws per unit of DXF text height (group 40).
+    ///
+    /// `1.0` passes the recorded height through unchanged. A renderer that
+    /// substitutes a font may draw a larger em box per unit of group 40;
+    /// measure the correction for that renderer and font. This scale divides
+    /// group 40 without changing the character-cell estimate for group 41.
+    pub text_em_scale: f64,
 }
 
 impl Default for ConvertOptions {
@@ -284,6 +292,7 @@ impl Default for ConvertOptions {
         Self {
             explode_inserts: false,
             max_block_nesting: 32,
+            text_em_scale: 1.0,
         }
     }
 }
@@ -371,21 +380,20 @@ pub(crate) fn convert_view_with_options(
             &block_name_map,
             &mut unsupported_entities,
             &colors,
-            view.is_metadata_text,
-            view.include_temporary_points,
+            options,
+            view,
         )
     };
     let blocks = if options.explode_inserts {
         Vec::new()
     } else {
         convert_blocks(
-            view.block_defs,
+            view,
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
             &colors,
-            view.is_metadata_text,
-            view.include_temporary_points,
+            options,
         )
     };
 
@@ -410,8 +418,8 @@ pub fn document_to_string_with_version(
     writer.finish()
 }
 
-/// Optional output metadata supplied by a format adapter. Existing public JWW
-/// writers continue to omit TEXT group 41 and $INSUNITS as before.
+/// Optional output metadata supplied by a format adapter. Adapter widths take
+/// precedence over the shared TEXT width factor; JWW writers omit $INSUNITS.
 pub(crate) fn document_to_string_with_adapter_metadata(
     doc: &DxfDocument,
     target_version: DxfTargetVersion,
@@ -821,9 +829,8 @@ impl AsciiDxfWriter<'_> {
                 self.group_f64(20, v.y);
                 self.group_f64(30, 0.0);
                 self.group_f64(40, v.height);
-                if let Some(width) = self.text_widths.next() {
-                    self.group_f64(41, width);
-                }
+                let width = self.text_widths.next().unwrap_or(v.width_factor);
+                self.group_f64(41, width);
                 self.group_str(1, &escape_unicode(&v.content));
                 self.group_f64(50, v.rotation);
                 self.group_str(7, &escape_unicode(&v.style));
@@ -1152,6 +1159,7 @@ fn convert_entities_exploded(
                 context.layer_names,
                 context.block_name_map,
                 context.colors,
+                context.options,
                 context.is_metadata_text,
                 context.include_temporary_points,
             ) {
@@ -1202,6 +1210,7 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
             let (x, y) = transform.apply_point(v.x, v.y);
             let (end_x, end_y) = transform.apply_point(v.end_x, v.end_y);
             let height = (v.height * transform.average_scale().abs()).max(0.1);
+            let width_factor = exploded_width_factor(v, height, (end_x - x).hypot(end_y - y));
             vec![DxfEntity::Text(DxfText {
                 layer: v.layer.clone(),
                 color: v.color,
@@ -1211,6 +1220,7 @@ fn transform_entity_for_explode(entity: &DxfEntity, transform: &Transform2D) -> 
                 end_x,
                 end_y,
                 height,
+                width_factor,
                 rotation: v.rotation + transform.rotation_deg(),
                 content: v.content.clone(),
                 style: v.style.clone(),
@@ -1439,16 +1449,15 @@ fn convert_layers(
 }
 
 fn convert_blocks(
-    block_defs: &[BlockDef],
+    view: &ConversionView<'_>,
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
     colors: &ColorTable,
-    is_metadata_text: fn(&Text) -> bool,
-    include_temporary_points: bool,
+    options: ConvertOptions,
 ) -> Vec<DxfBlock> {
-    let mut blocks = Vec::<DxfBlock>::with_capacity(block_defs.len());
-    for block_def in block_defs {
+    let mut blocks = Vec::<DxfBlock>::with_capacity(view.block_defs.len());
+    for block_def in view.block_defs {
         let name = block_name_map
             .get(&block_def.number)
             .cloned()
@@ -1459,8 +1468,8 @@ fn convert_blocks(
             block_name_map,
             unsupported_entities,
             colors,
-            is_metadata_text,
-            include_temporary_points,
+            options,
+            view,
         );
         blocks.push(DxfBlock {
             name,
@@ -1478,8 +1487,8 @@ fn convert_entities(
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
     colors: &ColorTable,
-    is_metadata_text: fn(&Text) -> bool,
-    include_temporary_points: bool,
+    options: ConvertOptions,
+    view: &ConversionView<'_>,
 ) -> Vec<DxfEntity> {
     let mut out = Vec::<DxfEntity>::new();
     for entity in entities {
@@ -1488,8 +1497,9 @@ fn convert_entities(
             layer_names,
             block_name_map,
             colors,
-            is_metadata_text,
-            include_temporary_points,
+            options,
+            view.is_metadata_text,
+            view.include_temporary_points,
         ) {
             Some(converted) => {
                 for e in converted {
@@ -1507,6 +1517,7 @@ fn convert_entity(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     colors: &ColorTable,
+    options: ConvertOptions,
     is_metadata_text: fn(&Text) -> bool,
     include_temporary_points: bool,
 ) -> Option<Vec<DxfEntity>> {
@@ -1546,7 +1557,11 @@ fn convert_entity(
                 Some(Vec::new())
             } else {
                 Some(vec![DxfEntity::Text(convert_text(
-                    v, layer, color, line_type,
+                    v,
+                    layer,
+                    color,
+                    line_type,
+                    options.text_em_scale,
                 ))])
             }
         }
@@ -1594,7 +1609,13 @@ fn convert_entity(
                 x2: v.line.end_x,
                 y2: v.line.end_y,
             }),
-            DxfEntity::Text(convert_text(&v.text, layer, color, line_type)),
+            DxfEntity::Text(convert_text(
+                &v.text,
+                layer,
+                color,
+                line_type,
+                options.text_em_scale,
+            )),
         ]),
     }
 }
@@ -1935,7 +1956,114 @@ fn convert_arc(
     })]
 }
 
-fn convert_text(text: &Text, layer: String, color: i32, line_type: String) -> DxfText {
+/// Guard rails for [`text_box`] against malformed records.
+const MIN_TEXT_WIDTH_FACTOR: f64 = 0.05;
+const MAX_TEXT_WIDTH_FACTOR: f64 = 20.0;
+
+/// Below this, a width correction is f64 round-off rather than a real difference in the two insert axes.
+const UNIFORM_SCALE_EPSILON: f64 = 1e-9;
+
+/// Code points Jw_cad pitches at half a cell: CP932's single-byte set.
+const HALF_WIDTH_RANGES: [(u32, u32); 5] = [
+    (0x0020, 0x0080), // ASCII printable, plus the 0x80 CP932 still maps single-byte
+    (0x00A5, 0x00A5), // ¥ -- the 0x5C position
+    (0x203E, 0x203E), // ‾ -- the 0x7E position
+    (0xF8F0, 0xF8F3), // CP932's private-use stand-ins for its undefined single bytes
+    (0xFF61, 0xFF9F), // half-width katakana
+];
+
+/// Cells one character occupies.
+fn char_cell_width(c: char) -> f64 {
+    let cp = c as u32;
+    if HALF_WIDTH_RANGES
+        .iter()
+        .any(|&(lo, hi)| (lo..=hi).contains(&cp))
+    {
+        0.5
+    } else {
+        1.0
+    }
+}
+
+/// Width of `content` in Jw_cad character cells.
+///
+/// A half-width character takes half a cell and everything else a full one,
+/// which is how Jw_cad itself pitches a string. See [`HALF_WIDTH_RANGES`] for what counts as half-width.
+///
+/// # Examples
+///
+/// ```
+/// # use ezjww_core::dxf::text_cell_width;
+/// assert_eq!(text_cell_width("ＡＢ米米"), 4.0);
+/// assert_eq!(text_cell_width("(04)"), 2.0);
+/// assert_eq!(text_cell_width("〒100-0000"), 5.0);
+/// assert_eq!(text_cell_width("—🙂"), 2.0);
+/// ```
+pub fn text_cell_width(content: &str) -> f64 {
+    content.chars().map(char_cell_width).sum()
+}
+
+/// Height fallback for records that carry no usable 文字高さ.
+const DEFAULT_TEXT_HEIGHT: f64 = 2.5;
+
+/// Estimate DXF height and width factor using half/full-width character cells.
+///
+/// Group 40 is divided by the renderer's measured em scale. Group 41 fits the
+/// endpoint span under the assumed character-cell advances and is independent
+/// of that scale. Fonts with different advances can still differ visually.
+///
+/// The intended width comes from the endpoint Jw_cad stores, not from its `size_x * cells` pitch:
+/// the pitch model only holds for the built-in font, and records naming a TrueType font disagree with it by up to 50% across the sample corpus.
+fn text_box(text: &Text, em_scale: f64) -> (f64, f64) {
+    let size = if text.size_y <= 0.0 {
+        DEFAULT_TEXT_HEIGHT
+    } else {
+        text.size_y
+    };
+    let height = if em_scale > 0.0 {
+        size / em_scale
+    } else {
+        size
+    };
+
+    let cells = text_cell_width(&text.content);
+    let intended = (text.end_x - text.start_x).hypot(text.end_y - text.start_y);
+    if cells <= 0.0 || intended <= 0.0 {
+        return (height, 1.0);
+    }
+
+    // The renderer's advance for one cell is `size` whatever `em_scale` was.
+    let factor = (intended / (size * cells)).clamp(MIN_TEXT_WIDTH_FACTOR, MAX_TEXT_WIDTH_FACTOR);
+    (height, factor)
+}
+
+/// Group 41 scales exploded TEXT width to fit between its transformed endpoints.
+///
+/// Because [`transform_entity_for_explode`] approximates text height (group 40) using an averaged and clamped scale, non-uniform INSERTs introduce a width error.
+/// Recalculating group 41 based on actual endpoint movement corrects this width (pitch) without changing the approximated height.
+/// This safely acts as a no-op for uniform inserts.
+fn exploded_width_factor(text: &DxfText, height: f64, span: f64) -> f64 {
+    let original_span = (text.end_x - text.x).hypot(text.end_y - text.y);
+    if original_span <= 0.0 || span <= 0.0 || text.height <= 0.0 || height <= 0.0 {
+        return text.width_factor;
+    }
+    let correction = (span / original_span) * (text.height / height);
+    // A uniform insert cancels to 1 in exact arithmetic but not always in the last digit of an f64,
+    // and re-emitting a factor that only moved there would churn the output for no geometric reason.
+    if (correction - 1.0).abs() <= UNIFORM_SCALE_EPSILON {
+        return text.width_factor;
+    }
+    (text.width_factor * correction).clamp(MIN_TEXT_WIDTH_FACTOR, MAX_TEXT_WIDTH_FACTOR)
+}
+
+fn convert_text(
+    text: &Text,
+    layer: String,
+    color: i32,
+    line_type: String,
+    em_scale: f64,
+) -> DxfText {
+    let (height, width_factor) = text_box(text, em_scale);
     DxfText {
         layer,
         color,
@@ -1944,7 +2072,8 @@ fn convert_text(text: &Text, layer: String, color: i32, line_type: String) -> Dx
         y: text.start_y,
         end_x: text.end_x,
         end_y: text.end_y,
-        height: if text.size_y <= 0.0 { 2.5 } else { text.size_y },
+        height,
+        width_factor,
         rotation: text.angle,
         content: text.content.clone(),
         style: "STANDARD".to_string(),
@@ -2233,8 +2362,8 @@ mod tests {
     use super::{
         aci_rgb, convert_document, convert_document_with_options, document_to_string,
         document_to_string_with_version, map_color_fallback, map_line_type, rgb_to_aci,
-        solid_vertices_cross, ColorTable, ConvertOptions, DxfDocument, DxfEntity, DxfLayer,
-        DxfSolid, DxfTargetVersion, DxfText, DxfVertex,
+        solid_vertices_cross, text_box, text_cell_width, ColorTable, ConvertOptions, DxfDocument,
+        DxfEntity, DxfLayer, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, DEFAULT_TEXT_HEIGHT,
     };
 
     fn empty_header() -> JwwHeader {
@@ -2504,6 +2633,328 @@ mod tests {
         for (pen_style, expected) in cases {
             assert_eq!(map_line_type(pen_style), expected);
         }
+    }
+
+    /// A `Text` spanning `start_x` to `end_x` on the X axis, as Jw_cad records it.
+    fn text_span(content: &str, start_x: f64, end_x: f64, size: f64) -> Text {
+        Text {
+            base: EntityBase::default(),
+            start_x,
+            start_y: 0.0,
+            end_x,
+            end_y: 0.0,
+            text_type: 0,
+            size_x: size,
+            size_y: size,
+            spacing: 0.0,
+            angle: 0.0,
+            font_name: String::new(),
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn text_cell_width_counts_half_width_characters_as_half_a_cell() {
+        assert_eq!(text_cell_width("ＡＢ米米"), 4.0);
+        assert_eq!(text_cell_width("(04)"), 2.0);
+        // Half-width katakana is one CP932 byte,
+        // same as ASCII -- and its dakuten is a separate character, so this is six cells' worth of half.
+        assert_eq!(text_cell_width("ﾓｼﾞｭｰﾙ"), 3.0);
+        assert_eq!(text_cell_width("〒100-0000"), 5.0);
+        assert_eq!(text_cell_width(""), 0.0);
+    }
+
+    #[test]
+    fn text_cell_width_counts_characters_outside_cp932_as_one_cell() {
+        for content in ["—", "🙂", "𠮟", "\u{FFFD}"] {
+            assert_eq!(text_cell_width(content), 1.0, "{content}");
+        }
+        // Latin-1 letters are outside CP932 too, so `é` takes a full cell
+        // while the ASCII around it takes a half each.
+        assert_eq!(text_cell_width("café"), 2.5);
+    }
+
+    #[test]
+    fn text_cell_width_keeps_the_cp932_single_byte_aliases_half_width() {
+        assert_eq!(text_cell_width("¥"), 0.5);
+        assert_eq!(text_cell_width("‾"), 0.5);
+    }
+
+    /// A renderer that inflates a substituted CJK face, for the tests below.
+    const INFLATING_EM_SCALE: f64 = 1.364;
+
+    /// The em box a renderer with the given `em_scale` actually draws from what `text_box` emits.
+    fn rendered_em_box(text: &Text, cells: f64, em_scale: f64) -> (f64, f64) {
+        let (height, factor) = text_box(text, em_scale);
+        let em = em_scale * height;
+        (em * factor * cells, em)
+    }
+
+    #[test]
+    fn text_box_hits_the_size_jww_recorded() {
+        // 36 full-width cells at 文字高さ 3, spanning exactly 108 units.
+        let text = text_span(&"あ".repeat(36), -56.27, 51.73, 3.0);
+
+        // Both renderers have to land on the same drawn size.
+        for em_scale in [1.0, INFLATING_EM_SCALE] {
+            let (width, height) = rendered_em_box(&text, 36.0, em_scale);
+            assert!(
+                (width - 108.0).abs() < 1e-9,
+                "expected the corrected width to land on 108, got {width} at {em_scale}"
+            );
+            assert!(
+                (height - 3.0).abs() < 1e-9,
+                "expected the em box to match 文字高さ 3, got {height} at {em_scale}"
+            );
+        }
+    }
+
+    #[test]
+    fn text_box_keeps_square_cells_square() {
+        // A full-width cell is as tall as it is wide in Jw_cad.
+        // Correcting only the width would leave the glyphs stretched vertically.
+        let text = text_span("日本語表示", 0.0, 20.0, 4.0);
+        let (width, height) = rendered_em_box(&text, 5.0, INFLATING_EM_SCALE);
+        assert!((width / 5.0 - height).abs() < 1e-9, "cell is not square");
+    }
+
+    #[test]
+    fn text_box_writes_the_recorded_height_by_default() {
+        // Only a caller naming an inflating renderer gets the pre-division.
+        let text = text_span("日本語表示", 0.0, 20.0, 4.0);
+        assert_eq!(
+            text_box(&text, ConvertOptions::default().text_em_scale).0,
+            4.0
+        );
+        assert!(text_box(&text, INFLATING_EM_SCALE).0 < 4.0);
+    }
+
+    #[test]
+    fn text_box_width_factor_is_the_same_whatever_the_renderer() {
+        // group 41 carries the JWW pitch; only group 40 may move.
+        let text = text_span("日本語表示", 0.0, 23.0, 4.0);
+        let spec = text_box(&text, 1.0).1;
+        let inflated = text_box(&text, INFLATING_EM_SCALE).1;
+        assert!((spec - inflated).abs() < 1e-12, "{spec} != {inflated}");
+    }
+
+    #[test]
+    fn text_box_follows_the_stored_endpoint_not_the_pitch_model() {
+        // Records naming a TrueType font are laid out with that font's own proportional metrics,
+        // so the endpoint disagrees with size_x * cells. The endpoint is what must win.
+        let narrow = text_span("▽柱面", 0.0, 10.69, 3.0);
+        let pitched = text_span("▽柱面", 0.0, 9.0, 3.0);
+        assert!(text_box(&narrow, 1.0).1 > text_box(&pitched, 1.0).1);
+    }
+
+    #[test]
+    fn text_box_is_neutral_for_degenerate_records() {
+        assert_eq!(text_box(&text_span("", 0.0, 10.0, 3.0), 1.0).1, 1.0);
+        assert_eq!(text_box(&text_span("abc", 0.0, 0.0, 3.0), 1.0).1, 1.0);
+
+        // A missing 文字高さ still has to produce a drawable height.
+        let (height, factor) = text_box(&text_span("abc", 0.0, 10.0, 0.0), 1.0);
+        assert_eq!(height, DEFAULT_TEXT_HEIGHT);
+        assert!(factor > 0.0);
+
+        // So does a renderer scale that would otherwise divide by zero.
+        assert_eq!(text_box(&text_span("abc", 0.0, 10.0, 3.0), 0.0).0, 3.0);
+    }
+
+    /// The group pairs of every TEXT record in `rendered`.
+    fn text_entity_records(rendered: &str) -> Vec<String> {
+        rendered
+            .split("  0\n")
+            .filter(|record| record.starts_with("TEXT\n"))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn document_to_string_writes_text_width_factor() {
+        // 2 half-width cells at 文字高さ 3 spanning 4 units:
+        // a factor of 4/3, which no STYLE table row can be mistaken for.
+        let document = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Text(text_span("AB", 0.0, 4.0, 3.0))],
+            block_defs: Vec::new(),
+        };
+        let dxf = convert_document(&document);
+        let factor = match &dxf.entities[0] {
+            DxfEntity::Text(v) => v.width_factor,
+            other => panic!("expected TEXT, got {other:?}"),
+        };
+        assert!((factor - 4.0 / 3.0).abs() < 1e-12, "{factor}");
+
+        let rendered = document_to_string(&dxf);
+        let records = text_entity_records(&rendered);
+        assert_eq!(records.len(), 1, "expected exactly one TEXT record");
+        assert!(
+            records[0].contains(&format!(" 41\n{factor:.12}\n")),
+            "group 41 missing from the emitted TEXT: {}",
+            records[0]
+        );
+    }
+
+    /// A document whose only entity is an INSERT of a block holding `text`, scaled per axis.
+    fn text_in_block(text: Text, scale_x: f64, scale_y: f64) -> JwwDocument {
+        let base = EntityBase::default();
+        JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Block(Block {
+                base,
+                ref_x: 0.0,
+                ref_y: 0.0,
+                scale_x,
+                scale_y,
+                rotation: 0.0,
+                def_number: 1,
+            })],
+            block_defs: vec![BlockDef {
+                base,
+                number: 1,
+                is_referenced: true,
+                name: "TEXT_BLOCK".to_string(),
+                entities: vec![Entity::Text(text)],
+            }],
+        }
+    }
+
+    fn only_text(entities: &[DxfEntity]) -> &DxfText {
+        let mut texts = entities.iter().filter_map(|entity| match entity {
+            DxfEntity::Text(v) => Some(v),
+            _ => None,
+        });
+        let text = texts.next().expect("expected a TEXT");
+        assert!(texts.next().is_none(), "expected exactly one TEXT");
+        text
+    }
+
+    /// The advance a renderer with the given `em_scale` draws for `text`.
+    fn drawn_advance(text: &DxfText, em_scale: f64) -> f64 {
+        em_scale * text.height * text.width_factor * text_cell_width(&text.content)
+    }
+
+    /// 3 full-width cells at 文字高さ 4 spanning 15 units: a width factor of 1.25.
+    fn block_text() -> Text {
+        text_span("日本語", 0.0, 15.0, 4.0)
+    }
+
+    #[test]
+    fn block_definition_text_carries_the_width_correction() {
+        let doc = text_in_block(block_text(), 1.0, 1.0);
+
+        for em_scale in [1.0, INFLATING_EM_SCALE] {
+            let dxf = convert_document_with_options(
+                &doc,
+                ConvertOptions {
+                    text_em_scale: em_scale,
+                    ..Default::default()
+                },
+            );
+            let text = only_text(&dxf.blocks[0].entities);
+            assert!(
+                (text.height - 4.0 / em_scale).abs() < 1e-12,
+                "group 40 inside the block ignores em_scale {em_scale}: {}",
+                text.height
+            );
+            assert!(
+                (drawn_advance(text, em_scale) - 15.0).abs() < 1e-9,
+                "block text is drawn {} wide instead of 15 at {em_scale}",
+                drawn_advance(text, em_scale)
+            );
+
+            let records = text_entity_records(&document_to_string(&dxf));
+            assert_eq!(records.len(), 1);
+            assert!(
+                records[0].contains(&format!(" 41\n{:.12}\n", text.width_factor)),
+                "group 41 missing from the block definition TEXT: {}",
+                records[0]
+            );
+        }
+    }
+
+    #[test]
+    fn exploding_a_uniform_insert_leaves_the_width_factor_alone() {
+        let doc = text_in_block(block_text(), 2.0, 2.0);
+        let dxf = convert_document_with_options(
+            &doc,
+            ConvertOptions {
+                explode_inserts: true,
+                ..Default::default()
+            },
+        );
+
+        let text = only_text(&dxf.entities);
+        assert!((text.height - 8.0).abs() < 1e-12, "{}", text.height);
+        assert!(
+            (text.width_factor - 1.25).abs() < 1e-12,
+            "{}",
+            text.width_factor
+        );
+        assert!((drawn_advance(text, 1.0) - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn exploding_a_non_uniform_insert_keeps_the_text_advance() {
+        // scale_x 2 / scale_y 1: group 40 takes the average of the two axes (1.5x), so the glyphs come out too tall.
+        // Copying group 41 across would make them `scale_x / average_scale` too wide on top of that.
+        let doc = text_in_block(block_text(), 2.0, 1.0);
+
+        for em_scale in [1.0, INFLATING_EM_SCALE] {
+            let dxf = convert_document_with_options(
+                &doc,
+                ConvertOptions {
+                    explode_inserts: true,
+                    text_em_scale: em_scale,
+                    ..Default::default()
+                },
+            );
+            let text = only_text(&dxf.entities);
+            assert!((text.end_x - text.x - 30.0).abs() < 1e-12);
+            assert!(
+                (drawn_advance(text, em_scale) - 30.0).abs() < 1e-9,
+                "exploded text is drawn {} wide instead of 30 at {em_scale}",
+                drawn_advance(text, em_scale)
+            );
+        }
+    }
+
+    #[test]
+    fn exploding_a_tiny_insert_absorbs_the_height_floor_into_the_width() {
+        // 文字高さ 4 at 1/100 lands under the 0.1 floor group 40 is clamped to.
+        // The floor is silent, so group 41 has to take the difference or the string is drawn 25x too wide -- and pre-dividing group 40 by em_scale makes the floor bite sooner.
+        let doc = text_in_block(block_text(), 0.01, 0.01);
+        let dxf = convert_document_with_options(
+            &doc,
+            ConvertOptions {
+                explode_inserts: true,
+                ..Default::default()
+            },
+        );
+
+        let text = only_text(&dxf.entities);
+        assert_eq!(text.height, 0.1);
+        assert!(
+            (drawn_advance(text, 1.0) - 0.15).abs() < 1e-12,
+            "clamped text is drawn {} wide instead of 0.15",
+            drawn_advance(text, 1.0)
+        );
+    }
+
+    #[test]
+    fn exploding_a_degenerate_text_keeps_its_neutral_width_factor() {
+        // No span to rescale from: the factor `text_box` settled on has to survive.
+        let doc = text_in_block(text_span("日本語", 0.0, 0.0, 4.0), 2.0, 1.0);
+        let dxf = convert_document_with_options(
+            &doc,
+            ConvertOptions {
+                explode_inserts: true,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(only_text(&dxf.entities).width_factor, 1.0);
     }
 
     #[test]
@@ -3046,7 +3497,7 @@ mod tests {
             &doc,
             ConvertOptions {
                 explode_inserts: true,
-                max_block_nesting: 32,
+                ..Default::default()
             },
         );
 
@@ -3115,7 +3566,7 @@ mod tests {
             &doc,
             ConvertOptions {
                 explode_inserts: true,
-                max_block_nesting: 32,
+                ..Default::default()
             },
         );
 
@@ -3148,7 +3599,7 @@ mod tests {
             &doc,
             ConvertOptions {
                 explode_inserts: true,
-                max_block_nesting: 32,
+                ..Default::default()
             },
         );
 
@@ -3214,6 +3665,7 @@ mod tests {
             ConvertOptions {
                 explode_inserts: true,
                 max_block_nesting: 1,
+                ..Default::default()
             },
         );
 
@@ -3417,6 +3869,7 @@ mod tests {
                 end_x: 0.0,
                 end_y: 0.0,
                 height: 2.5,
+                width_factor: 1.0,
                 rotation: 0.0,
                 content: "日本語".to_string(),
                 style: "STANDARD".to_string(),

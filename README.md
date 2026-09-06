@@ -93,6 +93,27 @@ drawing.plot(save_path="drawing.png")  # requires ezjww[plot]
 drawing.plot(save_path="drawing.pdf")
 ```
 
+DXF TEXT records include a width factor (group 41). For JWW, it is estimated
+from the stored endpoint span and half/full-width character cells. Actual glyph
+advances depend on the selected font; this is not an exact fit for every font
+substitution. JWC retains its existing width/height ratio.
+
+Use `text_em_scale` when a target renderer draws a larger em box per unit of DXF
+text height. It must be positive and finite; the default is `1.0`. This divides
+the exported text height (group 40). A value such as `1.364` is an example that
+must be measured for the renderer and font, not a universal correction.
+
+```python
+scaled = drawing.to_dxf(text_em_scale=1.364)
+ezjww.write_dxf("drawing.jww", "drawing.dxf", text_em_scale=1.364)
+drawing.plot(text_em_scale=1.364, save_path="drawing.png")
+```
+
+Previews apply the width factor to glyphs before rotation and recover the source
+em height from `text_em_scale`. They use the locally available font, so they may
+differ from an external DXF viewer. Audit, bounding-box and statistics queries
+retain their existing defaults.
+
 Block expansion supports nested JWW INSERTs; `max_block_nesting` must be at least
 1. Statistics and bounding boxes include hidden entities. TEXT bounds use the
 insertion point, so they are not bounds of the rendered glyphs.
@@ -109,6 +130,7 @@ ezjww bbox drawing.jwc --jwc-coordinates model_millimeters --json
 ezjww stats drawing.jww --json
 ezjww report drawing.jwc --json
 ezjww to-dxf drawing.jwc -o drawing.dxf --report json
+ezjww to-dxf drawing.jww -o drawing.dxf --text-em-scale 1.364
 ezjww to-dxf-dir drawings -o dxf --recursive
 ezjww plot drawing.jwc -o drawing.png
 ```

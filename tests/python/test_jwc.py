@@ -150,6 +150,32 @@ def test_cp932_diagnostics_reach_audit_and_report(tmp_path):
     assert diagnostic in audit["jwc_conversion_report"]["diagnostics"]
 
 
+@pytest.mark.parametrize("coordinates", ["paper_millimeters", "model_millimeters"])
+@pytest.mark.parametrize("target", ["AC1015", "AC1024"])
+def test_text_scale_preserves_jwc_width_policy_and_writes_one_factor(tmp_path, coordinates, target):
+    source = sample("r014")
+    options = dict(jwc_coordinates=coordinates, target_version=target, text_em_scale=1.364)
+    plain = ezjww.read_dxf_document(source, jwc_coordinates=coordinates)
+    scaled = ezjww.read_dxf_document(source, jwc_coordinates=coordinates, text_em_scale=1.364)
+    a, b = plain["entities"][0], scaled["entities"][0]
+    assert b["height"] == pytest.approx(a["height"] / 1.364)
+    assert b["width_factor"] == pytest.approx(3 / 4.2)
+    assert scaled["text_width_factors"] == pytest.approx([b["width_factor"]])
+    assert scaled["jwc_conversion_report"] == plain["jwc_conversion_report"]
+    drawing = ezjww.readfile(source, jwc_coordinates=coordinates)
+    assert drawing.to_dxf(text_em_scale=1.364) == scaled
+    text = ezjww.read_dxf_string(source, **options)
+    record, = [r for r in text.split("  0\n") if r.startswith("TEXT\n")]
+    lines = record.splitlines()[1:]
+    widths = [float(value) for code, value in zip(lines[::2], lines[1::2]) if code.strip() == "41"]
+    assert widths == pytest.approx([3 / 4.2])
+    assert drawing.to_dxf_string(target_version=target, text_em_scale=1.364) == text
+    for writer in (ezjww.write_dxf, ezjww.write_dxf_with_report):
+        output = tmp_path / f"{writer.__name__}.dxf"
+        writer(source, str(output), **options)
+        assert output.read_text() == text
+
+
 @pytest.mark.parametrize("command", ["info", "audit", "bbox", "stats", "report"])
 def test_cli_read_entrypoints(command, capsys):
     assert ezjww._run([command, sample(), "--json"]) == 0

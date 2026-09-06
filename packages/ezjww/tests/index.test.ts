@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import * as rawWasm from "../wasm/ezjww_wasm";
 
 import {
   isJwwFile,
@@ -80,5 +81,52 @@ describe("ezjww wasm wrapper", () => {
     expect(() => readDxfDocument(sample, { maxBlockNesting: 0 })).toThrow(
       "maxBlockNesting must be an integer >= 1",
     );
+  });
+
+  it("rejects a text scale that cannot divide the height", () => {
+    for (const textEmScale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => readDxfDocument(sample, { textEmScale })).toThrow(
+        "textEmScale must be a positive finite number",
+      );
+    }
+  });
+
+  it("keeps direct WASM calls compatible when the text scale is omitted", () => {
+    expect(rawWasm.readDxfDocument(sample, true, 32)).toEqual(
+      readDxfDocument(sample, { explodeInserts: true }),
+    );
+    expect(rawWasm.readDxfString(sample, true, 32)).toBe(
+      readDxfString(sample, { explodeInserts: true }),
+    );
+    // The JWC coordinate and DXF-version slots already exist on main.
+    expect(rawWasm.readDxfString(sample, false, 32, "paper_millimeters", "AC1024"))
+      .toBe(readDxfString(sample, { targetVersion: "AC1024" }));
+  });
+
+  it("validates explicitly supplied raw WASM scales", () => {
+    for (const scale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => rawWasm.readDxfDocument(sample, false, 32, undefined, scale))
+        .toThrow("text_em_scale must be a positive finite number");
+      expect(() => rawWasm.readDxfString(sample, false, 32, undefined, undefined, scale))
+        .toThrow("text_em_scale must be a positive finite number");
+    }
+  });
+
+  it("scales only the DXF text height for a substituting renderer", () => {
+    // group 41 carries the JWW pitch; only group 40 may move.
+    const inflating = 1.364;
+    const texts = (document: ReturnType<typeof readDxfDocument>) =>
+      document.entities.filter((entity) => entity.type === "TEXT");
+
+    const spec = texts(readDxfDocument(sample));
+    const scaled = texts(readDxfDocument(sample, { textEmScale: inflating }));
+
+    expect(spec.length).toBeGreaterThan(0);
+    expect(scaled.length).toBe(spec.length);
+    spec.forEach((plain, index) => {
+      const corrected = scaled[index];
+      expect(corrected.width_factor).toBeCloseTo(plain.width_factor!, 12);
+      expect(corrected.height).toBeCloseTo(plain.height! / inflating, 12);
+    });
   });
 });

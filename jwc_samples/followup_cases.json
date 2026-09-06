@@ -1,0 +1,1535 @@
+[
+  {
+    "id": "r000",
+    "role": "candidate",
+    "description": "Two text records, unequal CP932 byte lengths",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC"
+      },
+      {
+        "type": "text",
+        "content": "日本B",
+        "xy": [
+          20,
+          30
+        ]
+      }
+    ]
+  },
+  {
+    "id": "r001",
+    "role": "candidate",
+    "description": "Three text records and normal point; determine string pool ordering",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ]
+      },
+      {
+        "type": "text",
+        "content": "ABC"
+      },
+      {
+        "type": "text",
+        "content": "日本B",
+        "xy": [
+          20,
+          30
+        ]
+      },
+      {
+        "type": "text",
+        "content": "Z",
+        "xy": [
+          40,
+          50
+        ]
+      }
+    ]
+  },
+  {
+    "id": "r002",
+    "role": "candidate",
+    "description": "Temporary point packed layer 0x35",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 3
+      }
+    ]
+  },
+  {
+    "id": "r003",
+    "role": "candidate",
+    "description": "Temporary point capacity 100",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          0,
+          0
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          1,
+          2
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          2,
+          4
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          3,
+          6
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          4,
+          8
+        ],
+        "temporary": true,
+        "layer": 4,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          5,
+          10
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          6,
+          12
+        ],
+        "temporary": true,
+        "layer": 6,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          7,
+          14
+        ],
+        "temporary": true,
+        "layer": 7,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          8,
+          16
+        ],
+        "temporary": true,
+        "layer": 8,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          9,
+          18
+        ],
+        "temporary": true,
+        "layer": 9,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          10,
+          20
+        ],
+        "temporary": true,
+        "layer": 10,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          11,
+          22
+        ],
+        "temporary": true,
+        "layer": 11,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          12,
+          24
+        ],
+        "temporary": true,
+        "layer": 12,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          13,
+          26
+        ],
+        "temporary": true,
+        "layer": 13,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          14,
+          28
+        ],
+        "temporary": true,
+        "layer": 14,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          15,
+          30
+        ],
+        "temporary": true,
+        "layer": 15,
+        "layer_group": 0
+      },
+      {
+        "type": "point",
+        "xy": [
+          16,
+          32
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          17,
+          34
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          18,
+          36
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          19,
+          38
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          20,
+          40
+        ],
+        "temporary": true,
+        "layer": 4,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          21,
+          42
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          22,
+          44
+        ],
+        "temporary": true,
+        "layer": 6,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          23,
+          46
+        ],
+        "temporary": true,
+        "layer": 7,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          24,
+          48
+        ],
+        "temporary": true,
+        "layer": 8,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          25,
+          50
+        ],
+        "temporary": true,
+        "layer": 9,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          26,
+          52
+        ],
+        "temporary": true,
+        "layer": 10,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          27,
+          54
+        ],
+        "temporary": true,
+        "layer": 11,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          28,
+          56
+        ],
+        "temporary": true,
+        "layer": 12,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          29,
+          58
+        ],
+        "temporary": true,
+        "layer": 13,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          30,
+          60
+        ],
+        "temporary": true,
+        "layer": 14,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          31,
+          62
+        ],
+        "temporary": true,
+        "layer": 15,
+        "layer_group": 1
+      },
+      {
+        "type": "point",
+        "xy": [
+          32,
+          64
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          33,
+          66
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          34,
+          68
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          35,
+          70
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          36,
+          72
+        ],
+        "temporary": true,
+        "layer": 4,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          37,
+          74
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          38,
+          76
+        ],
+        "temporary": true,
+        "layer": 6,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          39,
+          78
+        ],
+        "temporary": true,
+        "layer": 7,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          40,
+          80
+        ],
+        "temporary": true,
+        "layer": 8,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          41,
+          82
+        ],
+        "temporary": true,
+        "layer": 9,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          42,
+          84
+        ],
+        "temporary": true,
+        "layer": 10,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          43,
+          86
+        ],
+        "temporary": true,
+        "layer": 11,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          44,
+          88
+        ],
+        "temporary": true,
+        "layer": 12,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          45,
+          90
+        ],
+        "temporary": true,
+        "layer": 13,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          46,
+          92
+        ],
+        "temporary": true,
+        "layer": 14,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          47,
+          94
+        ],
+        "temporary": true,
+        "layer": 15,
+        "layer_group": 2
+      },
+      {
+        "type": "point",
+        "xy": [
+          48,
+          96
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          49,
+          98
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          50,
+          100
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          51,
+          102
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          52,
+          104
+        ],
+        "temporary": true,
+        "layer": 4,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          53,
+          106
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          54,
+          108
+        ],
+        "temporary": true,
+        "layer": 6,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          55,
+          110
+        ],
+        "temporary": true,
+        "layer": 7,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          56,
+          112
+        ],
+        "temporary": true,
+        "layer": 8,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          57,
+          114
+        ],
+        "temporary": true,
+        "layer": 9,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          58,
+          116
+        ],
+        "temporary": true,
+        "layer": 10,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          59,
+          118
+        ],
+        "temporary": true,
+        "layer": 11,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          60,
+          120
+        ],
+        "temporary": true,
+        "layer": 12,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          61,
+          122
+        ],
+        "temporary": true,
+        "layer": 13,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          62,
+          124
+        ],
+        "temporary": true,
+        "layer": 14,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          63,
+          126
+        ],
+        "temporary": true,
+        "layer": 15,
+        "layer_group": 3
+      },
+      {
+        "type": "point",
+        "xy": [
+          64,
+          128
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          65,
+          130
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          66,
+          132
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          67,
+          134
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          68,
+          136
+        ],
+        "temporary": true,
+        "layer": 4,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          69,
+          138
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          70,
+          140
+        ],
+        "temporary": true,
+        "layer": 6,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          71,
+          142
+        ],
+        "temporary": true,
+        "layer": 7,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          72,
+          144
+        ],
+        "temporary": true,
+        "layer": 8,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          73,
+          146
+        ],
+        "temporary": true,
+        "layer": 9,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          74,
+          148
+        ],
+        "temporary": true,
+        "layer": 10,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          75,
+          150
+        ],
+        "temporary": true,
+        "layer": 11,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          76,
+          152
+        ],
+        "temporary": true,
+        "layer": 12,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          77,
+          154
+        ],
+        "temporary": true,
+        "layer": 13,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          78,
+          156
+        ],
+        "temporary": true,
+        "layer": 14,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          79,
+          158
+        ],
+        "temporary": true,
+        "layer": 15,
+        "layer_group": 4
+      },
+      {
+        "type": "point",
+        "xy": [
+          80,
+          160
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          81,
+          162
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          82,
+          164
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          83,
+          166
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          84,
+          168
+        ],
+        "temporary": true,
+        "layer": 4,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          85,
+          170
+        ],
+        "temporary": true,
+        "layer": 5,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          86,
+          172
+        ],
+        "temporary": true,
+        "layer": 6,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          87,
+          174
+        ],
+        "temporary": true,
+        "layer": 7,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          88,
+          176
+        ],
+        "temporary": true,
+        "layer": 8,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          89,
+          178
+        ],
+        "temporary": true,
+        "layer": 9,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          90,
+          180
+        ],
+        "temporary": true,
+        "layer": 10,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          91,
+          182
+        ],
+        "temporary": true,
+        "layer": 11,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          92,
+          184
+        ],
+        "temporary": true,
+        "layer": 12,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          93,
+          186
+        ],
+        "temporary": true,
+        "layer": 13,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          94,
+          188
+        ],
+        "temporary": true,
+        "layer": 14,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          95,
+          190
+        ],
+        "temporary": true,
+        "layer": 15,
+        "layer_group": 5
+      },
+      {
+        "type": "point",
+        "xy": [
+          96,
+          192
+        ],
+        "temporary": true,
+        "layer": 0,
+        "layer_group": 6
+      },
+      {
+        "type": "point",
+        "xy": [
+          97,
+          194
+        ],
+        "temporary": true,
+        "layer": 1,
+        "layer_group": 6
+      },
+      {
+        "type": "point",
+        "xy": [
+          98,
+          196
+        ],
+        "temporary": true,
+        "layer": 2,
+        "layer_group": 6
+      },
+      {
+        "type": "point",
+        "xy": [
+          99,
+          198
+        ],
+        "temporary": true,
+        "layer": 3,
+        "layer_group": 6
+      }
+    ]
+  },
+  {
+    "id": "r004",
+    "role": "candidate",
+    "description": "A3 line",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "paper_size": 3
+  },
+  {
+    "id": "r005",
+    "role": "candidate",
+    "description": "A4 line",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ]
+      }
+    ],
+    "paper_size": 4
+  },
+  {
+    "id": "r006",
+    "role": "candidate",
+    "description": "Line curve group 123",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "group": 123
+      }
+    ]
+  },
+  {
+    "id": "r007",
+    "role": "candidate",
+    "description": "Point curve group 123",
+    "entities": [
+      {
+        "type": "point",
+        "xy": [
+          2,
+          3
+        ],
+        "group": 123
+      }
+    ]
+  },
+  {
+    "id": "r008",
+    "role": "candidate",
+    "description": "Arc curve group 123",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": true,
+        "group": 123
+      }
+    ]
+  },
+  {
+    "id": "r009",
+    "role": "candidate",
+    "description": "Text curve group 123",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "group": 123
+      }
+    ]
+  },
+  {
+    "id": "r010",
+    "role": "candidate",
+    "description": "Line pen width 25",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "pen_width": 25
+      }
+    ]
+  },
+  {
+    "id": "r011",
+    "role": "candidate",
+    "description": "Line flags 2",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "flags": 2
+      }
+    ],
+    "expected_native_flag_changes": {
+      "line": {
+        "2": 0
+      }
+    },
+    "normalization_note": "Native writer stores flag 2, but reopening and exporting JWW clears it. Its semantic meaning remains unknown."
+  },
+  {
+    "id": "r012",
+    "role": "candidate",
+    "description": "Ellipse flatness 0.5",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": true,
+        "flatness": 0.5
+      }
+    ]
+  },
+  {
+    "id": "r013",
+    "role": "candidate",
+    "description": "Ellipse tilt 30 degrees",
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          3,
+          5
+        ],
+        "radius": 7,
+        "full": true,
+        "flatness": 0.5,
+        "tilt_deg": 30
+      }
+    ]
+  },
+  {
+    "id": "r014",
+    "role": "candidate",
+    "description": "Text preset 3 height only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC"
+      }
+    ],
+    "text_presets": {
+      "3": {
+        "height": 4.2
+      }
+    }
+  },
+  {
+    "id": "r015",
+    "role": "candidate",
+    "description": "Text preset 3 spacing only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC"
+      }
+    ],
+    "text_presets": {
+      "3": {
+        "spacing": 1.2
+      }
+    }
+  },
+  {
+    "id": "r016",
+    "role": "candidate",
+    "description": "Text preset 3 color only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC"
+      }
+    ],
+    "text_presets": {
+      "3": {
+        "color": 5
+      }
+    }
+  },
+  {
+    "id": "r017",
+    "role": "candidate",
+    "description": "Text preset 3 width only",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC"
+      }
+    ],
+    "text_presets": {
+      "3": {
+        "width": 3.7
+      }
+    }
+  },
+  {
+    "id": "r018",
+    "role": "candidate",
+    "description": "Group 2 hidden",
+    "entities": [],
+    "group_states": {
+      "2": 0
+    }
+  },
+  {
+    "id": "r019",
+    "role": "candidate",
+    "description": "Group 2 display only",
+    "entities": [],
+    "group_states": {
+      "2": 1
+    }
+  },
+  {
+    "id": "r020",
+    "role": "candidate",
+    "description": "Group 2 protected",
+    "entities": [],
+    "group_protect": {
+      "2": 1
+    }
+  },
+  {
+    "id": "r021",
+    "role": "candidate",
+    "description": "Layer 3 protected",
+    "entities": [],
+    "layer_protect": {
+      "3": 1
+    }
+  },
+  {
+    "id": "r022",
+    "role": "candidate",
+    "description": "Name CP932 truncation at lead-byte boundary",
+    "entities": [],
+    "names": {
+      "0": "ABCDEF日",
+      "256": "ABCDEFGHIJKLMN日"
+    }
+  },
+  {
+    "id": "r023",
+    "role": "candidate",
+    "description": "Text nonpreset size 3.7",
+    "entities": [
+      {
+        "type": "text",
+        "content": "ABC",
+        "size_x": 3.7,
+        "size_y": 4.2
+      }
+    ]
+  },
+  {
+    "id": "r024",
+    "role": "candidate",
+    "description": "Multiple contiguous curve groups and singleton lines",
+    "entities": [
+      {
+        "type": "line",
+        "xy": [
+          1,
+          2,
+          11,
+          2
+        ],
+        "group": 123
+      },
+      {
+        "type": "line",
+        "xy": [
+          11,
+          2,
+          11,
+          12
+        ],
+        "group": 123
+      },
+      {
+        "type": "line",
+        "xy": [
+          11,
+          12,
+          21,
+          12
+        ],
+        "group": 123
+      },
+      {
+        "type": "line",
+        "xy": [
+          30,
+          2,
+          40,
+          2
+        ],
+        "group": 456
+      },
+      {
+        "type": "line",
+        "xy": [
+          40,
+          2,
+          40,
+          12
+        ],
+        "group": 456
+      },
+      {
+        "type": "line",
+        "xy": [
+          50,
+          2,
+          60,
+          2
+        ]
+      }
+    ],
+    "expected_stored_order": [
+      5,
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "normalization_note": "Native JWC places the ungrouped line before the two curve groups; group identifiers are renumbered on native read."
+  },
+  {
+    "id": "r025",
+    "role": "candidate",
+    "description": "ASCII layer 7/8-byte and group 15/16-byte name boundaries",
+    "entities": [],
+    "names": {
+      "0": "ABCDEFG",
+      "1": "ABCDEFGH",
+      "256": "ABCDEFGHIJKLMNO",
+      "257": "ABCDEFGHIJKLMNOP"
+    }
+  },
+  {
+    "id": "r080",
+    "role": "holdout",
+    "description": "Fresh pooled CP932 texts over 255 bytes, mixed records and custom text table",
+    "paper_size": 4,
+    "text_presets": {
+      "3": {
+        "height": 4.7,
+        "spacing": 0.8,
+        "color": 4
+      }
+    },
+    "entities": [
+      {
+        "type": "text",
+        "content": "検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証検証A",
+        "xy": [
+          -23.25,
+          17.875
+        ],
+        "layer": 7,
+        "layer_group": 6
+      },
+      {
+        "type": "line",
+        "xy": [
+          -30,
+          2,
+          40,
+          18
+        ],
+        "pen_color": 3,
+        "pen_style": 2
+      },
+      {
+        "type": "text",
+        "content": "別Bｶ3",
+        "xy": [
+          19.125,
+          -21.75
+        ]
+      },
+      {
+        "type": "point",
+        "xy": [
+          1.125,
+          -2.875
+        ],
+        "layer": 9,
+        "layer_group": 4
+      }
+    ]
+  },
+  {
+    "id": "r081",
+    "role": "holdout",
+    "description": "Fresh tilted ellipse with untested flatness and A0 paper",
+    "paper_size": 0,
+    "entities": [
+      {
+        "type": "arc",
+        "center": [
+          -17.25,
+          8.875
+        ],
+        "radius": 11.375,
+        "flatness": 0.73,
+        "tilt_deg": 127.5,
+        "full": true,
+        "pen_color": 3,
+        "pen_style": 2,
+        "layer": 4,
+        "layer_group": 3
+      }
+    ]
+  }
+]
