@@ -188,7 +188,9 @@ fn text_presets_width_rotation_and_missing_font_are_explicit() {
     let lines: Vec<_> = text.lines().collect();
     let start = lines.iter().position(|line| *line == "TEXT").unwrap() + 1;
     let width = lines[start..]
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .find(|pair| pair[0].trim() == "41")
         .unwrap()[1]
         .parse::<f64>()
