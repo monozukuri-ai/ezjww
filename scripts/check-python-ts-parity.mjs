@@ -1,23 +1,32 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { parseArgs } from "node:util";
+import { checkJwcParity } from "./jwc/check-parity.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
-const ezjww = require(resolve(root, "packages/ezjww/dist/index.js"));
-const python = existsSync(resolve(root, ".venv/bin/python"))
-  ? resolve(root, ".venv/bin/python")
-  : "python";
+const { values } = parseArgs({ options: {
+  python: { type: "string" }, package: { type: "string" }, report: { type: "string" },
+} });
+const packagePath = values.package ? resolve(values.package) : resolve(root, "packages/ezjww/dist/index.js");
+const ezjww = require(packagePath);
+const python = values.python ?? [".venv/bin/python", ".venv/Scripts/python.exe"]
+  .map(p => resolve(root, p)).find(existsSync) ?? "python";
 
 const sampleDir = resolve(root, "jww_samples");
-const samplePaths = readdirSync(sampleDir)
-  .filter((name) => name.endsWith(".jww"))
-  .sort((a, b) => a.localeCompare(b, "ja"))
-  .map((name) => resolve(sampleDir, name));
+function collect(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    const path = resolve(directory, entry.name);
+    return entry.isDirectory() ? collect(path) : /\.jww$/i.test(entry.name) ? [path] : [];
+  });
+}
+const samplePaths = collect(sampleDir).sort();
+const sampleId = path => relative(root, path).split("\\").join("/");
 
 if (samplePaths.length === 0) {
   throw new Error(`no .jww samples found in ${sampleDir}`);
@@ -25,11 +34,16 @@ if (samplePaths.length === 0) {
 
 const expected = pythonSummary(samplePaths);
 const actual = Object.fromEntries(
-  samplePaths.map((path) => [basename(path), typescriptSummary(path)]),
+  samplePaths.map((path) => [sampleId(path), typescriptSummary(path)]),
 );
 
 assert.deepEqual(actual, expected);
-console.log(`python/ts parity ok: ${samplePaths.length} sample(s)`);
+const jwc = checkJwcParity({ root, api: ezjww, python });
+if (values.report) writeFileSync(values.report, JSON.stringify({
+  python, package: packagePath,
+  jww: { inputs: samplePaths.length, cases: actual }, jwc,
+}, null, 2) + "\n");
+console.log(`python/ts parity ok: ${samplePaths.length} JWW, ${jwc.accepted}/${jwc.inputs} JWC accepted, ${jwc.dxf_hashes} P4 DXF hashes`);
 
 function pythonSummary(paths) {
   const code = String.raw`
@@ -73,6 +87,7 @@ def summarize(path: Path):
     exploded = read_dxf_document(source, True, 32)
     return {
         "block_defs": len(doc["block_defs"]),
+        "block_def_names": sorted_map(doc["block_def_names"]),
         "dxf": dxf_summary(dxf),
         "dxf_exploded": dxf_summary(exploded),
         "dxf_exploded_sha256": sha256(read_dxf_string(source, True, 32)),
@@ -84,14 +99,17 @@ def summarize(path: Path):
         "validation": validation_summary(doc["validation"]),
     }
 
-out = {Path(path).name: summarize(Path(path)) for path in sys.argv[1:]}
+out = {sample["id"]: summarize(Path(sample["path"])) for sample in json.loads(sys.stdin.readline())}
 print(json.dumps(out, ensure_ascii=False, sort_keys=True))
 `;
 
-  const output = execFileSync(python, ["-c", code, ...paths], {
+  const output = execFileSync(python, ["-I", "-X", "utf8", "-c", code], {
     cwd: root,
     encoding: "utf8",
-    stdio: ["ignore", "pipe", "inherit"],
+    input: JSON.stringify(paths.map(path => ({ id: sampleId(path), path }))) + "\n",
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: 60_000,
+    stdio: ["pipe", "pipe", "inherit"],
   });
   return JSON.parse(output);
 }
@@ -107,6 +125,7 @@ function typescriptSummary(path) {
 
   return {
     block_defs: doc.block_defs.length,
+    block_def_names: sortedObject(doc.block_def_names),
     dxf: dxfSummary(dxf),
     dxf_exploded: dxfSummary(exploded),
     dxf_exploded_sha256: sha256(ezjww.readDxfString(data, {

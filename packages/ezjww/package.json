@@ -1,7 +1,7 @@
 {
   "name": "ezjww",
   "version": "0.2.13",
-  "description": "JWW parser and DXF converter for TypeScript, powered by Rust WebAssembly.",
+  "description": "JWW/JWC parser and DXF converter for TypeScript, powered by Rust WebAssembly.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -26,12 +26,12 @@
     "build": "pnpm run build:wasm && pnpm run build:ts",
     "example:browser:sample": "node -e \"const fs=require('node:fs'); fs.mkdirSync('examples/browser/public/samples', { recursive: true }); fs.copyFileSync('../../jww_samples/Test1.jww', 'examples/browser/public/samples/Test1.jww')\"",
     "example:browser:wasm": "wasm-pack build ../../crates/ezjww-wasm --target web --out-dir ../../packages/ezjww/examples/browser/src/wasm --out-name ezjww_wasm --release && node -e \"require('node:fs').rmSync('examples/browser/src/wasm/.gitignore', { force: true })\"",
-    "example:browser:build": "pnpm run example:browser:sample && pnpm run example:browser:wasm && vite build examples/browser",
+    "example:browser:build": "pnpm run example:browser:sample && pnpm run example:browser:wasm && tsc -p examples/browser/tsconfig.json && vite build examples/browser",
     "example:browser:dev": "pnpm run example:browser:sample && pnpm run example:browser:wasm && vite --host 127.0.0.1 examples/browser",
     "example:browser:preview": "vite preview --host 127.0.0.1 examples/browser",
     "test": "pnpm run build && vitest run",
     "test:parity": "node ../../scripts/check-python-ts-parity.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json",
     "prepack": "pnpm run build"
   },
   "keywords": [

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::Serialize;
+use serde::{ser::SerializeMap, Serialize, Serializer};
 
 use crate::diagnostics::DecodeDiagnostic;
 use crate::dxf::DxfDocument;
@@ -22,6 +22,7 @@ pub struct JwwDocumentDto<'a> {
     pub entities: &'a [crate::model::Entity],
     pub metadata_settings: Vec<MetadataSetting>,
     pub block_defs: &'a [BlockDef],
+    #[serde(serialize_with = "serialize_block_def_names")]
     pub block_def_names: BTreeMap<u32, String>,
     pub entity_counts: BTreeMap<String, usize>,
     pub validation: BlockReferenceValidationDto,
@@ -29,6 +30,68 @@ pub struct JwwDocumentDto<'a> {
 }
 
 pub type DxfDocumentDto = DxfDocument;
+
+// JSON already represents these keys as strings. Make that explicit for the
+// WASM serializer, which otherwise rejects nonempty numeric-key object maps.
+fn serialize_block_def_names<S: Serializer>(
+    names: &BTreeMap<u32, String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut map = serializer.serialize_map(Some(names.len()))?;
+    for (number, name) in names {
+        map.serialize_entry(&number.to_string(), name)?;
+    }
+    map.end()
+}
+
+/// Source JWC records and counts; no synthetic JWW header or block metadata.
+#[derive(Debug, Serialize)]
+pub struct JwcDocumentDto<'a> {
+    #[serde(flatten)]
+    pub document: &'a crate::JwcDocument,
+    pub entity_counts: BTreeMap<&'static str, usize>,
+}
+
+pub fn jwc_document_to_dto(document: &crate::JwcDocument) -> JwcDocumentDto<'_> {
+    JwcDocumentDto {
+        document,
+        entity_counts: document.entity_counts(),
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "format", content = "document", rename_all = "lowercase")]
+pub enum CadDocumentDto<'a> {
+    Jww(JwwDocumentDto<'a>),
+    Jwc(JwcDocumentDto<'a>),
+}
+
+pub fn cad_document_to_dto(document: &crate::CadDocument) -> CadDocumentDto<'_> {
+    match document {
+        crate::CadDocument::Jww(parsed) => CadDocumentDto::Jww(
+            jww_document_to_dto_with_diagnostics(&parsed.document, &parsed.diagnostics),
+        ),
+        crate::CadDocument::Jwc(doc) => CadDocumentDto::Jwc(jwc_document_to_dto(doc)),
+    }
+}
+
+/// JWC-only optional metadata added to the existing DXF document shape. Keep
+/// width factors available to renderers without changing the JWW entity DTO.
+#[derive(Debug, Serialize)]
+pub struct JwcDxfDocumentDto<'a> {
+    #[serde(flatten)]
+    pub document: &'a DxfDocument,
+    pub jwc_conversion_report: &'a crate::jwc::JwcConversionReport,
+    pub text_width_factors: &'a [f64],
+}
+
+pub fn jwc_dxf_document_to_dto(conversion: &crate::jwc::JwcDxfConversion) -> JwcDxfDocumentDto<'_> {
+    JwcDxfDocumentDto {
+        document: &conversion.document,
+        jwc_conversion_report: &conversion.report,
+        text_width_factors: &conversion.text_width_factors,
+    }
+}
 
 pub fn jww_document_to_dto(document: &JwwDocument) -> JwwDocumentDto<'_> {
     jww_document_to_dto_with_diagnostics(document, &[])

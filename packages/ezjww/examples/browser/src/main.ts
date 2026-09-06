@@ -1,15 +1,15 @@
 import initWasm, {
-  isJwwFile,
-  readDocument,
+  detectFileFormat,
+  readCadDocument,
   readDxfDocument,
   readDxfString,
 } from "./wasm/ezjww_wasm.js";
 import type {
   DxfDocument,
   DxfEntity,
-  JwwDocument,
+  CadDocument,
+  JwcCoordinateSpace,
   JwwEntity,
-  JwwHeader,
 } from "../../../src/index";
 import "./styles.css";
 
@@ -18,7 +18,7 @@ type ViewMode = "summary" | "entities" | "json";
 interface ParsedState {
   fileName: string;
   fileSize: number;
-  document: JwwDocument;
+  cad: CadDocument;
   dxf: DxfDocument;
   dxfText: string;
   elapsedMs: number;
@@ -41,6 +41,7 @@ let parsedState: ParsedState | null = null;
 let currentInput: CurrentInput | null = null;
 let viewMode: ViewMode = "summary";
 let explodeInserts = true;
+let jwcCoordinates: JwcCoordinateSpace = "paper_millimeters";
 
 app.innerHTML = `
   <header class="topbar">
@@ -53,9 +54,13 @@ app.innerHTML = `
         <input id="explode-toggle" type="checkbox" checked />
         <span>INSERT展開</span>
       </label>
+      <label class="toggle">JWCの座標
+        <select id="coordinate-select"><option value="paper_millimeters">紙上mm</option><option value="model_millimeters">実寸mm</option></select>
+      </label>
+      <button id="download-button" class="tool-button" type="button" disabled>DXF保存</button>
       <button id="sample-button" class="tool-button" type="button">サンプル読込</button>
       <label class="file-button">
-        <input id="file-input" type="file" accept=".jww,application/octet-stream" />
+        <input id="file-input" type="file" accept=".jww,.jwc,application/octet-stream" />
         ファイル選択
       </label>
     </div>
@@ -64,7 +69,7 @@ app.innerHTML = `
   <main class="shell">
     <section class="left-pane">
       <div id="dropzone" class="dropzone" tabindex="0">
-        <div class="drop-title">JWWファイルをドロップ</div>
+        <div class="drop-title">JWW/JWCファイルをドロップ</div>
         <div id="status-line" class="drop-status">未読込</div>
       </div>
 
@@ -97,6 +102,21 @@ const statusLine = document.querySelector<HTMLDivElement>("#status-line")!;
 const explodeToggle = document.querySelector<HTMLInputElement>("#explode-toggle")!;
 const sampleButton = document.querySelector<HTMLButtonElement>("#sample-button")!;
 const canvas = document.querySelector<HTMLCanvasElement>("#preview-canvas")!;
+const coordinateSelect = document.querySelector<HTMLSelectElement>("#coordinate-select")!;
+const downloadButton = document.querySelector<HTMLButtonElement>("#download-button")!;
+coordinateSelect.addEventListener("change", () => {
+  jwcCoordinates = coordinateSelect.value as JwcCoordinateSpace;
+  void reparseCurrentInput();
+});
+downloadButton.addEventListener("click", () => {
+  if (!parsedState) return;
+  const url = URL.createObjectURL(new Blob([parsedState.dxfText], { type: "application/dxf" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = parsedState.fileName.replace(/\.[^.]*$/, "") + ".dxf";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 
 void ensureWasm().then(() => {
   statusLine.textContent = "待機中";
@@ -191,18 +211,18 @@ async function parseBytes(input: CurrentInput): Promise<void> {
   try {
     await ensureWasm();
     const started = performance.now();
-    if (!isJwwFile(input.bytes)) {
-      throw new Error("JWWシグネチャを確認できません");
+    if (!detectFileFormat(input.bytes)) {
+      throw new Error("JWW/JWCシグネチャを確認できません");
     }
 
-    const document = readDocument(input.bytes) as JwwDocument;
-    const dxf = readDxfDocument(input.bytes, explodeInserts, 32) as DxfDocument;
-    const dxfText = readDxfString(input.bytes, explodeInserts, 32);
+    const cad = readCadDocument(input.bytes) as CadDocument;
+    const dxf = readDxfDocument(input.bytes, explodeInserts, 32, jwcCoordinates) as DxfDocument;
+    const dxfText = readDxfString(input.bytes, explodeInserts, 32, jwcCoordinates);
 
     parsedState = {
       fileName: input.name,
       fileSize: input.size,
-      document,
+      cad,
       dxf,
       dxfText,
       elapsedMs: performance.now() - started,
@@ -227,7 +247,9 @@ async function ensureWasm(): Promise<void> {
 function render(): void {
   renderMetrics(parsedState);
   renderCounts(parsedState);
-  renderLayers(parsedState?.document.header ?? null);
+  renderLayers(parsedState?.cad ?? null);
+  downloadButton.disabled = !parsedState;
+  coordinateSelect.disabled = parsedState?.cad.format === "jww";
   renderPreview(parsedState);
   renderDetail(parsedState);
 }
@@ -245,8 +267,8 @@ function renderMetrics(state: ParsedState | null): void {
   }
 
   target.innerHTML = metricMarkup([
-    ["Version", String(state.document.header.version)],
-    ["Entities", formatNumber(state.document.entities.length)],
+    ["Format / Version", state.cad.format === "jww" ? `JWW ${state.cad.document.header.version}` : `JWC ${state.cad.document.header.source_version ?? "版不明"}`],
+    ["Entities", formatNumber(state.cad.document.entities.length)],
     ["DXF", formatNumber(state.dxf.entities.length)],
     ["Parse", `${state.elapsedMs.toFixed(1)} ms`],
   ]);
@@ -259,7 +281,7 @@ function renderCounts(state: ParsedState | null): void {
     return;
   }
 
-  const rows = Object.entries(state.document.entity_counts)
+  const rows = Object.entries(state.cad.document.entity_counts)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(
       ([type, count]) => `
@@ -271,7 +293,7 @@ function renderCounts(state: ParsedState | null): void {
     )
     .join("");
 
-  const validation = state.document.validation;
+  const validation = state.cad.format === "jww" ? state.cad.document.validation : null;
   target.innerHTML = `
     ${panelTitle("Entity Counts")}
     <table class="data-table">
@@ -279,37 +301,26 @@ function renderCounts(state: ParsedState | null): void {
     </table>
     <div class="status-grid">
       <span>Block refs</span>
-      <strong>${validation.resolved_references}/${validation.total_references}</strong>
+      <strong>${validation ? `${validation.resolved_references}/${validation.total_references}` : "定義なし"}</strong>
       <span>Unsupported</span>
       <strong>${state.dxf.unsupported_entities.length}</strong>
     </div>
   `;
 }
 
-function renderLayers(header: JwwHeader | null): void {
+function renderLayers(cad: CadDocument | null): void {
   const target = document.querySelector<HTMLDivElement>("#layers")!;
-  if (!header) {
+  if (!cad) {
     target.innerHTML = panelTitle("Layer Groups") + emptyLine();
     return;
   }
-
-  const groups = header.layer_groups
-    .map((group, index) => {
-      const namedLayers = group.layers.filter((layer) => layer.name.trim()).length;
-      return `
-        <li>
-          <span>${index.toString(16).toUpperCase()}</span>
-          <strong>${escapeHtml(group.name)}</strong>
-          <em>${namedLayers}</em>
-        </li>
-      `;
-    })
-    .join("");
-
-  target.innerHTML = `
-    ${panelTitle("Layer Groups")}
-    <ul class="layer-list">${groups}</ul>
-  `;
+  const groups = cad.document.header.layer_groups.map((group, index) => {
+    const name = typeof group.name === "string" ? group.name : group.name.text;
+    const names = group.layers.map(layer => typeof layer.name === "string" ? layer.name : layer.name.text);
+    const state = typeof group.state === "number" ? String(group.state) : group.state.visible ? "表示" : "非表示";
+    return `<li><span>${index.toString(16).toUpperCase()}</span><strong>${escapeHtml(name)} / 1:${group.scale} / ${state}</strong><em>${names.filter(n => n.trim()).length}</em></li>`;
+  }).join("");
+  target.innerHTML = `${panelTitle("Layer Groups")}<ul class="layer-list">${groups}</ul>`;
 }
 
 function renderPreview(state: ParsedState | null): void {
@@ -334,7 +345,7 @@ function renderPreview(state: ParsedState | null): void {
     return;
   }
 
-  meta.textContent = `${state.fileName} / ${state.explodeInserts ? "exploded" : "inserted"}`;
+  meta.textContent = `${state.fileName} / ${state.cad.format === "jwc" ? (jwcCoordinates === "paper_millimeters" ? "紙上mm" : "実寸mm") : state.explodeInserts ? "exploded" : "inserted"}`;
   drawDxf(context, rect.width, rect.height, state.dxf);
 }
 
@@ -346,16 +357,17 @@ function renderDetail(state: ParsedState | null): void {
   }
 
   if (viewMode === "entities") {
-    target.innerHTML = renderEntityTable(state.document.entities);
+    target.innerHTML = renderEntityTable(state.cad);
     return;
   }
 
   if (viewMode === "json") {
-    const json = JSON.stringify(state.document, null, 2);
+    const json = JSON.stringify(state.cad, null, 2);
     target.innerHTML = `<pre class="json-view">${escapeHtml(json)}</pre>`;
     return;
   }
 
+  const unresolved = state.cad.format === "jww" && state.cad.document.validation.has_unresolved;
   target.innerHTML = `
     <div class="summary-grid">
       <div>
@@ -368,50 +380,38 @@ function renderDetail(state: ParsedState | null): void {
       </div>
       <div>
         <span>Blocks</span>
-        <strong>${formatNumber(state.document.block_defs.length)}</strong>
+        <strong>${formatNumber(state.cad.format === "jww" ? state.cad.document.block_defs.length : 0)}</strong>
       </div>
       <div>
         <span>DXF text</span>
         <strong>${formatBytes(new Blob([state.dxfText]).size)}</strong>
       </div>
     </div>
-    <div class="issue-line ${state.document.validation.has_unresolved ? "warn" : ""}">
-      ${state.document.validation.has_unresolved ? "未解決のBLOCK参照あり" : "BLOCK参照は解決済み"}
+    <div class="issue-line ${unresolved ? "warn" : ""}">
+      ${state.cad.format === "jwc" ? "フォントは代替表示です。字間の完全再現には対応していません。" : unresolved ? "未解決のBLOCK参照あり" : "BLOCK参照は解決済み"}
     </div>
+    <div class="issue-line">${state.cad.document.diagnostics.map(d => escapeHtml(d.message)).join("<br>")}</div>
+    ${state.dxf.jwc_conversion_report ? `<details><summary>変換時の既定値・再現上の制約</summary><ul>${state.dxf.jwc_conversion_report.notices.map(n => `<li>${escapeHtml(n.field)}: ${escapeHtml(n.detail)}</li>`).join("")}</ul></details>` : ""}
   `;
 }
 
-function renderEntityTable(entities: JwwEntity[]): string {
-  const rows = entities
-    .slice(0, 200)
-    .map((entity, index) => {
-      const point = firstPoint(entity);
-      return `
-        <tr>
-          <td class="num">${index + 1}</td>
-          <td>${escapeHtml(entity.type)}</td>
-          <td class="num">${entity.base.layer_group}:${entity.base.layer}</td>
-          <td class="num">${entity.base.pen_color}</td>
-          <td>${point}</td>
-        </tr>
-      `;
-    })
-    .join("");
-
-  return `
-    <table class="entity-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Type</th>
-          <th>Layer</th>
-          <th>Color</th>
-          <th>Point</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  `;
+function renderEntityTable(cad: CadDocument): string {
+  const rows = cad.document.entities.slice(0, 200).map((entity, index) => {
+    let layer: string, color: string, point: string;
+    if ("base" in entity) {
+      layer = `${entity.base.layer_group}:${entity.base.layer}`;
+      color = String(entity.base.pen_color);
+      point = firstPoint(entity);
+    } else {
+      const address = "attributes" in entity ? entity.attributes.layer : entity.layer;
+      layer = `${address.group}:${address.layer}`;
+      color = "attributes" in entity ? String(entity.attributes.pen_color) : "pen_color" in entity ? String(entity.pen_color) : "text_preset" in entity && cad.format === "jwc" ? String(cad.document.header.text_presets[entity.text_preset].pen_color) : "未格納";
+      const position = "start" in entity ? entity.start : "center" in entity ? entity.center : entity.position;
+      point = `${position.x.toFixed(2)}, ${position.y.toFixed(2)}`;
+    }
+    return `<tr><td class="num">${index + 1}</td><td>${escapeHtml(entity.type)}</td><td class="num">${layer}</td><td class="num">${color}</td><td>${point}</td></tr>`;
+  }).join("");
+  return `<table class="entity-table"><thead><tr><th>#</th><th>Type</th><th>Layer</th><th>Color</th><th>${cad.format === "jwc" ? "元座標" : "Point"}</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function drawDxf(
@@ -420,7 +420,15 @@ function drawDxf(
   height: number,
   dxf: DxfDocument,
 ): void {
-  const bounds = dxfBounds(dxf.entities);
+  const isJwc = !!dxf.jwc_conversion_report;
+  const hidden = new Set(isJwc ? dxf.layers.filter(layer => layer.frozen).map(layer => layer.name) : []);
+  const widths = new Map<DxfEntity, number>();
+  let textIndex = 0;
+  for (const entity of dxf.entities) {
+    if (entity.type === "TEXT" && isJwc) widths.set(entity, dxf.text_width_factors?.[textIndex++] ?? 1);
+  }
+  const visible = dxf.entities.filter(entity => !hidden.has(entity.layer));
+  const bounds = dxfBounds(visible, context, widths);
   if (!bounds) {
     drawEmptyPreview(context, width, height);
     return;
@@ -434,20 +442,24 @@ function drawDxf(
     (height - padding * 2) / modelHeight,
   );
 
+  const offsetX = isJwc ? (width - modelWidth * scale) / 2 : padding;
+  const offsetY = isJwc ? (height - modelHeight * scale) / 2 : padding;
   const toScreen = (x: number, y: number): [number, number] => [
-    padding + (x - bounds.minX) * scale,
-    height - padding - (y - bounds.minY) * scale,
+    offsetX + (x - bounds.minX) * scale,
+    height - offsetY - (y - bounds.minY) * scale,
   ];
 
   drawGrid(context, width, height);
   context.lineCap = "round";
   context.lineJoin = "round";
 
-  for (const entity of dxf.entities) {
-    context.strokeStyle = colorFor(entity.color);
+  for (const entity of visible) {
+    context.strokeStyle = isJwc ? ({132: "#00a5a5", 18: "#260000", 92: "#00a500", 52: "#a5a500", 212: "#a500a5"} as Record<number, string>)[entity.color] ?? colorFor(entity.color) : colorFor(entity.color);
     context.fillStyle = context.strokeStyle;
     context.lineWidth = 1.2;
-    drawEntity(context, entity, toScreen, scale);
+    const dash = entity.line_type === "JWC_DASHED1" ? 1.25 : entity.line_type === "JWC_DASHED2" ? 2.5 : 0;
+    context.setLineDash(dash ? [dash * scale, dash * scale] : []);
+    drawEntity(context, entity, toScreen, scale, widths.get(entity));
   }
 }
 
@@ -456,6 +468,7 @@ function drawEntity(
   entity: DxfEntity,
   toScreen: (x: number, y: number) => [number, number],
   scale: number,
+  textWidthFactor?: number,
 ): void {
   if (entity.type === "LINE" && hasNumbers(entity, "x1", "y1", "x2", "y2")) {
     const [x1, y1] = toScreen(entity.x1, entity.y1);
@@ -477,6 +490,15 @@ function drawEntity(
 
   if (entity.type === "ARC" && hasNumbers(entity, "center_x", "center_y", "radius", "start_angle", "end_angle")) {
     drawArcPolyline(context, entity, toScreen);
+    return;
+  }
+
+  if (entity.type === "ELLIPSE" && hasNumbers(entity, "center_x", "center_y", "major_axis_x", "major_axis_y", "minor_ratio")) {
+    const [x, y] = toScreen(entity.center_x, entity.center_y);
+    const major = Math.hypot(entity.major_axis_x, entity.major_axis_y) * scale;
+    context.beginPath();
+    context.ellipse(x, y, major, major * entity.minor_ratio, -Math.atan2(entity.major_axis_y, entity.major_axis_x), -(entity.end_param ?? Math.PI * 2), -(entity.start_param ?? 0));
+    context.stroke();
     return;
   }
 
@@ -508,7 +530,19 @@ function drawEntity(
 
   if (entity.type === "TEXT" && hasNumbers(entity, "x", "y")) {
     const [x, y] = toScreen(entity.x, entity.y);
-    context.fillRect(x - 2, y - 2, 4, 4);
+    if (textWidthFactor !== undefined) {
+      context.save();
+      context.translate(x, y);
+      context.rotate(-degToRad(entity.rotation ?? 0));
+      context.scale(textWidthFactor, 1);
+      context.font = `${Math.max(0.1, (entity.height ?? 2.5) * scale)}px sans-serif`;
+      context.textAlign = "left";
+      context.textBaseline = "alphabetic";
+      context.fillText(entity.content ?? "", 0, 0);
+      context.restore();
+    } else {
+      context.fillRect(x - 2, y - 2, 4, 4);
+    }
   }
 }
 
@@ -539,10 +573,23 @@ function drawArcPolyline(
   context.stroke();
 }
 
-function dxfBounds(entities: DxfEntity[]): Bounds | null {
+function dxfBounds(entities: DxfEntity[], context: CanvasRenderingContext2D, widths: Map<DxfEntity, number>): Bounds | null {
   const points: Array<[number, number]> = [];
   for (const entity of entities) {
     collectDxfPoints(entity, points);
+    if (widths.has(entity) && hasNumbers(entity, "x", "y", "height")) {
+      context.font = "100px sans-serif";
+      const metrics = context.measureText(entity.content ?? "");
+      const factor = entity.height / 100;
+      const left = -metrics.actualBoundingBoxLeft * factor * widths.get(entity)!;
+      const right = metrics.actualBoundingBoxRight * factor * widths.get(entity)!;
+      const bottom = -metrics.actualBoundingBoxDescent * factor;
+      const top = metrics.actualBoundingBoxAscent * factor;
+      const angle = degToRad(entity.rotation ?? 0);
+      for (const [x, y] of [[left, bottom], [right, bottom], [left, top], [right, top]]) {
+        points.push([entity.x + x * Math.cos(angle) - y * Math.sin(angle), entity.y + x * Math.sin(angle) + y * Math.cos(angle)]);
+      }
+    }
   }
   if (points.length === 0) {
     return null;
@@ -578,6 +625,11 @@ function collectDxfPoints(entity: DxfEntity, out: Array<[number, number]>): void
   if (hasNumbers(entity, "x", "y")) {
     out.push([entity.x, entity.y]);
   }
+  if (entity.type === "ELLIPSE" && hasNumbers(entity, "center_x", "center_y", "major_axis_x", "major_axis_y", "minor_ratio")) {
+    const rx = Math.hypot(entity.major_axis_x, entity.major_axis_y * entity.minor_ratio);
+    const ry = Math.hypot(entity.major_axis_y, entity.major_axis_x * entity.minor_ratio);
+    out.push([entity.center_x - rx, entity.center_y - ry], [entity.center_x + rx, entity.center_y + ry]);
+  }
   if (hasNumbers(entity, "center_x", "center_y", "radius")) {
     out.push(
       [entity.center_x - entity.radius, entity.center_y - entity.radius],
@@ -606,7 +658,7 @@ function drawEmptyPreview(context: CanvasRenderingContext2D, width: number, heig
   context.fillStyle = "#6b7280";
   context.font = "14px system-ui, sans-serif";
   context.textAlign = "center";
-  context.fillText("No JWW data", width / 2, height / 2);
+  context.fillText("No visible drawing data", width / 2, height / 2);
 }
 
 function hasNumbers<T extends string>(

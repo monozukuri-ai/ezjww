@@ -292,13 +292,58 @@ pub fn convert_document(doc: &JwwDocument) -> DxfDocument {
     convert_document_with_options(doc, ConvertOptions::default())
 }
 
-pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions) -> DxfDocument {
-    let layer_name_map = layer_name_map(doc);
-    let layers = convert_layers(doc, &layer_name_map);
-    let block_name_map = block_name_map(doc);
-    let block_defs = block_defs_by_number(&doc.block_defs);
+/// Normalized layer properties borrowed by the converter, without a file header.
+#[derive(Clone, Copy)]
+pub(crate) struct ConversionLayer<'a> {
+    pub name: &'a str,
+    pub frozen: bool,
+    pub locked: bool,
+}
 
-    let colors = ColorTable::new(doc.header.palette.as_ref());
+/// Inputs to DXF conversion. Format adapters retain responsibility for header
+/// interpretation and deciding which text records are internal settings.
+pub(crate) struct ConversionView<'a> {
+    pub entities: &'a [Entity],
+    pub block_defs: &'a [BlockDef],
+    pub layers: &'a [[ConversionLayer<'a>; 16]; 16],
+    pub palette: Option<&'a JwwPalette>,
+    pub is_metadata_text: fn(&Text) -> bool,
+    pub include_temporary_points: bool,
+}
+
+pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions) -> DxfDocument {
+    let layers = std::array::from_fn(|g| {
+        std::array::from_fn(|l| {
+            let layer = &doc.header.layer_groups[g].layers[l];
+            ConversionLayer {
+                name: &layer.name,
+                frozen: layer.state == 0,
+                locked: layer.protect != 0,
+            }
+        })
+    });
+    convert_view_with_options(
+        &ConversionView {
+            entities: &doc.entities,
+            block_defs: &doc.block_defs,
+            layers: &layers,
+            palette: doc.header.palette.as_ref(),
+            is_metadata_text: |text| metadata_setting_from_text(text).is_some(),
+            include_temporary_points: false,
+        },
+        options,
+    )
+}
+
+pub(crate) fn convert_view_with_options(
+    view: &ConversionView<'_>,
+    options: ConvertOptions,
+) -> DxfDocument {
+    let layer_name_map = layer_name_map(view.layers);
+    let layers = convert_layers(view.layers, &layer_name_map);
+    let block_name_map = block_name_map(view.block_defs);
+    let block_defs = block_defs_by_number(view.block_defs);
+    let colors = ColorTable::new(view.palette);
 
     let mut unsupported_entities = Vec::<String>::new();
     let entities = if options.explode_inserts {
@@ -310,31 +355,37 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             unsupported_entities: &mut unsupported_entities,
             options,
             colors: &colors,
+            is_metadata_text: view.is_metadata_text,
+            include_temporary_points: view.include_temporary_points,
         };
         convert_entities_exploded(
             &mut context,
-            &doc.entities,
+            view.entities,
             &Transform2D::identity(),
             &mut expanding_stack,
         )
     } else {
         convert_entities(
-            &doc.entities,
+            view.entities,
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
             &colors,
+            view.is_metadata_text,
+            view.include_temporary_points,
         )
     };
     let blocks = if options.explode_inserts {
         Vec::new()
     } else {
         convert_blocks(
-            doc,
+            view.block_defs,
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
             &colors,
+            view.is_metadata_text,
+            view.include_temporary_points,
         )
     };
 
@@ -359,6 +410,21 @@ pub fn document_to_string_with_version(
     writer.finish()
 }
 
+/// Optional output metadata supplied by a format adapter. Existing public JWW
+/// writers continue to omit TEXT group 41 and $INSUNITS as before.
+pub(crate) fn document_to_string_with_adapter_metadata(
+    doc: &DxfDocument,
+    target_version: DxfTargetVersion,
+    widths: &[f64],
+    insertion_units: Option<i32>,
+) -> String {
+    let mut writer = AsciiDxfWriter::new(target_version);
+    writer.text_widths = widths.iter().copied();
+    writer.insertion_units = insertion_units;
+    writer.write_document(doc);
+    writer.finish()
+}
+
 pub fn write_document_to_file(doc: &DxfDocument, path: impl AsRef<Path>) -> io::Result<()> {
     write_document_to_file_with_version(doc, path, DxfTargetVersion::default())
 }
@@ -372,15 +438,17 @@ pub fn write_document_to_file_with_version(
     fs::write(path, data)
 }
 
-struct AsciiDxfWriter {
+struct AsciiDxfWriter<'a> {
     out: String,
     target_version: DxfTargetVersion,
     next_handle: u32,
     block_record_order: Vec<String>,
     block_record_handles: BTreeMap<String, String>,
+    text_widths: std::iter::Copied<std::slice::Iter<'a, f64>>,
+    insertion_units: Option<i32>,
 }
 
-impl AsciiDxfWriter {
+impl AsciiDxfWriter<'_> {
     fn new(target_version: DxfTargetVersion) -> Self {
         Self {
             out: String::with_capacity(16 * 1024),
@@ -388,6 +456,8 @@ impl AsciiDxfWriter {
             next_handle: 1,
             block_record_order: Vec::new(),
             block_record_handles: BTreeMap::new(),
+            text_widths: [].iter().copied(),
+            insertion_units: None,
         }
     }
 
@@ -418,6 +488,10 @@ impl AsciiDxfWriter {
         self.group_str(3, "ANSI_1252");
         self.group_str(9, "$MEASUREMENT");
         self.group_i32(70, 1);
+        if let Some(units) = self.insertion_units {
+            self.group_str(9, "$INSUNITS");
+            self.group_i32(70, units);
+        }
         self.group_str(9, "$TEXTSTYLE");
         self.group_str(7, "STANDARD");
         self.group_str(9, "$CLAYER");
@@ -455,6 +529,8 @@ impl AsciiDxfWriter {
                 "BYBLOCK" => ("", &[]),
                 "CONTINUOUS" => ("Solid line", &[]),
                 "DASHED" => ("Dashed line", &[0.6, -0.3]),
+                "JWC_DASHED1" => ("JWC reference dashed 1", &[1.25, -1.25]),
+                "JWC_DASHED2" => ("JWC reference dashed 2", &[2.5, -2.5]),
                 "DASHED2" => ("Dashed line x2", &[1.2, -0.6]),
                 "DASHDOT" => ("Dash dot", &[0.6, -0.2, 0.1, -0.2]),
                 "DASHDOT2" => ("Dash dot x2", &[1.2, -0.4, 0.2, -0.4]),
@@ -745,6 +821,9 @@ impl AsciiDxfWriter {
                 self.group_f64(20, v.y);
                 self.group_f64(30, 0.0);
                 self.group_f64(40, v.height);
+                if let Some(width) = self.text_widths.next() {
+                    self.group_f64(41, width);
+                }
                 self.group_str(1, &escape_unicode(&v.content));
                 self.group_f64(50, v.rotation);
                 self.group_str(7, &escape_unicode(&v.style));
@@ -1023,6 +1102,8 @@ struct ExplodeContext<'a> {
     unsupported_entities: &'a mut Vec<String>,
     options: ConvertOptions,
     colors: &'a ColorTable,
+    is_metadata_text: fn(&Text) -> bool,
+    include_temporary_points: bool,
 }
 
 fn convert_entities_exploded(
@@ -1071,6 +1152,8 @@ fn convert_entities_exploded(
                 context.layer_names,
                 context.block_name_map,
                 context.colors,
+                context.is_metadata_text,
+                context.include_temporary_points,
             ) {
                 Some(converted) => {
                     for dxf_entity in converted {
@@ -1332,11 +1415,13 @@ fn nearly_equal(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
 }
 
-fn convert_layers(doc: &JwwDocument, layer_names: &HashMap<(u16, u16), String>) -> Vec<DxfLayer> {
+fn convert_layers(
+    source: &[[ConversionLayer<'_>; 16]; 16],
+    layer_names: &HashMap<(u16, u16), String>,
+) -> Vec<DxfLayer> {
     let mut layers = Vec::<DxfLayer>::with_capacity(16 * 16);
-    for g in 0..16 {
-        for l in 0..16 {
-            let layer = &doc.header.layer_groups[g].layers[l];
+    for (g, group) in source.iter().enumerate() {
+        for (l, layer) in group.iter().enumerate() {
             let name = layer_names
                 .get(&(g as u16, l as u16))
                 .cloned()
@@ -1345,8 +1430,8 @@ fn convert_layers(doc: &JwwDocument, layer_names: &HashMap<(u16, u16), String>) 
                 name,
                 color: ((g * 16 + l) % 255 + 1) as i32,
                 line_type: "CONTINUOUS".to_string(),
-                frozen: layer.state == 0,
-                locked: layer.protect != 0,
+                frozen: layer.frozen,
+                locked: layer.locked,
             });
         }
     }
@@ -1354,14 +1439,16 @@ fn convert_layers(doc: &JwwDocument, layer_names: &HashMap<(u16, u16), String>) 
 }
 
 fn convert_blocks(
-    doc: &JwwDocument,
+    block_defs: &[BlockDef],
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
     colors: &ColorTable,
+    is_metadata_text: fn(&Text) -> bool,
+    include_temporary_points: bool,
 ) -> Vec<DxfBlock> {
-    let mut blocks = Vec::<DxfBlock>::with_capacity(doc.block_defs.len());
-    for block_def in &doc.block_defs {
+    let mut blocks = Vec::<DxfBlock>::with_capacity(block_defs.len());
+    for block_def in block_defs {
         let name = block_name_map
             .get(&block_def.number)
             .cloned()
@@ -1372,6 +1459,8 @@ fn convert_blocks(
             block_name_map,
             unsupported_entities,
             colors,
+            is_metadata_text,
+            include_temporary_points,
         );
         blocks.push(DxfBlock {
             name,
@@ -1389,10 +1478,19 @@ fn convert_entities(
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
     colors: &ColorTable,
+    is_metadata_text: fn(&Text) -> bool,
+    include_temporary_points: bool,
 ) -> Vec<DxfEntity> {
     let mut out = Vec::<DxfEntity>::new();
     for entity in entities {
-        match convert_entity(entity, layer_names, block_name_map, colors) {
+        match convert_entity(
+            entity,
+            layer_names,
+            block_name_map,
+            colors,
+            is_metadata_text,
+            include_temporary_points,
+        ) {
             Some(converted) => {
                 for e in converted {
                     out.push(e);
@@ -1409,6 +1507,8 @@ fn convert_entity(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     colors: &ColorTable,
+    is_metadata_text: fn(&Text) -> bool,
+    include_temporary_points: bool,
 ) -> Option<Vec<DxfEntity>> {
     let base = entity.base();
     let layer = layer_name(layer_names, base.layer_group, base.layer);
@@ -1429,7 +1529,7 @@ fn convert_entity(
         })]),
         Entity::Arc(v) => Some(convert_arc(v, layer, color, line_type, line_weight)),
         Entity::Point(v) => {
-            if v.is_temporary {
+            if v.is_temporary && !include_temporary_points {
                 Some(Vec::new())
             } else {
                 Some(vec![DxfEntity::Point(DxfPoint {
@@ -1442,7 +1542,7 @@ fn convert_entity(
             }
         }
         Entity::Text(v) => {
-            if metadata_setting_from_text(v).is_some() {
+            if is_metadata_text(v) {
                 Some(Vec::new())
             } else {
                 Some(vec![DxfEntity::Text(convert_text(
@@ -1851,11 +1951,11 @@ fn convert_text(text: &Text, layer: String, color: i32, line_type: String) -> Dx
     }
 }
 
-fn block_name_map(doc: &JwwDocument) -> HashMap<u32, String> {
-    let mut map = HashMap::<u32, String>::with_capacity(doc.block_defs.len());
+fn block_name_map(block_defs: &[BlockDef]) -> HashMap<u32, String> {
+    let mut map = HashMap::<u32, String>::with_capacity(block_defs.len());
     let mut used =
         BTreeSet::<String>::from(["*Model_Space".to_string(), "*Paper_Space".to_string()]);
-    for block_def in &doc.block_defs {
+    for block_def in block_defs {
         let fallback = format!("BLOCK_{}", block_def.number);
         let candidate = sanitize_dxf_table_name(&block_def.name, &fallback);
         let name = unique_dxf_table_name(candidate, &format!("_{}", block_def.number), &mut used);
@@ -1864,13 +1964,13 @@ fn block_name_map(doc: &JwwDocument) -> HashMap<u32, String> {
     map
 }
 
-fn layer_name_map(doc: &JwwDocument) -> HashMap<(u16, u16), String> {
+fn layer_name_map(layers: &[[ConversionLayer<'_>; 16]; 16]) -> HashMap<(u16, u16), String> {
     let mut map = HashMap::<(u16, u16), String>::with_capacity(16 * 16);
     let mut used = BTreeSet::<String>::from(["0".to_string()]);
-    for g in 0..16 {
-        for l in 0..16 {
+    for (g, group) in layers.iter().enumerate() {
+        for (l, layer) in group.iter().enumerate() {
             let fallback = format!("{g:X}-{l:X}");
-            let raw = &doc.header.layer_groups[g].layers[l].name;
+            let raw = layer.name;
             let candidate = sanitize_dxf_table_name(raw, &fallback);
             let name = unique_dxf_table_name(candidate, &format!("_{fallback}"), &mut used);
             map.insert((g as u16, l as u16), name);
@@ -2403,6 +2503,88 @@ mod tests {
 
         for (pen_style, expected) in cases {
             assert_eq!(map_line_type(pen_style), expected);
+        }
+    }
+
+    #[test]
+    fn conversion_view_keeps_metadata_policy_in_top_level_blocks_and_exploded_blocks() {
+        let text = Entity::Text(Text {
+            base: EntityBase::default(),
+            start_x: 0.0,
+            start_y: -1000.0,
+            end_x: 0.0,
+            end_y: -1000.0,
+            text_type: 0,
+            size_x: 3.0,
+            size_y: 3.0,
+            spacing: 0.0,
+            angle: 0.0,
+            font_name: String::new(),
+            content: "Printer_PaperSize = 8".to_string(),
+        });
+        let entities = [
+            text.clone(),
+            Entity::Block(Block {
+                base: EntityBase::default(),
+                ref_x: 0.0,
+                ref_y: 0.0,
+                scale_x: 1.0,
+                scale_y: 1.0,
+                rotation: 0.0,
+                def_number: 1,
+            }),
+        ];
+        let blocks = [BlockDef {
+            base: EntityBase::default(),
+            number: 1,
+            is_referenced: true,
+            name: "Shared block".to_string(),
+            entities: vec![text],
+        }];
+        let mut layers = [[super::ConversionLayer {
+            name: "",
+            frozen: false,
+            locked: false,
+        }; 16]; 16];
+        layers[0][0] = super::ConversionLayer {
+            name: "Shared layer",
+            frozen: true,
+            locked: true,
+        };
+        for filter_settings in [false, true] {
+            let view = super::ConversionView {
+                entities: &entities,
+                block_defs: &blocks,
+                layers: &layers,
+                palette: None,
+                include_temporary_points: false,
+                is_metadata_text: if filter_settings {
+                    |text| crate::model::metadata_setting_from_text(text).is_some()
+                } else {
+                    |_| false
+                },
+            };
+            let drawing = super::convert_view_with_options(&view, ConvertOptions::default());
+            let text_count = usize::from(!filter_settings);
+            assert_eq!(drawing.entities.len(), 1 + text_count);
+            assert_eq!(drawing.blocks[0].entities.len(), text_count);
+            assert_eq!(drawing.layers[0].name, "Shared layer");
+            assert!(drawing.layers[0].frozen && drawing.layers[0].locked);
+            let exploded = super::convert_view_with_options(
+                &view,
+                ConvertOptions {
+                    explode_inserts: true,
+                    ..ConvertOptions::default()
+                },
+            );
+            assert!(exploded.blocks.is_empty());
+            assert_eq!(exploded.entities.len(), text_count * 2);
+            for entity in exploded.entities {
+                match entity {
+                    DxfEntity::Text(text) => assert_eq!(text.content, "Printer_PaperSize = 8"),
+                    other => panic!("expected TEXT, got {other:?}"),
+                }
+            }
         }
     }
 

@@ -1,149 +1,151 @@
 # ezjww
 
-`ezjww` is a JWW parser and DXF conversion library.
-The core parser/writer is implemented in Rust and exposed to Python with PyO3.
+`ezjww` reads Jw_cad drawings and converts them to DXF. Its Rust core is
+available through Python and TypeScript/WebAssembly.
 
-## Current Features
-
-- Validate and parse `.jww` files by their `JwwData.` binary signature.
-- Report structured CP932 replacement diagnostics with source byte offsets.
-- Read JWW files written by Jw_cad 8 (version 700, Unicode builds): CStrings with the
-  MFC `FF FE FF` marker are decoded as UTF-16LE, and block definitions (whose list
-  count is a WORD) are loaded.
-- Read damaged files best-effort: a main entity list that cannot be read to its end
-  keeps the entities parsed so far and reports `ENTITY_LIST_TRUNCATED` (see
-  `docs/DIAGNOSTICS.md`); MFC `CArchive` escaped counts (65535+ entities), NULL
-  tags and big object tags are honoured.
-- Read document/header data from Python.
-- Expose Jw_cad's sentinel-positioned printer/view settings separately as
-  `metadata_settings` while preserving the original source entities.
-- Convert parsed JWW entities to DXF intermediate entities.
-- Write ASCII DXF files.
-- Emit DXF handles, `BLOCK_RECORD` table, and `OBJECTS` section for better CAD compatibility.
+- Read JWW files and a [limited binary JWC profile](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_FORMAT.md).
+- Inspect source records, headers, layers, and parsing diagnostics.
+- Query converted geometry, calculate bounds, and audit drawings.
+- Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.
+- Convert individual files or directories from the command line.
 
 ## Installation
 
-Install the package from PyPI:
+Python 3.9 or later:
 
 ```bash
 pip install ezjww
 ```
 
-If you want to use the optional plotting feature, install the package with the `plot` extra:
+For previews, install the optional Matplotlib dependency:
+
 ```bash
 pip install "ezjww[plot]"
 ```
 
-Install the package from source:
+For Node.js, see the [TypeScript package](https://github.com/monozukuri-ai/ezjww/blob/main/packages/ezjww/README.md):
+
 ```bash
-git clone https://github.com/neka-nat/ezjww.git
-cd ezjww
-uv sync
+npm install ezjww
 ```
 
-## Python API
+To build the Python package from source, install a Rust toolchain, then run:
+
+```bash
+git clone https://github.com/monozukuri-ai/ezjww.git
+cd ezjww
+pip install .
+```
+
+## Python quick start
+
+`readfile` detects JWW or JWC from the file contents. Replace `drawing.jww`
+with your input path; the same API accepts supported `.jwc` files.
 
 ```python
-from ezjww import (
-    ALL_ISSUE_CODES,
-    audit,
-    bbox,
-    is_jww_file,
-    readfile,
-    plot_jww,
-    read_document,
-    read_dxf_document,
-    report,
-    stats,
-    to_dxf_string,
-    write_dxf,
-    write_dxf_with_report,
-)
+import ezjww
 
-ok = is_jww_file("sample.jww")
-doc = read_document("sample.jww")
-for setting in doc["metadata_settings"]:
-    print(setting["key"], setting["value"])
-dxf_doc = read_dxf_document("sample.jww")
-dxf_text = to_dxf_string("sample.jww")
-write_dxf("sample.jww", "sample.dxf")
-conversion = write_dxf_with_report(
-    "sample.jww",
-    "sample-r2010.dxf",
-    target_version="AC1024",
-)
-plot_jww("sample.jww", save_path="sample.png")
+drawing = ezjww.readfile("drawing.jww")
+print(drawing.source_format, drawing.header)
+print(drawing.stats())
+print(drawing.bbox())
 
-drawing = readfile("sample.jww")
-msp = drawing.modelspace()
-lines = msp.query("LINE", layer="#lv4")
-mix = msp.query('LINE POINT[layer=="#lv4", color==5]')  # ezdxf-like selector
-extents = drawing.bbox(explode_inserts=True)
-raw_dxf = drawing.to_dxf_string()
-dist = drawing.stats()
-health = drawing.audit()  # or: audit("sample.jww")
+lines = drawing.modelspace().query("LINE")
+health = drawing.audit()
 for diagnostic in health["diagnostics"]:
     print(diagnostic["code"], diagnostic["details"])
 
-# Stable machine-readable catalog for integrations and CI.
-assert set(health["issue_codes"]) <= set(ALL_ISSUE_CODES)
-full = report("sample.jww", explode_inserts=True)
+drawing.saveas("drawing.dxf", target_version="AC1024")
+```
 
-# expand INSERT references (nested block aware)
+Use `read_cad_document` when you need the original records. Its return value
+identifies the format and contains the corresponding source document:
+
+```python
+import ezjww
+
+cad = ezjww.read_cad_document("drawing.jwc")
+source = cad["document"]
+print(cad["format"], source["entity_counts"])
+
+# JWC DXF geometry defaults to paper millimeters. Select model millimeters
+# to apply each entity's layer-group scale.
+model = ezjww.readfile("drawing.jwc", jwc_coordinates="model_millimeters")
+model.saveas("drawing-model.dxf")
+print(model.report()["jwc_conversion_report"]["notices"])
+```
+
+The JWW-specific `read_document` and `read_header` keep their original meanings.
+Use `read_jwc_document` and `read_jwc_header` for JWC-specific reads.
+See the [API reference](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_API.md) for format detection, coordinate options,
+errors, and conversion metadata.
+
+### Queries and previews
+
+```python
+import ezjww
+
+drawing = ezjww.readfile("drawing.jww")
+entities = drawing.modelspace().query('LINE POINT[layer=="#lv4", color==5]')
 flat = drawing.to_dxf(explode_inserts=True, max_block_nesting=32)
-flat_count = len(flat["entities"])
-# max_block_nesting must be >= 1
+
+drawing.plot(save_path="drawing.png")  # requires ezjww[plot]
+drawing.plot(save_path="drawing.pdf")
 ```
 
-## CLI
+Block expansion supports nested JWW INSERTs; `max_block_nesting` must be at least
+1. Statistics and bounding boxes include hidden entities. TEXT bounds use the
+insertion point, so they are not bounds of the rendered glyphs.
 
-The package installs the `ezjww` command.
+## Command line
+
+The Python package installs the `ezjww` command. Each single-file command below
+accepts JWW and supported JWC input.
 
 ```bash
-# show summary
-ezjww info jww_samples/Test1.jww
-
-# run health checks
-ezjww audit jww_samples/Test1.jww --json
-
-# calculate drawing extents
-ezjww bbox jww_samples/Test1.jww --json --explode-inserts
-
-# show entity distribution
-ezjww stats jww_samples/Test1.jww --json
-
-# show combined audit+bbox+stats
-ezjww report jww_samples/Test1.jww --json --explode-inserts
-
-# convert one file
-ezjww to-dxf jww_samples/Test1.jww -o /tmp/Test1.dxf
-
-# convert one file + JSON report
-ezjww to-dxf jww_samples/Test1.jww -o /tmp/Test1.dxf --report json
-
-# convert one file with INSERT expansion
-ezjww to-dxf jww_samples/Test1.jww -o /tmp/Test1.dxf --explode-inserts
-
-# convert directory (recursive)
-ezjww to-dxf-dir jww_samples -o /tmp/dxf_out -r
-
-# render with matplotlib
-ezjww plot jww_samples/Test1.jww -o /tmp/Test1.png --explode-inserts
+ezjww info drawing.jww --json
+ezjww audit drawing.jwc --json
+ezjww bbox drawing.jwc --jwc-coordinates model_millimeters --json
+ezjww stats drawing.jww --json
+ezjww report drawing.jwc --json
+ezjww to-dxf drawing.jwc -o drawing.dxf --report json
+ezjww to-dxf-dir drawings -o dxf --recursive
+ezjww plot drawing.jwc -o drawing.png
 ```
 
-## Public contracts
+Use `ezjww --help` or `ezjww <command> --help` for options. Audit/report commands
+support `--fail-on-issues` for automation. Rendering requires `ezjww[plot]`.
 
-- [Audit issue code catalog and stability policy](docs/DIAGNOSTICS.md)
-- [JWW binary signature specification](docs/JWW_SIGNATURE.md)
+Directory conversion finds `.jww` and `.jwc` case-insensitively and preserves
+subdirectories. If inputs would share an output name (for example, `a.jww` and
+`a.jwc`), it exits with code 2 before writing any converted files.
 
-`is_jww_file(path)` checks file content, not the filename extension. A matching
-signature is only a lightweight format check; parsing still validates the
-remaining structure.
+## Compatibility
 
-## Development
+JWW parsing supports CP932 and Unicode strings, block definitions, and structured
+diagnostics. Some damaged JWW entity lists can be read partially; inspect
+[diagnostics](https://github.com/monozukuri-ai/ezjww/blob/main/docs/DIAGNOSTICS.md) before relying on the result.
 
-```bash
-cargo fmt --all
-cargo test
-maturin develop
-```
+JWC support is restricted to the `fixed2421_basic_v1` document profile. It includes
+lines, circles, circular arcs, full rotated ellipses, CP932 text, points, and
+auxiliary points. Partial ellipses and unknown layouts or attributes are rejected.
+Malformed JWC files raise an error instead of returning a partial document.
+Compatibility with all JWC generations, including old DOS files, is not established.
+
+JWC output uses millimeters, with the sheet center as the origin and +Y pointing
+up. Palette, dash lengths, and fonts use documented conversion defaults; exact
+source fonts and character spacing are not reproduced. The source format version
+is unknown and returned as `None` in Python or `null` in TypeScript.
+
+## Documentation
+
+- [Documentation index](https://github.com/monozukuri-ai/ezjww/blob/main/docs/README.md)
+- [Python and TypeScript APIs for JWW/JWC](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_API.md)
+- [JWC support, coordinates, and conversion limits](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_FORMAT.md)
+- [Audit codes and error handling](https://github.com/monozukuri-ai/ezjww/blob/main/docs/DIAGNOSTICS.md)
+- [JWW signature](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWW_SIGNATURE.md)
+- [Browser example](https://github.com/monozukuri-ai/ezjww/blob/main/packages/ezjww/examples/browser/README.md)
+
+## License
+
+[MIT](https://github.com/monozukuri-ai/ezjww/blob/main/LICENSE)

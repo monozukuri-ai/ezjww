@@ -16,16 +16,20 @@ diagnostic instances with different byte offsets, fields, or entity types.
 
 | Code | Default severity | Action | Area | Emitted when |
 |---|---|---|---|---|
-| `CP932_DECODE_REPLACED` | warning | normalized | JWW parser | One or more undecodable byte sequences were replaced with U+FFFD while parsing a JWW string. `details.encoding` is `cp932` for ANSI strings and `utf-16le` for the Unicode strings (MFC `FF FE FF` marker) written by Jw_cad 8's Unicode builds. |
+| `CP932_DECODE_REPLACED` | warning | normalized | JWW/JWC parser | One or more undecodable byte sequences were replaced with U+FFFD. `details.encoding` is `cp932` for JWC strings and JWW ANSI strings, or `utf-16le` for JWW Unicode strings marked with MFC `FF FE FF`. |
 | `ENTITY_LIST_TRUNCATED` | error | skipped | JWW parser | The main entity list could not be read to its end (truncated upload, unknown record layout, corrupt tag). Entities parsed before the error are kept, block definitions behind the list are not read, and `details` carries `byte_offset`, `expected_entities`, `parsed_entities` and `error`. A list whose first entity already fails still raises. |
 | `UNRESOLVED_BLOCK_REFERENCES` | warning | - | JWW validation | One or more block references could not be resolved. |
 | `UNSUPPORTED_DXF_ENTITIES` | warning | skipped | DXF conversion | One or more parsed JWW entity kinds are unsupported by DXF conversion. |
 
 ## Structured diagnostics
 
-`read_document(path)["diagnostics"]` contains parser diagnostics. `audit(path)`
-and `report(path)["audit"]` include those parser diagnostics together with
-validation and conversion diagnostics:
+`read_document(path)["diagnostics"]` and
+`read_jwc_document(path)["diagnostics"]` contain parser diagnostics for JWW and
+JWC respectively. The common reader exposes them at
+`read_cad_document(path)["document"]["diagnostics"]`. Python `audit(path)` and
+`report(path)["audit"]` include parser diagnostics together with validation and
+conversion diagnostics. A diagnostic has the following structure (the offset and
+field below are illustrative):
 
 ```json
 {
@@ -44,21 +48,34 @@ validation and conversion diagnostics:
 }
 ```
 
-`byte_offset` is a zero-based absolute offset from the start of the JWW file to
-the first byte of the CString payload, after its length prefix. `byte_length`
-is the encoded payload length. The parser continues with replacement decoding,
-so the affected parsed string contains U+FFFD.
+`byte_offset` is a zero-based absolute file offset to the first byte of the
+affected encoded string. For JWW, this is the CString payload after its length
+prefix; for JWC it is the name or text content in its source span. `byte_length`
+is the encoded content length. The parser continues with replacement decoding,
+so the affected parsed string contains U+FFFD. JWC also retains the raw bytes.
 
 The audit result also includes aggregate fields:
 
-- `decode_error_count`: number of affected CString fields;
+- `decode_error_count`: number of affected string fields;
 - `decode_replacement_characters`: total U+FFFD characters inserted by the
   decoder;
 - `decode_affected_fields`: unique parser field paths in encounter order.
+
+## Structural errors and conversion notices
+
+`ENTITY_LIST_TRUNCATED` applies to JWW's partial-read behavior. A malformed or
+unsupported JWC document raises an error with a byte offset instead of returning
+a partial document. Python uses `ValueError` for these parse failures and
+`OSError` subclasses for file I/O failures.
+
+JWC conversion defaults, derived values, and DXF representation limits are
+reported separately in `jwc_conversion_report.notices`. Notices such as font
+substitution are not audit issue codes and alone do not set `has_issues` or
+trigger the CLI's `--fail-on-issues`. See the [API reference](JWC_API.md) for the
+conversion report fields.
 
 ## Python access
 
 Use `ezjww.ALL_ISSUE_CODES` for exhaustive CI checks,
 `ezjww.ISSUE_CODES` for catalog metadata, and
 `ezjww.issue_code_details(code)` for JSON-friendly metadata.
-

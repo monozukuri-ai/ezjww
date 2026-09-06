@@ -47,3 +47,48 @@ impl From<std::io::Error> for JwwError {
         Self::Io(value)
     }
 }
+
+/// Error envelope for format-independent readers. Existing JWW readers
+/// keep returning `JwwError`; they do not acquire new variants or conversions.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CadError {
+    Io(std::io::Error),
+    Jww(JwwError),
+    Jwc(crate::jwc::JwcError),
+    UnknownFormat,
+}
+
+impl Display for CadError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => Display::fmt(error, f),
+            Self::Jww(error) => Display::fmt(error, f),
+            Self::Jwc(error) => Display::fmt(error, f),
+            Self::UnknownFormat => f.write_str("unrecognized CAD format"),
+        }
+    }
+}
+
+impl Error for CadError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Jww(error) => Some(error),
+            Self::Jwc(error) => Some(error),
+            Self::UnknownFormat => None,
+        }
+    }
+}
+
+impl From<JwwError> for CadError {
+    fn from(error: JwwError) -> Self {
+        Self::Jww(error)
+    }
+}
+
+impl From<crate::jwc::JwcError> for CadError {
+    fn from(error: crate::jwc::JwcError) -> Self {
+        Self::Jwc(error)
+    }
+}

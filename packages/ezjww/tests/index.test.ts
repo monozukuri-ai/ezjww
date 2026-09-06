@@ -60,9 +60,9 @@ describe("ezjww wasm wrapper", () => {
         had_errors: true,
       },
     });
-    expect(
-      document.diagnostics[0].details.replacement_characters,
-    ).toBeGreaterThanOrEqual(1);
+    const details = document.diagnostics[0].details;
+    if (!("replacement_characters" in details)) throw new Error("expected CP932 details");
+    expect(details.replacement_characters).toBeGreaterThanOrEqual(1);
   });
 
   it("converts a document to DXF entities and text", () => {
