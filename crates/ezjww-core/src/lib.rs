@@ -1,12 +1,15 @@
 pub mod diagnostics;
 pub mod dxf;
 pub mod error;
+pub mod format;
 pub mod header;
+pub mod jwc;
 pub mod model;
 pub mod parser;
 pub mod reader;
 pub mod schema;
 
+pub use cad::{detect_file_format, parse_cad_document, read_cad_document_from_file, CadDocument};
 pub use diagnostics::{
     DecodeDiagnostic, DecodeDiagnosticDetails, Diagnostic, DiagnosticDetails,
     TruncationDiagnosticDetails, CP932_DECODE_REPLACED, ENTITY_LIST_TRUNCATED,
@@ -18,10 +21,15 @@ pub use dxf::{
     DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert, DxfLayer, DxfLine, DxfPoint, DxfSolid,
     DxfTargetVersion, DxfText, DxfVertex,
 };
-pub use error::JwwError;
+pub use error::{CadError, JwwError};
+pub use format::{detect_format, CadFormat};
 pub use header::{
     is_jww_signature, parse_header, read_header_from_file, JwwHeader, JwwPalette, LayerGroupHeader,
     LayerHeader,
+};
+pub use jwc::{
+    is_jwc_signature, parse_jwc_document, parse_jwc_header, read_jwc_document_from_file,
+    read_jwc_header_from_file, JwcDocument, JwcError, JwcHeader,
 };
 pub use model::{
     collect_entity_coordinates, collect_metadata_settings, coordinates_bbox,
@@ -37,3 +45,4 @@ pub use schema::{
     jww_document_to_dto, jww_document_to_dto_with_diagnostics, BlockReferenceValidationDto,
     DxfDocumentDto, JwwDocumentDto,
 };
+pub mod cad;

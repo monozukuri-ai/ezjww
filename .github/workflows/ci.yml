@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONUTF8: "1"
+  MPLBACKEND: Agg
+
 jobs:
   python-rust:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
@@ -18,6 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - os: ubuntu-latest
+            python-version: "3.9"
           - os: ubuntu-latest
             python-version: "3.13"
           - os: macos-latest
@@ -53,31 +59,43 @@ jobs:
         shell: bash
         run: |
           "${VENV_PY}" -m pip install --upgrade pip
-          "${VENV_PY}" -m pip install maturin pytest
+          "${VENV_PY}" -m pip install maturin pytest "matplotlib>=3.8"
+
+      - name: Verify required original JWC fixtures
+        shell: bash
+        run: '"${VENV_PY}" scripts/jwc/check_corpus.py'
 
       - name: Rust checks
         run: |
           cargo fmt --all --check
-          cargo test --workspace --quiet
-          cargo clippy --workspace --all-targets --all-features -- -D warnings
+          cargo test --workspace --locked --quiet
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Python tests (maturin develop)
         shell: bash
         run: |
-          "${VENV_PY}" -m maturin develop --release
+          "${VENV_PY}" -m maturin develop --release --locked
           "${VENV_PY}" -m ezjww info jww_samples/Test1.jww
           "${VENV_PY}" -m ezjww audit jww_samples/Test1.jww --json
           "${VENV_PY}" -m ezjww bbox jww_samples/Test1.jww --json --explode-inserts
           "${VENV_PY}" -m ezjww stats jww_samples/Test1.jww --json
           "${VENV_PY}" -m ezjww report jww_samples/Test1.jww --json --explode-inserts
+          "${VENV_PY}" -m ezjww info jwc_samples/generated/q032.jwc --json
+          "${VENV_PY}" -m ezjww report jwc_samples/generated/q032.jwc --json
+          "${VENV_PY}" -m ezjww bbox jwc_samples/generated/q054.jwc --json --jwc-coordinates model_millimeters
+          "${VENV_PY}" -m ezjww plot jwc_samples/generated/q032.jwc -o "${RUNNER_TEMP}/jwc-preview.png"
           "${VENV_PY}" -m pytest -q tests/python
 
       - name: Build wheel
         shell: bash
         run: |
           rm -f src/ezjww/_core.pyd src/ezjww/_core.so src/ezjww/_core.abi3.so src/ezjww/_core.dll src/ezjww/_core.dylib
-          "${VENV_PY}" -m maturin build --release --out dist
+          "${VENV_PY}" -m maturin build --release --locked --out dist
           "${VENV_PY}" -c "from pathlib import Path; wheels = list(Path('dist').glob('*.whl')); assert wheels, 'no wheel produced'; print(wheels[0].name)"
+
+      - name: Install and verify wheel outside source tree
+        shell: bash
+        run: '"${VENV_PY}" scripts/check-wheel.py --wheel-dir dist --report "${RUNNER_TEMP}/jwc-wheel.json"'
 
   typescript-parity:
     name: TypeScript package parity
@@ -114,20 +132,27 @@ jobs:
           uv sync --extra plot
           uv pip install maturin
 
+      - name: Verify required original JWC fixtures
+        run: python scripts/jwc/check_corpus.py
+
       - name: Install TypeScript dependencies
         run: pnpm install --frozen-lockfile
         working-directory: packages/ezjww
 
       - name: Check wasm target
         run: |
-          cargo build -p ezjww-wasm --target wasm32-unknown-unknown
-          cargo clippy -p ezjww-wasm --target wasm32-unknown-unknown -- -D warnings
+          cargo build -p ezjww-wasm --target wasm32-unknown-unknown --locked
+          cargo clippy -p ezjww-wasm --target wasm32-unknown-unknown --locked -- -D warnings
 
       - name: Build Python extension
         run: uv run maturin develop
 
       - name: Test TypeScript package
         run: pnpm run test
+        working-directory: packages/ezjww
+
+      - name: Check public and test TypeScript types
+        run: pnpm run typecheck
         working-directory: packages/ezjww
 
       - name: Build browser example
@@ -147,6 +172,6 @@ jobs:
 
       - name: Smoke packed npm package
         run: |
-          mkdir -p /tmp/ezjww-pack-smoke
-          npm install "${{ steps.pack-npm.outputs.pack-file }}" --prefix /tmp/ezjww-pack-smoke
-          node -e "const fs=require('fs'); const ez=require('/tmp/ezjww-pack-smoke/node_modules/ezjww'); const data=fs.readFileSync('jww_samples/Test1.jww'); const doc=ez.readDocument(data); if (doc.header.version !== 600 || !ez.toDxfString(data).includes('SECTION')) process.exit(1);"
+          node scripts/check-npm-package.mjs --archive "${{ steps.pack-npm.outputs.pack-file }}" --report "${RUNNER_TEMP}/jwc-npm.json"
+          package_path="$(node -p "require(process.env.RUNNER_TEMP + '/jwc-npm.json').workdir + '/node_modules/ezjww'")"
+          node scripts/check-python-ts-parity.mjs --package "${package_path}"

@@ -93,6 +93,10 @@ def _line_style(line_type: str) -> Any:
     name = line_type.upper()
     if name == "CONTINUOUS":
         return "-"
+    if name == "JWC_DASHED1":
+        return (0.0, (7.0, 7.0))
+    if name == "JWC_DASHED2":
+        return (0.0, (14.0, 14.0))
     if name == "DASHED":
         return (0.0, (7.0, 3.0))
     if name in {"DASHED2", "DASHEDX2"}:
@@ -254,7 +258,9 @@ def _text_anchor(
     return center_x, center_y, "center", "center"
 
 
-def _normalize_polygon_points(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+def _normalize_polygon_points(
+    points: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
     if len(points) != 4 or not _polygon_points_cross(points):
         return points
 
@@ -272,10 +278,9 @@ def _normalize_polygon_points(points: list[tuple[float, float]]) -> list[tuple[f
 
 
 def _polygon_points_cross(points: list[tuple[float, float]]) -> bool:
-    return (
-        _segments_intersect(points[0], points[1], points[2], points[3])
-        or _segments_intersect(points[1], points[2], points[3], points[0])
-    )
+    return _segments_intersect(
+        points[0], points[1], points[2], points[3]
+    ) or _segments_intersect(points[1], points[2], points[3], points[0])
 
 
 def _segments_intersect(
@@ -331,6 +336,80 @@ def _ellipse_points(
     return points
 
 
+# ACI display colors for the explicit P4 native reference policy. These are
+# viewer defaults, not an RGB palette recovered from the JWC source.
+_JWC_ACI_COLORS = {
+    132: "#00a5a5",
+    18: "#260000",
+    92: "#00a500",
+    52: "#a5a500",
+    212: "#a500a5",
+}
+
+
+def _draw_jwc_text(
+    ax: Any, entity: dict[str, Any], color: Any, font: Any, text_scale: float,
+    text_em_scale: float = 1.0,
+) -> None:
+    from matplotlib.patches import PathPatch
+    from matplotlib.textpath import TextPath
+    from matplotlib.transforms import Affine2D
+
+    content = str(entity.get("content", ""))
+    if not content.strip():
+        return
+    height = _text_em_height(entity, text_em_scale) * float(text_scale)
+    path = TextPath((0, 0), content, size=1, prop=font, usetex=False)
+    cap_height = (
+        TextPath((0, 0), "X", size=1, prop=font, usetex=False).get_extents().height
+    )
+    scale = height / cap_height
+    transform = (
+        Affine2D()
+        .scale(scale * entity["width_factor"], scale)
+        .rotate_deg(float(entity.get("rotation", 0)))
+        .translate(float(entity["x"]), float(entity["y"]))
+    )
+    # Bake glyph coordinates into data units so autoscaling sees the full text.
+    ax.add_patch(
+        PathPatch(transform.transform_path(path), facecolor=color, edgecolor="none")
+    )
+
+
+def _draw_jww_text(
+    ax: Any, entity: dict[str, Any], color: Any, font: Any, text_scale: float,
+    text_em_scale: float,
+) -> None:
+    from matplotlib.patches import PathPatch
+    from matplotlib.textpath import TextPath
+    from matplotlib.transforms import Affine2D
+
+    content = str(entity.get("content", ""))
+    if not content.strip():
+        return
+    path = TextPath((0, 0), content, size=1, prop=font, usetex=False)
+    bounds = path.get_extents()
+    x, y, horizontal, vertical = _text_anchor(entity, text_em_scale)
+    offset_x = (bounds.x0 + bounds.x1) / 2 if horizontal == "center" else bounds.x0
+    offset_y = (bounds.y0 + bounds.y1) / 2 if vertical == "center" else bounds.y0
+    height = max(0.0, _text_em_height(entity, text_em_scale) * float(text_scale))
+    width = _as_float(entity.get("width_factor"), 1.0)
+    if width <= 0.0:
+        width = 1.0
+    # Apply group 41 along the glyph baseline before rotating into the drawing.
+    # TextPath uses an em size; JWC's separate path retains its cap-height policy.
+    transform = (
+        Affine2D()
+        .translate(-offset_x, -offset_y)
+        .scale(height * width, height)
+        .rotate_deg(_as_float(entity.get("rotation"), 0.0))
+        .translate(x, y)
+    )
+    ax.add_patch(
+        PathPatch(transform.transform_path(path), facecolor=color, edgecolor="none")
+    )
+
+
 def plot_dxf_document(
     dxf_document: dict[str, Any],
     *,
@@ -364,17 +443,38 @@ def plot_dxf_document(
         fig = ax.figure
 
     font_properties = _text_font_properties()
-    text_kwargs = {"fontproperties": font_properties} if font_properties is not None else {}
+    text_kwargs = (
+        {"fontproperties": font_properties} if font_properties is not None else {}
+    )
     solid_alpha = max(0.0, min(1.0, float(fill_alpha)))
     pending_text: list[tuple[dict[str, Any], Any]] = []
+    is_jwc = "jwc_conversion_report" in dxf_document
+    hidden_layers = (
+        {
+            layer["name"]
+            for layer in dxf_document.get("layers", [])
+            if layer.get("frozen")
+        }
+        if is_jwc
+        else set()
+    )
+    widths = iter(dxf_document.get("text_width_factors", []))
+    patterned_artists: list[tuple[Any, float, float]] = []
 
     for entity in dxf_document.get("entities", []):
+        if is_jwc and entity.get("type") == "TEXT":
+            entity = {**entity, "width_factor": next(widths, 1.0)}
+        line_start, patch_start = len(ax.lines), len(ax.patches)
         layer = str(entity.get("layer", "0"))
-        if layer_filter is not None and layer not in layer_filter:
+        if layer in hidden_layers or (
+            layer_filter is not None and layer not in layer_filter
+        ):
             continue
 
         entity_type = str(entity.get("type", ""))
         color = _entity_color(int(entity.get("color", 256)), monochrome=monochrome)
+        if is_jwc and not monochrome:
+            color = _JWC_ACI_COLORS.get(int(entity.get("color", 7)), color)
         line_type = str(entity.get("line_type", "CONTINUOUS"))
         line_style = _line_style(line_type)
         line_capstyle = _line_capstyle(line_type)
@@ -479,7 +579,16 @@ def plot_dxf_document(
                 )
         elif entity_type == "TEXT":
             if draw_text:
-                pending_text.append((entity, color))
+                if is_jwc:
+                    _draw_jwc_text(
+                        ax, entity, color, font_properties, text_scale, text_em_scale
+                    )
+                elif "width_factor" in entity:
+                    _draw_jww_text(
+                        ax, entity, color, font_properties, text_scale, text_em_scale
+                    )
+                else:
+                    pending_text.append((entity, color))
         elif entity_type == "SOLID":
             points = _normalize_polygon_points(
                 [
@@ -538,6 +647,11 @@ def plot_dxf_document(
                         **text_kwargs,
                     )
 
+        if is_jwc and line_type in {"JWC_DASHED1", "JWC_DASHED2"}:
+            length = 1.25 if line_type == "JWC_DASHED1" else 2.5
+            for artist in list(ax.lines)[line_start:] + list(ax.patches)[patch_start:]:
+                patterned_artists.append((artist, length, entity_linewidth))
+
     text_points = []
     for entity, _ in pending_text:
         try:
@@ -558,11 +672,17 @@ def plot_dxf_document(
     if show_axes:
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
-        ax.set_title("JWW Plot")
+        ax.set_title("JWC Plot" if is_jwc else "JWW Plot")
     else:
         ax.set_axis_off()
 
     unit_to_points = _data_unit_to_points(ax)
+    for artist, length, line_width in patterned_artists:
+        # Matplotlib's dash lengths are in points and normally scaled by the
+        # stroke width; P4 patterns are explicitly in output millimeters.
+        divisor = line_width if plt.rcParams["lines.scale_dashes"] else 1.0
+        dash = length * unit_to_points / max(divisor, 1e-12)
+        artist.set_linestyle((0, (dash, dash)))
     for entity, color in pending_text:
         content = str(entity.get("content", ""))
         text_x, text_y, horizontal_alignment, vertical_alignment = _text_anchor(
@@ -600,6 +720,7 @@ def plot_jww(
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
     text_em_scale: float = 1.0,
+    jwc_coordinates: str = "paper_millimeters",
     **kwargs: Any,
 ) -> Any:
     from ezjww._core import read_dxf_document
@@ -609,5 +730,6 @@ def plot_jww(
         explode_inserts,
         max_block_nesting,
         text_em_scale,
+        jwc_coordinates=jwc_coordinates,
     )
     return plot_dxf_document(dxf_document, text_em_scale=text_em_scale, **kwargs)

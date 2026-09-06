@@ -1,7 +1,7 @@
 [project]
 name = "ezjww"
 version = "0.2.13"
-description = "Add your description here"
+description = "JWW/JWC parser and DXF converter powered by Rust"
 readme = "README.md"
 authors = [
     { name = "neka-nat", email = "nekanat.stock@gmail.com" }
@@ -19,6 +19,7 @@ ezjww = "ezjww:main"
 module-name = "ezjww._core"
 python-packages = ["ezjww"]
 python-source = "src"
+exclude = [".internal/**"]
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]

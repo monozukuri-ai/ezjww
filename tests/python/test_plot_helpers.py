@@ -130,6 +130,65 @@ class PlotHelperTests(unittest.TestCase):
             self.assertAlmostEqual(PLOT._text_em_height({"height": 2.0}, scale), 2.0, msg=scale)
 
     @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is required for rendering tests")
+    def test_text_width_factor_scales_rendered_glyphs_before_rotation(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+        from matplotlib.transforms import Affine2D
+
+        for angle in (0, 45, 90):
+            bounds = []
+            pixels = []
+            for factor in (1.0, 2.0):
+                fig, ax = plt.subplots(figsize=(4, 4), dpi=100)
+                ax.set_xlim(-15, 25)
+                ax.set_ylim(-15, 25)
+                entity = dict(type="TEXT", x=0., y=0., end_x=10., end_y=0.,
+                              height=4., width_factor=factor, rotation=angle,
+                              content="ABCD", color=7)
+                try:
+                    PLOT.plot_dxf_document({"entities": [entity]}, ax=ax, autoscale=False)
+                    fig.canvas.draw()
+                    self.assertEqual(len(ax.patches), 1)
+                    path = ax.patches[0].get_path()
+                    # Inspect the actual glyph geometry in its unrotated frame.
+                    bounds.append(Affine2D().rotate_deg(-angle).transform_path(path).get_extents())
+                    pixels.append(np.asarray(fig.canvas.buffer_rgba()).copy())
+                finally:
+                    plt.close(fig)
+            self.assertAlmostEqual(bounds[1].width, bounds[0].width * 2)
+            self.assertAlmostEqual(bounds[1].height, bounds[0].height)
+            self.assertAlmostEqual(bounds[0].x0 + bounds[0].x1, bounds[1].x0 + bounds[1].x1)
+            self.assertFalse(np.array_equal(pixels[0], pixels[1]))
+
+    @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is required for rendering tests")
+    def test_corrected_text_preview_keeps_em_height_and_legacy_text_support(self):
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        paths = []
+        for em_scale in (1.0, 1.364):
+            entity = dict(type="TEXT", x=0., y=0., end_x=10., end_y=0.,
+                          height=3. / em_scale, width_factor=1.5, content="ABCD")
+            ax = PLOT.plot_dxf_document({"entities": [entity]}, text_em_scale=em_scale)
+            try:
+                ax.figure.canvas.draw()
+                paths.append(ax.patches[0].get_path().vertices.copy())
+            finally:
+                plt.close(ax.figure)
+        np.testing.assert_allclose(paths[0], paths[1])
+        ax = PLOT.plot_dxf_document({"entities": [dict(type="TEXT", x=0., y=0., content="legacy")]})
+        try:
+            self.assertEqual(ax.texts[0].get_text(), "legacy")
+        finally:
+            plt.close(ax.figure)
+
+    @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib is required for rendering tests")
     def test_axes_are_hidden_by_default(self):
         import matplotlib
 

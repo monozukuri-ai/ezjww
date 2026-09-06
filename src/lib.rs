@@ -1,6 +1,8 @@
 // PyO3's proc macros can trigger this lint on `PyResult` signatures.
 #![allow(clippy::useless_conversion)]
 
+mod jwc_bindings;
+
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
@@ -113,30 +115,40 @@ fn convert_options(
     })
 }
 
-#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, text_em_scale=1.0))]
+#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, text_em_scale=1.0, *, jwc_coordinates="paper_millimeters"))]
 fn read_dxf_document(
     py: Python<'_>,
     path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
     text_em_scale: f64,
+    jwc_coordinates: &str,
 ) -> PyResult<PyObject> {
     let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
+    if jwc_bindings::is_jwc_file(path)? {
+        return jwc_bindings::dxf_document(py, path, options, jwc_coordinates);
+    }
     let document = read_document_from_file(path).map_err(to_py_err)?;
     let dxf_document = convert_document_with_options(&document, options);
     Ok(dxf_document_to_pydict(py, &dxf_document)?.unbind().into())
 }
 
-#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0))]
+#[pyfunction(signature = (path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0, *, jwc_coordinates="paper_millimeters"))]
 fn read_dxf_string(
     path: &str,
     explode_inserts: bool,
     max_block_nesting: usize,
     target_version: &str,
     text_em_scale: f64,
+    jwc_coordinates: &str,
 ) -> PyResult<String> {
     let target_version = parse_dxf_target_version(target_version)?;
     let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
+    if jwc_bindings::is_jwc_file(path)? {
+        return Ok(
+            jwc_bindings::convert(path, options, jwc_coordinates)?.to_dxf_string(target_version)
+        );
+    }
     let document = read_document_from_file(path).map_err(to_py_err)?;
     let dxf_document = convert_document_with_options(&document, options);
     Ok(document_to_string_with_version(
@@ -145,7 +157,7 @@ fn read_dxf_string(
     ))
 }
 
-#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0))]
+#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0, *, jwc_coordinates="paper_millimeters"))]
 fn write_dxf(
     path: &str,
     output_path: &str,
@@ -153,9 +165,15 @@ fn write_dxf(
     max_block_nesting: usize,
     target_version: &str,
     text_em_scale: f64,
+    jwc_coordinates: &str,
 ) -> PyResult<()> {
     let target_version = parse_dxf_target_version(target_version)?;
     let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
+    if jwc_bindings::is_jwc_file(path)? {
+        return jwc_bindings::convert(path, options, jwc_coordinates)?
+            .write_to_file(output_path, target_version)
+            .map_err(|e| PyIOError::new_err(e.to_string()));
+    }
     let document = read_document_from_file(path).map_err(to_py_err)?;
     let dxf_document = convert_document_with_options(&document, options);
     write_document_to_file_with_version(&dxf_document, output_path, target_version)
@@ -163,7 +181,8 @@ fn write_dxf(
     Ok(())
 }
 
-#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0))]
+#[pyfunction(signature = (path, output_path, explode_inserts=false, max_block_nesting=32, target_version="AC1015", text_em_scale=1.0, *, jwc_coordinates="paper_millimeters"))]
+#[allow(clippy::too_many_arguments)] // Preserve the existing Python argument positions.
 fn write_dxf_with_report(
     py: Python<'_>,
     path: &str,
@@ -172,9 +191,20 @@ fn write_dxf_with_report(
     max_block_nesting: usize,
     target_version: &str,
     text_em_scale: f64,
+    jwc_coordinates: &str,
 ) -> PyResult<PyObject> {
     let target_version = parse_dxf_target_version(target_version)?;
     let options = convert_options(explode_inserts, max_block_nesting, text_em_scale)?;
+    if jwc_bindings::is_jwc_file(path)? {
+        return jwc_bindings::write_report(
+            py,
+            path,
+            output_path,
+            options,
+            jwc_coordinates,
+            target_version,
+        );
+    }
     let parsed = read_document_from_file_with_diagnostics(path).map_err(to_py_err)?;
     let document = &parsed.document;
     let validation = validate_block_references(document);
@@ -851,6 +881,7 @@ fn block_reference_validation_to_pydict<'py>(
 /// import the module.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    jwc_bindings::register(m)?;
     m.add_function(wrap_pyfunction!(hello_from_bin, m)?)?;
     m.add_function(wrap_pyfunction!(is_jww_file, m)?)?;
     m.add_function(wrap_pyfunction!(read_header, m)?)?;

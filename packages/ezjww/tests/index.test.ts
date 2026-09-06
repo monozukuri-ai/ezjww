@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import * as rawWasm from "../wasm/ezjww_wasm";
 
 import {
   isJwwFile,
@@ -60,9 +61,9 @@ describe("ezjww wasm wrapper", () => {
         had_errors: true,
       },
     });
-    expect(
-      document.diagnostics[0].details.replacement_characters,
-    ).toBeGreaterThanOrEqual(1);
+    const details = document.diagnostics[0].details;
+    if (!("replacement_characters" in details)) throw new Error("expected CP932 details");
+    expect(details.replacement_characters).toBeGreaterThanOrEqual(1);
   });
 
   it("converts a document to DXF entities and text", () => {
@@ -83,10 +84,31 @@ describe("ezjww wasm wrapper", () => {
   });
 
   it("rejects a text scale that cannot divide the height", () => {
-    for (const textEmScale of [0, -1, Number.NaN]) {
+    for (const textEmScale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(() => readDxfDocument(sample, { textEmScale })).toThrow(
         "textEmScale must be a positive finite number",
       );
+    }
+  });
+
+  it("keeps direct WASM calls compatible when the text scale is omitted", () => {
+    expect(rawWasm.readDxfDocument(sample, true, 32)).toEqual(
+      readDxfDocument(sample, { explodeInserts: true }),
+    );
+    expect(rawWasm.readDxfString(sample, true, 32)).toBe(
+      readDxfString(sample, { explodeInserts: true }),
+    );
+    // The JWC coordinate and DXF-version slots already exist on main.
+    expect(rawWasm.readDxfString(sample, false, 32, "paper_millimeters", "AC1024"))
+      .toBe(readDxfString(sample, { targetVersion: "AC1024" }));
+  });
+
+  it("validates explicitly supplied raw WASM scales", () => {
+    for (const scale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => rawWasm.readDxfDocument(sample, false, 32, undefined, scale))
+        .toThrow("text_em_scale must be a positive finite number");
+      expect(() => rawWasm.readDxfString(sample, false, 32, undefined, undefined, scale))
+        .toThrow("text_em_scale must be a positive finite number");
     }
   });
 

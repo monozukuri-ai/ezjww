@@ -35,6 +35,8 @@ version = "0.2.13"
 dependencies = [
  "ezjww-core",
  "pyo3",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -222,12 +222,16 @@ export interface DxfDocument {
   entities: DxfEntity[];
   blocks: DxfBlock[];
   unsupported_entities: string[];
+  jwc_conversion_report?: JwcConversionReport;
+  text_width_factors?: number[];
 }
 
 export interface DxfOptions {
   explodeInserts?: boolean;
   maxBlockNesting?: number;
   textEmScale?: number;
+  jwcCoordinates?: JwcCoordinateSpace;
+  targetVersion?: "AC1015" | "AC1024";
 }
 
 export type JwwInput = Uint8Array | ArrayBuffer | ArrayBufferView;
@@ -244,6 +248,28 @@ export function readDocument(input: JwwInput): JwwDocument {
   return wasm.readDocument(toUint8Array(input)) as JwwDocument;
 }
 
+export type CadInput = JwwInput;
+
+export function isJwcFile(input: CadInput): boolean {
+  return wasm.isJwcFile(toUint8Array(input));
+}
+
+export function detectFileFormat(input: CadInput): "jww" | "jwc" | null {
+  return wasm.detectFileFormat(toUint8Array(input)) as "jww" | "jwc" | null;
+}
+
+export function readJwcHeader(input: CadInput): JwcHeader {
+  return wasm.readJwcHeader(toUint8Array(input)) as JwcHeader;
+}
+
+export function readJwcDocument(input: CadInput): JwcDocument {
+  return wasm.readJwcDocument(toUint8Array(input)) as JwcDocument;
+}
+
+export function readCadDocument(input: CadInput): CadDocument {
+  return wasm.readCadDocument(toUint8Array(input)) as CadDocument;
+}
+
 export function readDxfDocument(
   input: JwwInput,
   options: DxfOptions = {},
@@ -253,6 +279,7 @@ export function readDxfDocument(
     toUint8Array(input),
     normalized.explodeInserts,
     normalized.maxBlockNesting,
+    normalized.jwcCoordinates,
     normalized.textEmScale,
   ) as DxfDocument;
 }
@@ -266,6 +293,8 @@ export function readDxfString(
     toUint8Array(input),
     normalized.explodeInserts,
     normalized.maxBlockNesting,
+    normalized.jwcCoordinates,
+    normalized.targetVersion,
     normalized.textEmScale,
   ) as string;
 }
@@ -281,10 +310,20 @@ function normalizeDxfOptions(options: DxfOptions): Required<DxfOptions> {
   if (!Number.isFinite(textEmScale) || textEmScale <= 0) {
     throw new RangeError("textEmScale must be a positive finite number");
   }
+  const jwcCoordinates = options.jwcCoordinates ?? "paper_millimeters";
+  if (!["paper_millimeters", "model_millimeters"].includes(jwcCoordinates)) {
+    throw new RangeError("jwcCoordinates must be paper_millimeters or model_millimeters");
+  }
+  const targetVersion = options.targetVersion ?? "AC1015";
+  if (!["AC1015", "AC1024"].includes(targetVersion)) {
+    throw new RangeError("targetVersion must be AC1015 or AC1024");
+  }
   return {
     explodeInserts: options.explodeInserts ?? false,
     maxBlockNesting,
     textEmScale,
+    jwcCoordinates,
+    targetVersion,
   };
 }
 
@@ -297,3 +336,200 @@ function toUint8Array(input: JwwInput): Uint8Array {
   }
   return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
 }
+
+
+export type JwcCoordinateSpace = "paper_millimeters" | "model_millimeters";
+
+export interface JwcSection {
+  byte_offset: number;
+  byte_length: number;
+}
+
+export interface JwcLayout {
+  lines: JwcSection;
+  arcs: JwcSection;
+  text_records: JwcSection;
+  string_pool: JwcSection;
+  points: JwcSection;
+  names: JwcSection;
+}
+
+export interface JwcName {
+  text: string;
+  raw_bytes: number[];
+  byte_offset: number;
+}
+
+export interface JwcLayerState {
+  editable: boolean;
+  visible: boolean;
+  protected: boolean;
+}
+
+export interface JwcLayer {
+  state: JwcLayerState;
+  name: JwcName;
+}
+
+export interface JwcLayerGroup {
+  state: JwcLayerState;
+  scale: number;
+  write_layer: number;
+  name: JwcName;
+  layers: JwcLayer[];
+}
+
+export interface JwcTextPreset {
+  pen_color: number;
+  width_tenths: number;
+  height_tenths: number;
+  spacing_tenths: number;
+}
+
+export interface JwcTemporaryPoint {
+  array_index: number;
+  raw_x: number;
+  raw_y: number;
+  layer_group: number;
+  layer: number;
+}
+
+export interface JwcEntityCounts {
+  lines: number;
+  arcs: number;
+  texts: number;
+  points: number;
+  temporary_points: number;
+}
+
+export interface JwcHeader {
+  profile_id: "fixed2421_csv32_v1";
+  source_version: string | null;
+  counts: JwcEntityCounts;
+  paper: "A0" | "A1" | "A2" | "A3" | "A4";
+  coordinate_extent: number;
+  write_layer_group: number;
+  layer_groups: JwcLayerGroup[];
+  text_presets: JwcTextPreset[];
+  temporary_points: JwcTemporaryPoint[];
+  layout: JwcLayout;
+  raw_fixed_header: number[];
+  diagnostics: DecodeDiagnostic[];
+}
+
+export interface JwcLayerAddress {
+  group: number;
+  layer: number;
+}
+
+export interface JwcCoord {
+  x: number;
+  y: number;
+}
+
+export interface JwcEntitySource {
+  spans: JwcSection[];
+  raw_bytes: number[];
+}
+
+export interface JwcStrokeAttributes {
+  pen_style: number;
+  pen_color: number;
+  layer: JwcLayerAddress;
+  flags_raw: number;
+}
+
+export interface JwcLine {
+  type: "line";
+  source: JwcEntitySource;
+  start: JwcCoord;
+  end: JwcCoord;
+  attributes: JwcStrokeAttributes;
+}
+
+export interface JwcArc {
+  type: "arc";
+  source: JwcEntitySource;
+  center: JwcCoord;
+  radius: number;
+  flatness: number;
+  start_angle_degrees: number;
+  end_angle_degrees: number;
+  tilt_angle_degrees: number;
+  is_full_circle: boolean;
+  attributes: JwcStrokeAttributes;
+}
+
+export interface JwcPoint {
+  type: "point";
+  source: JwcEntitySource;
+  position: JwcCoord;
+  layer: JwcLayerAddress;
+  pen_color: number;
+  flags_raw: number;
+}
+
+export interface JwcTemporaryPointEntity {
+  type: "temporary_point";
+  source: JwcEntitySource;
+  position: JwcCoord;
+  layer: JwcLayerAddress;
+  array_index: number;
+}
+
+export interface JwcText {
+  type: "text";
+  source: JwcEntitySource;
+  start: JwcCoord;
+  end: JwcCoord;
+  layer: JwcLayerAddress;
+  text_preset: number;
+  content: string;
+  raw_content: number[];
+  string_source: JwcSection;
+}
+
+
+export type JwcEntity = JwcLine | JwcArc | JwcPoint | JwcTemporaryPointEntity | JwcText;
+
+export interface JwcDocument {
+  profile_id: "fixed2421_basic_v1";
+  header: JwcHeader;
+  entities: JwcEntity[];
+  diagnostics: DecodeDiagnostic[];
+  entity_counts: Record<string, number>;
+}
+
+export interface JwcEntityMapping {
+  source_entity_index: number;
+  source_spans: JwcSection[];
+  applied_group_scale: number;
+}
+
+export interface JwcConversionNotice {
+  entity_index: number | null;
+  field: string;
+  kind: "default" | "derived" | "dxf_limitation";
+  detail: string;
+}
+
+export interface JwcConversionReport {
+  coordinate_space: JwcCoordinateSpace;
+  rendering_policy: string;
+  aci_colors: number[];
+  mappings: JwcEntityMapping[];
+  notices: JwcConversionNotice[];
+  diagnostics: DecodeDiagnostic[];
+}
+
+export interface JwwCadDocument {
+  format: "jww";
+  document: JwwDocument;
+}
+
+export interface JwcCadDocument {
+  format: "jwc";
+  document: JwcDocument;
+}
+
+export type CadDocument = JwwCadDocument | JwcCadDocument;

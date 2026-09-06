@@ -8,8 +8,23 @@ import sys
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+from ezjww._core import (
+    detect_file_format,
+    hello_from_bin,
+    is_jwc_file,
+    is_jww_file,
+    read_cad_document,
+    read_document,
+    read_dxf_document,
+    read_dxf_string,
+    read_header,
+    read_jwc_document,
+    read_jwc_header,
+    write_dxf,
+    write_dxf_with_report,
+)
 from ezjww.diagnostics import (
     ALL_ISSUE_CODES,
     CP932_DECODE_REPLACED,
@@ -19,16 +34,6 @@ from ezjww.diagnostics import (
     UNSUPPORTED_DXF_ENTITIES,
     IssueCode,
     issue_code_details,
-)
-from ezjww._core import (
-    hello_from_bin,
-    is_jww_file,
-    read_document,
-    read_dxf_document,
-    read_dxf_string,
-    read_header,
-    write_dxf,
-    write_dxf_with_report,
 )
 from ezjww.plot import plot_dxf_document, plot_jww
 
@@ -41,7 +46,12 @@ __all__ = [
     "Modelspace",
     "audit",
     "bbox",
+    "detect_file_format",
     "hello_from_bin",
+    "is_jwc_file",
+    "read_cad_document",
+    "read_jwc_document",
+    "read_jwc_header",
     "is_jww_file",
     "issue_code_details",
     "new",
@@ -58,6 +68,9 @@ __all__ = [
     "report",
     "stats",
 ]
+
+
+JwcCoordinateSpace = Literal["paper_millimeters", "model_millimeters"]
 
 
 @dataclass
@@ -85,7 +98,9 @@ class Modelspace:
 
         matched = self.entities
         if query_types is not None:
-            matched = [e for e in matched if str(e.get("type", "")).upper() in query_types]
+            matched = [
+                e for e in matched if str(e.get("type", "")).upper() in query_types
+            ]
         if layer is not None:
             matched = [e for e in matched if str(e.get("layer", "")) == layer]
         if color is not None:
@@ -106,18 +121,50 @@ class Drawing:
         source_path: str | None,
         jww_document: dict[str, Any] | None = None,
         dxf_document: dict[str, Any] | None = None,
+        source_document: dict[str, Any] | None = None,
+        source_format: Literal["jww", "jwc"] | None = None,
+        jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
     ) -> None:
+        if jwc_coordinates not in {"paper_millimeters", "model_millimeters"}:
+            raise ValueError(
+                "jwc_coordinates must be paper_millimeters or model_millimeters"
+            )
+        if jww_document is not None:
+            if source_document is not None or source_format not in {None, "jww"}:
+                raise ValueError(
+                    "jww_document conflicts with source_document/source_format"
+                )
+            source_document, source_format = jww_document, "jww"
+        if source_format not in {None, "jww", "jwc"}:
+            raise ValueError("source_format must be jww, jwc or None")
+        if (source_document is None) != (source_format is None):
+            raise ValueError(
+                "source_document and source_format must be supplied together"
+            )
         self._source_path = source_path
-        self._jww_document = jww_document
+        self._source_document = source_document
+        self._source_format = source_format
+        self._jwc_coordinates = jwc_coordinates
+        self._jww_document = source_document if source_format == "jww" else None
         self._dxf_cache: dict[tuple[bool, int, float], dict[str, Any]] = {}
         if dxf_document is not None:
             self._dxf_cache[(False, 32, 1.0)] = dxf_document
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "Drawing":
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
+    ) -> "Drawing":
         source = str(path)
-        jww_document = read_document(source)
-        return cls(source_path=source, jww_document=jww_document)
+        cad = read_cad_document(source)
+        return cls(
+            source_path=source,
+            source_document=cad["document"],
+            source_format=cad["format"],
+            jwc_coordinates=jwc_coordinates,
+        )
 
     @classmethod
     def new(cls) -> "Drawing":
@@ -138,13 +185,25 @@ class Drawing:
 
     @property
     def header(self) -> dict[str, Any] | None:
-        if self._jww_document is None:
+        if self._source_document is None:
             return None
-        return self._jww_document.get("header")
+        return self._source_document.get("header")
 
     @property
     def jww_document(self) -> dict[str, Any] | None:
         return self._jww_document
+
+    @property
+    def source_document(self) -> dict[str, Any] | None:
+        return self._source_document
+
+    @property
+    def source_format(self) -> Literal["jww", "jwc"] | None:
+        return self._source_format
+
+    @property
+    def jwc_coordinates(self) -> JwcCoordinateSpace:
+        return self._jwc_coordinates
 
     def to_dxf(
         self,
@@ -170,6 +229,7 @@ class Drawing:
                     explode_inserts,
                     nesting,
                     scale,
+                    jwc_coordinates=self._jwc_coordinates,
                 )
         return self._dxf_cache[key]
 
@@ -204,12 +264,12 @@ class Drawing:
         total_refs = 0
         resolved_refs = 0
         parser_diagnostics: list[dict[str, Any]] = []
-        if self._jww_document is not None:
-            validation = self._jww_document.get("validation", {})
+        if self._source_document is not None:
+            validation = self._source_document.get("validation", {})
             unresolved = list(validation.get("unresolved_def_numbers", []))
             total_refs = int(validation.get("total_references", 0))
             resolved_refs = int(validation.get("resolved_references", 0))
-            for value in self._jww_document.get("diagnostics", []):
+            for value in self._source_document.get("diagnostics", []):
                 if isinstance(value, dict):
                     parser_diagnostics.append(dict(value))
 
@@ -268,7 +328,7 @@ class Drawing:
             if isinstance(field, str) and field not in decode_affected_fields:
                 decode_affected_fields.append(field)
 
-        return {
+        result = {
             "source_path": self._source_path,
             "total_references": total_refs,
             "resolved_references": resolved_refs,
@@ -287,6 +347,10 @@ class Drawing:
             ),
             "warnings": warnings,
         }
+        if self._source_format == "jwc":
+            result["source_format"] = "jwc"
+            result["jwc_conversion_report"] = dxf["jwc_conversion_report"]
+        return result
 
     def bbox(
         self,
@@ -323,7 +387,7 @@ class Drawing:
             explode_inserts=explode_inserts,
             max_block_nesting=nesting,
         )
-        return {
+        result = {
             "source_path": self._source_path,
             "explode_inserts": bool(explode_inserts),
             "max_block_nesting": int(nesting),
@@ -334,6 +398,10 @@ class Drawing:
             "bbox": _dxf_bbox(dxf),
             "stats": _dxf_stats(dxf),
         }
+        if self._source_format == "jwc":
+            result["source_format"] = "jwc"
+            result["jwc_conversion_report"] = dxf["jwc_conversion_report"]
+        return result
 
     def to_dxf_string(
         self,
@@ -355,6 +423,7 @@ class Drawing:
             nesting,
             target_version,
             scale,
+            jwc_coordinates=self._jwc_coordinates,
         )
 
     def saveas(
@@ -367,7 +436,9 @@ class Drawing:
         text_em_scale: float = 1.0,
     ) -> None:
         if self._source_path is None:
-            raise ValueError("saveas() requires a source-backed drawing. use readfile(path).")
+            raise ValueError(
+                "saveas() requires a source-backed drawing. use readfile(path)."
+            )
         nesting = _normalize_max_block_nesting(max_block_nesting)
         scale = _normalize_text_em_scale(text_em_scale)
         write_dxf(
@@ -377,6 +448,7 @@ class Drawing:
             nesting,
             target_version,
             scale,
+            jwc_coordinates=self._jwc_coordinates,
         )
 
     def plot(
@@ -399,8 +471,10 @@ class Drawing:
         )
 
 
-def readfile(path: str | Path) -> Drawing:
-    return Drawing.from_file(path)
+def readfile(
+    path: str | Path, *, jwc_coordinates: JwcCoordinateSpace = "paper_millimeters"
+) -> Drawing:
+    return Drawing.from_file(path, jwc_coordinates=jwc_coordinates)
 
 
 def new() -> Drawing:
@@ -429,8 +503,9 @@ def audit(
     *,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> dict[str, Any]:
-    return readfile(path).audit(
+    return readfile(path, jwc_coordinates=jwc_coordinates).audit(
         explode_inserts=explode_inserts,
         max_block_nesting=max_block_nesting,
     )
@@ -441,8 +516,9 @@ def bbox(
     *,
     explode_inserts: bool = True,
     max_block_nesting: int = 32,
+    jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> dict[str, float | int] | None:
-    return readfile(path).bbox(
+    return readfile(path, jwc_coordinates=jwc_coordinates).bbox(
         explode_inserts=explode_inserts,
         max_block_nesting=max_block_nesting,
     )
@@ -453,6 +529,7 @@ def to_dxf_string(
     *,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
     target_version: str = "AC1015",
     text_em_scale: float = 1.0,
 ) -> str:
@@ -464,6 +541,7 @@ def to_dxf_string(
         nesting,
         target_version,
         scale,
+        jwc_coordinates=jwc_coordinates,
     )
 
 
@@ -472,8 +550,9 @@ def stats(
     *,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> dict[str, Any]:
-    return readfile(path).stats(
+    return readfile(path, jwc_coordinates=jwc_coordinates).stats(
         explode_inserts=explode_inserts,
         max_block_nesting=max_block_nesting,
     )
@@ -484,8 +563,9 @@ def report(
     *,
     explode_inserts: bool = False,
     max_block_nesting: int = 32,
+    jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> dict[str, Any]:
-    return readfile(path).report(
+    return readfile(path, jwc_coordinates=jwc_coordinates).report(
         explode_inserts=explode_inserts,
         max_block_nesting=max_block_nesting,
     )
@@ -495,9 +575,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ezjww")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    audit_cmd = subparsers.add_parser("audit", help="run conversion-oriented health checks")
-    audit_cmd.add_argument("path", help="input .jww file")
-    audit_cmd.add_argument("--json", action="store_true", help="print audit result as JSON")
+    audit_cmd = subparsers.add_parser(
+        "audit", help="run conversion-oriented health checks"
+    )
+    audit_cmd.add_argument("path", help="input .jww/.jwc file")
+    audit_cmd.add_argument(
+        "--json", action="store_true", help="print audit result as JSON"
+    )
     audit_cmd.add_argument(
         "--fail-on-issues",
         action="store_true",
@@ -516,7 +600,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     bbox_cmd = subparsers.add_parser("bbox", help="calculate drawing extents")
-    bbox_cmd.add_argument("path", help="input .jww file")
+    bbox_cmd.add_argument("path", help="input .jww/.jwc file")
     bbox_cmd.add_argument("--json", action="store_true", help="print extents as JSON")
     bbox_cmd.add_argument(
         "--explode-inserts",
@@ -530,9 +614,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="maximum block nesting depth for INSERT expansion",
     )
 
-    stats_cmd = subparsers.add_parser("stats", help="show entity distribution statistics")
-    stats_cmd.add_argument("path", help="input .jww file")
-    stats_cmd.add_argument("--json", action="store_true", help="print statistics as JSON")
+    stats_cmd = subparsers.add_parser(
+        "stats", help="show entity distribution statistics"
+    )
+    stats_cmd.add_argument("path", help="input .jww/.jwc file")
+    stats_cmd.add_argument(
+        "--json", action="store_true", help="print statistics as JSON"
+    )
     stats_cmd.add_argument(
         "--explode-inserts",
         action="store_true",
@@ -545,8 +633,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="maximum block nesting depth for INSERT expansion",
     )
 
-    report_cmd = subparsers.add_parser("report", help="emit combined audit+bbox+stats report")
-    report_cmd.add_argument("path", help="input .jww file")
+    report_cmd = subparsers.add_parser(
+        "report", help="emit combined audit+bbox+stats report"
+    )
+    report_cmd.add_argument("path", help="input .jww/.jwc file")
     report_cmd.add_argument("--json", action="store_true", help="print report as JSON")
     report_cmd.add_argument(
         "--fail-on-issues",
@@ -565,13 +655,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="maximum block nesting depth for INSERT expansion",
     )
 
-    info = subparsers.add_parser("info", help="show JWW summary")
-    info.add_argument("path", help="input .jww file")
+    info = subparsers.add_parser("info", help="show JWW/JWC summary")
+    info.add_argument("path", help="input .jww/.jwc file")
     info.add_argument("--json", action="store_true", help="print as JSON")
 
-    to_dxf = subparsers.add_parser("to-dxf", help="convert single JWW to DXF")
-    to_dxf.add_argument("path", help="input .jww file")
-    to_dxf.add_argument("-o", "--output", help="output .dxf path (default: input stem + .dxf)")
+    to_dxf = subparsers.add_parser("to-dxf", help="convert single JWW/JWC to DXF")
+    to_dxf.add_argument("path", help="input .jww/.jwc file")
+    to_dxf.add_argument(
+        "-o", "--output", help="output .dxf path (default: input stem + .dxf)"
+    )
     to_dxf.add_argument(
         "--report",
         choices=["json"],
@@ -600,9 +692,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     to_dxf_dir = subparsers.add_parser(
-        "to-dxf-dir", help="convert all .jww files in a directory"
+        "to-dxf-dir", help="convert all .jww/.jwc files in a directory"
     )
-    to_dxf_dir.add_argument("input_dir", help="directory containing .jww files")
+    to_dxf_dir.add_argument("input_dir", help="directory containing .jww/.jwc files")
     to_dxf_dir.add_argument("-o", "--output-dir", help="output directory")
     to_dxf_dir.add_argument(
         "-r", "--recursive", action="store_true", help="scan subdirectories recursively"
@@ -637,14 +729,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="em box the target renderer draws per unit of text height",
     )
 
-    plot = subparsers.add_parser("plot", help="render JWW to image with matplotlib")
-    plot.add_argument("path", help="input .jww file")
+    plot = subparsers.add_parser("plot", help="render JWW/JWC to image with matplotlib")
+    plot.add_argument("path", help="input .jww/.jwc file")
     plot.add_argument(
         "-o",
         "--output",
         help="output image path (default: input stem + .png, unless --show only)",
     )
-    plot.add_argument("--show", action="store_true", help="show interactive plot window")
+    plot.add_argument(
+        "--show", action="store_true", help="show interactive plot window"
+    )
     plot.add_argument(
         "--layers",
         help="comma-separated layer names to draw (e.g. '0,1,2' or '#lv4,#lv5')",
@@ -693,10 +787,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="maximum block nesting depth for INSERT expansion",
     )
 
+    for command in [
+        audit_cmd,
+        bbox_cmd,
+        stats_cmd,
+        report_cmd,
+        to_dxf,
+        to_dxf_dir,
+        plot,
+    ]:
+        command.add_argument(
+            "--jwc-coordinates",
+            choices=["paper_millimeters", "model_millimeters"],
+            default="paper_millimeters",
+            help="JWC output coordinates (default: paper millimeters)",
+        )
     return parser
 
 
 def _collect_jww_files(input_dir: Path, recursive: bool) -> list[Path]:
+    """Collect supported drawing extensions, case-insensitively."""
     if recursive:
         iterator = input_dir.rglob("*")
     else:
@@ -704,7 +814,7 @@ def _collect_jww_files(input_dir: Path, recursive: bool) -> list[Path]:
     return sorted(
         path
         for path in iterator
-        if path.is_file() and path.suffix.lower() == ".jww"
+        if path.is_file() and path.suffix.lower() in {".jww", ".jwc"}
     )
 
 
@@ -713,12 +823,16 @@ def _default_output_path(input_path: Path) -> Path:
 
 
 _SELECTOR_TOKEN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_LAYER_FILTER_RE = re.compile(r"""^layer\s*==\s*(?P<quote>['"])(?P<value>.*?)(?P=quote)$""", re.IGNORECASE)
+_LAYER_FILTER_RE = re.compile(
+    r"""^layer\s*==\s*(?P<quote>['"])(?P<value>.*?)(?P=quote)$""", re.IGNORECASE
+)
 _COLOR_FILTER_RE = re.compile(r"^color\s*==\s*(?P<value>-?\d+)$", re.IGNORECASE)
 _FILTER_SPLIT_RE = re.compile(r"\s*(?:,|&&|\band\b)\s*", re.IGNORECASE)
 
 
-def _parse_query_selector(selector: str | None) -> tuple[set[str] | None, str | None, int | None]:
+def _parse_query_selector(
+    selector: str | None,
+) -> tuple[set[str] | None, str | None, int | None]:
     if selector is None:
         return None, None, None
     if not isinstance(selector, str):
@@ -763,13 +877,17 @@ def _parse_selector_types(entity_part: str, original_selector: str) -> set[str] 
     return types
 
 
-def _parse_selector_filters(filter_expr: str, original_selector: str) -> tuple[str | None, int | None]:
+def _parse_selector_filters(
+    filter_expr: str, original_selector: str
+) -> tuple[str | None, int | None]:
     if not filter_expr:
         return None, None
 
     layer: str | None = None
     color: int | None = None
-    parts = [part.strip() for part in _FILTER_SPLIT_RE.split(filter_expr) if part.strip()]
+    parts = [
+        part.strip() for part in _FILTER_SPLIT_RE.split(filter_expr) if part.strip()
+    ]
     if not parts:
         raise ValueError(f"invalid query selector: {original_selector!r}")
 
@@ -777,14 +895,18 @@ def _parse_selector_filters(filter_expr: str, original_selector: str) -> tuple[s
         layer_match = _LAYER_FILTER_RE.fullmatch(part)
         if layer_match is not None:
             if layer is not None:
-                raise ValueError(f"duplicate layer filter in selector: {original_selector!r}")
+                raise ValueError(
+                    f"duplicate layer filter in selector: {original_selector!r}"
+                )
             layer = layer_match.group("value")
             continue
 
         color_match = _COLOR_FILTER_RE.fullmatch(part)
         if color_match is not None:
             if color is not None:
-                raise ValueError(f"duplicate color filter in selector: {original_selector!r}")
+                raise ValueError(
+                    f"duplicate color filter in selector: {original_selector!r}"
+                )
             color = int(color_match.group("value"))
             continue
 
@@ -932,7 +1054,10 @@ def _arc_bbox_points(
     if end < start:
         end += 360.0
 
-    points = [_arc_point(center_x, center_y, radius, start), _arc_point(center_x, center_y, radius, end)]
+    points = [
+        _arc_point(center_x, center_y, radius, start),
+        _arc_point(center_x, center_y, radius, end),
+    ]
     for angle in (0.0, 90.0, 180.0, 270.0):
         candidate = angle
         while candidate < start:
@@ -942,7 +1067,9 @@ def _arc_bbox_points(
     return points
 
 
-def _arc_point(center_x: float, center_y: float, radius: float, angle_deg: float) -> tuple[float, float]:
+def _arc_point(
+    center_x: float, center_y: float, radius: float, angle_deg: float
+) -> tuple[float, float]:
     rad = math.radians(angle_deg)
     return (center_x + radius * math.cos(rad), center_y + radius * math.sin(rad))
 
@@ -1019,7 +1146,9 @@ def _normalize_plot_point_size(point_size: float) -> float:
     return value
 
 
-def _emit_report(report: dict[str, Any], report_format: str | None, report_path: str | None) -> None:
+def _emit_report(
+    report: dict[str, Any], report_format: str | None, report_path: str | None
+) -> None:
     if report_format != "json":
         return
     if report_path:
@@ -1053,6 +1182,7 @@ def _run(argv: list[str] | None = None) -> int:
         try:
             result = audit(
                 args.path,
+                jwc_coordinates=args.jwc_coordinates,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
             )
@@ -1087,6 +1217,7 @@ def _run(argv: list[str] | None = None) -> int:
         try:
             result = bbox(
                 args.path,
+                jwc_coordinates=args.jwc_coordinates,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
             )
@@ -1119,6 +1250,7 @@ def _run(argv: list[str] | None = None) -> int:
         try:
             result = stats(
                 args.path,
+                jwc_coordinates=args.jwc_coordinates,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
             )
@@ -1146,6 +1278,7 @@ def _run(argv: list[str] | None = None) -> int:
         try:
             result = report(
                 args.path,
+                jwc_coordinates=args.jwc_coordinates,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
             )
@@ -1176,19 +1309,33 @@ def _run(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "info":
-        doc = read_document(args.path)
-        if args.json:
-            _print_json(doc)
+        try:
+            cad = read_cad_document(args.path)
+            doc = cad["document"]
+            if args.json:
+                _print_json(
+                    doc if cad["format"] == "jww" else {**doc, "source_format": "jwc"}
+                )
+                return 0
+            print(f"file: {args.path}")
+            print(f"format: {cad['format']}")
+            if cad["format"] == "jww":
+                print(f"version: {doc['header']['version']}")
+            else:
+                print(f"source_version: {doc['header']['source_version'] or 'unknown'}")
+                print(f"profile: {doc['profile_id']}")
+            print(f"entities: {sum(doc['entity_counts'].values())}")
+            print(f"block_defs: {len(doc.get('block_defs', []))}")
+            print(
+                f"unresolved_block_refs: {doc.get('validation', {}).get('unresolved_def_numbers', [])}"
+            )
+            print(
+                f"unsupported_for_dxf: {len(read_dxf_document(args.path)['unsupported_entities'])}"
+            )
             return 0
-
-        entity_total = sum(doc["entity_counts"].values())
-        print(f"file: {args.path}")
-        print(f"version: {doc['header']['version']}")
-        print(f"entities: {entity_total}")
-        print(f"block_defs: {len(doc['block_defs'])}")
-        print(f"unresolved_block_refs: {doc['validation']['unresolved_def_numbers']}")
-        print(f"unsupported_for_dxf: {len(read_dxf_document(args.path)['unsupported_entities'])}")
-        return 0
+        except (ValueError, OSError) as exc:
+            print(f"failed info: {args.path}: {exc}", file=sys.stderr)
+            return 2
 
     if args.command == "to-dxf":
         input_path = Path(args.path)
@@ -1203,7 +1350,7 @@ def _run(argv: list[str] | None = None) -> int:
         drawing: Drawing | None = None
         error: str | None = None
         try:
-            drawing = readfile(str(input_path))
+            drawing = readfile(str(input_path), jwc_coordinates=args.jwc_coordinates)
             drawing.saveas(
                 output,
                 explode_inserts=args.explode_inserts,
@@ -1258,11 +1405,14 @@ def _run(argv: list[str] | None = None) -> int:
 
         layers = None
         if args.layers:
-            layers = [layer.strip() for layer in args.layers.split(",") if layer.strip()]
+            layers = [
+                layer.strip() for layer in args.layers.split(",") if layer.strip()
+            ]
 
         try:
             plot_jww(
                 str(input_path),
+                jwc_coordinates=args.jwc_coordinates,
                 layers=layers,
                 show=args.show,
                 save_path=str(save_path) if save_path is not None else None,
@@ -1279,7 +1429,7 @@ def _run(argv: list[str] | None = None) -> int:
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
             )
-        except ImportError as exc:
+        except (ImportError, ValueError, OSError) as exc:
             print(str(exc), file=sys.stderr)
             return 2
 
@@ -1296,7 +1446,7 @@ def _run(argv: list[str] | None = None) -> int:
 
     files = _collect_jww_files(input_dir, args.recursive)
     if not files:
-        print(f"no .jww files found in {input_dir}", file=sys.stderr)
+        print(f"no .jww/.jwc files found in {input_dir}", file=sys.stderr)
         return 1
 
     output_dir = Path(args.output_dir) if args.output_dir else input_dir
@@ -1310,16 +1460,28 @@ def _run(argv: list[str] | None = None) -> int:
     failed = 0
     report_items: list[dict[str, Any]] = []
 
+    destinations: list[tuple[Path, Path]] = []
+    claimed: dict[str, Path] = {}
     for src in files:
-        if args.output_dir:
-            rel = src.relative_to(input_dir)
-            dst = (output_dir / rel).with_suffix(".dxf")
-        else:
-            dst = _default_output_path(src)
+        dst = (
+            (output_dir / src.relative_to(input_dir)).with_suffix(".dxf")
+            if args.output_dir
+            else _default_output_path(src)
+        )
+        key = str(dst.resolve()).casefold()
+        if key in claimed:
+            print(
+                f"output collision: {claimed[key]} and {src} -> {dst}", file=sys.stderr
+            )
+            return 2
+        claimed[key] = src
+        destinations.append((src, dst))
+
+    for src, dst in destinations:
         dst.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            drawing = readfile(str(src))
+            drawing = readfile(str(src), jwc_coordinates=args.jwc_coordinates)
             drawing.saveas(
                 dst,
                 explode_inserts=args.explode_inserts,

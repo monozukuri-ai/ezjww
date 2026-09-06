@@ -10,6 +10,10 @@ permissions:
   contents: read
   id-token: write
 
+env:
+  PYTHONUTF8: "1"
+  MPLBACKEND: Agg
+
 jobs:
   verify-python:
     name: Verify Python ${{ matrix.python-version }}
@@ -37,14 +41,16 @@ jobs:
       - name: Build wheel and run smoke tests
         run: |
           "${VENV_PY}" -m pip install --upgrade pip
-          "${VENV_PY}" -m pip install maturin pytest
-          "${VENV_PY}" -m maturin build --release --out dist
+          "${VENV_PY}" -m pip install maturin pytest "matplotlib>=3.8"
+          "${VENV_PY}" scripts/jwc/check_corpus.py
+          "${VENV_PY}" -m maturin build --release --locked --out dist
           WHEEL="$(ls dist/*.whl | head -n1)"
           test -n "${WHEEL}"
           "${VENV_PY}" -m pip install --force-reinstall "${WHEEL}"
           "${VENV_PY}" -m ezjww info jww_samples/Test1.jww
           "${VENV_PY}" -m ezjww report jww_samples/Test1.jww --json --explode-inserts
           "${VENV_PY}" -m pytest -q tests/python
+          "${VENV_PY}" scripts/check-wheel.py --wheel-dir dist --report "${RUNNER_TEMP}/jwc-wheel.json"
 
   build-wheels:
     name: Build wheels (${{ matrix.os }})
@@ -84,6 +90,8 @@ jobs:
           command: build
           args: --release --out dist --compatibility pypi
           manylinux: ${{ matrix.manylinux }}
+      - name: Verify actual wheel outside source tree
+        run: python scripts/check-wheel.py --wheel-dir dist --report "${{ runner.temp }}/jwc-wheel.json"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v5
         with:
@@ -164,6 +172,9 @@ jobs:
           uv sync --extra plot
           uv pip install maturin
 
+      - name: Verify required original JWC fixtures
+        run: python scripts/jwc/check_corpus.py
+
       - name: Install TypeScript dependencies
         run: pnpm install --frozen-lockfile
         working-directory: packages/ezjww
@@ -178,6 +189,10 @@ jobs:
 
       - name: Test TypeScript package
         run: pnpm run test
+        working-directory: packages/ezjww
+
+      - name: Check public and test TypeScript types
+        run: pnpm run typecheck
         working-directory: packages/ezjww
 
       - name: Build browser example
@@ -197,9 +212,9 @@ jobs:
 
       - name: Smoke packed npm package
         run: |
-          mkdir -p /tmp/ezjww-pack-smoke
-          npm install "${{ steps.pack-npm.outputs.pack-file }}" --prefix /tmp/ezjww-pack-smoke
-          node -e "const fs=require('fs'); const ez=require('/tmp/ezjww-pack-smoke/node_modules/ezjww'); const data=fs.readFileSync('jww_samples/Test1.jww'); const doc=ez.readDocument(data); if (doc.header.version !== 600 || !ez.toDxfString(data).includes('SECTION')) process.exit(1);"
+          node scripts/check-npm-package.mjs --archive "${{ steps.pack-npm.outputs.pack-file }}" --report "${RUNNER_TEMP}/jwc-npm.json"
+          package_path="$(node -p "require(process.env.RUNNER_TEMP + '/jwc-npm.json').workdir + '/node_modules/ezjww'")"
+          node scripts/check-python-ts-parity.mjs --package "${package_path}"
 
       - name: Check npm version
         id: npm-version
