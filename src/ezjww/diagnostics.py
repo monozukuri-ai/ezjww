@@ -67,7 +67,8 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "retained",
         "JWC parser",
         "Record attribute values (style bits, flag bits, spare bytes, layer state "
-        "bits, text presets) lie outside the reference corpus and were retained.",
+        "bits, text presets, unterminated layer/group name slots) lie outside the "
+        "reference corpus and were retained.",
     ),
     JWC_CURVE_MARKERS_UNVERIFIED: IssueCode(
         "warning",

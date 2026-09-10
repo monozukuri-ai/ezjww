@@ -36,6 +36,8 @@ this framing and fail on structural inconsistencies:
 - pen colors outside 1–9, line-style numbers outside 1–9, text presets outside
   1–10, empty text, zero-length text baselines.
 
+Name slots are an exception: a missing NUL terminator is reported, not fatal.
+
 Values that merely differ from ezjww's reference corpus no longer reject a file.
 They are retained in the source document and reported once per field as
 `JWC_HEADER_SETTINGS_UNVERIFIED`, `JWC_ATTRIBUTE_UNVERIFIED`,
@@ -52,6 +54,7 @@ They are retained in the source document and reported once per field as
 | Text presets | Indices 1–10; zero-size presets are drawn at 2.0 mm and reported |
 | Text encoding | CP932, with structured replacement diagnostics for invalid sequences |
 | Text content | 1–256 bytes before the NUL terminator, with a nonzero-length baseline |
+| Layer and group names | Fixed 8/16-byte slots; a slot with no NUL terminator is accepted as a whole name and reported |
 | File size | At most 64 MiB |
 | Record count | At most 100,000, including auxiliary points |
 | Auxiliary points | At most 100 |
@@ -148,11 +151,12 @@ reproduced.
 
 ## Layers and visibility
 
-Source group/layer names and states remain in the source document. Name slots
-are NUL-terminated; bytes after the terminator are ignored because real files
-leave uninitialized memory there. Conversion sanitizes names that DXF cannot
-represent and resolves duplicate output names. Use the converted layer table and
-each entity's `layer` to inspect output names.
+Source group/layer names and states remain in the source document.
+Name slots are fixed width: 8 bytes per layer, 16 bytes per group.
+A NUL ends the name where one is present; otherwise the whole slot is the name.
+Bytes after the terminator are uninitialized memory and are not validated.
+A slot without a terminator is accepted and reported as `JWC_ATTRIBUTE_UNVERIFIED`.
+Those widths are what the reader accepts, not a name capacity.
 
 Edit bytes use bit 0 for editable and bit 1 for protected; visible bytes use
 bit 0. Other bits are retained and reported. If either the group or layer is

@@ -565,18 +565,20 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         group.name = reader.fixed_cp932(
             layout.names.byte_offset + 2048 + 16 * g,
             16,
-            14,
             &format!("header.layer_groups[{g}].name"),
+            "header.layer_group.name",
             &mut diagnostics,
+            &mut unverified,
         )?;
         for (l, layer) in group.layers.iter_mut().enumerate() {
             layer.state = layer_state(&reader, profile, 16 + 16 * g + l, &mut unverified)?;
             layer.name = reader.fixed_cp932(
                 layout.names.byte_offset + 8 * (16 * g + l),
                 8,
-                7,
                 &format!("header.layer_groups[{g}].layers[{l}].name"),
+                "header.layer.name",
                 &mut diagnostics,
+                &mut unverified,
             )?;
         }
     }

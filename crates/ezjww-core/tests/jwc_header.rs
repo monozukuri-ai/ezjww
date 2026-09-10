@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ezjww_core::jwc::{
-    JwcHeaderProfile, JwcLayerState, JwcPaper, JWC_FIXED_HEADER_SIZE, JWC_MAX_FILE_SIZE,
+    JwcHeader, JwcHeaderProfile, JwcLayerState, JwcPaper, JWC_FIXED_HEADER_SIZE, JWC_MAX_FILE_SIZE,
 };
 use ezjww_core::{
     detect_format, is_jwc_signature, parse_jwc_header, read_jwc_header_from_file, CadError,
@@ -390,12 +390,101 @@ fn bad_string_references_and_terminators_never_consume_names() {
         parse_jwc_header(&data),
         Err(JwcError::InvalidValue { offset: 2437, .. })
     ));
+}
+
+/// Aggregated `JWC_ATTRIBUTE_UNVERIFIED` reports as `(field, count)` pairs.
+fn unverified_fields(header: &JwcHeader) -> Vec<(String, usize)> {
+    header
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "JWC_ATTRIBUTE_UNVERIFIED")
+        .map(|d| {
+            let details = d.unverified_details().unwrap();
+            (details.field.clone(), details.count)
+        })
+        .collect()
+}
+
+#[test]
+fn names_that_fill_their_slot_need_no_terminator() {
+    const NAMES: usize = JWC_FIXED_HEADER_SIZE;
     let mut data = fixture("q000");
-    data[2421..2429].fill(b'A');
-    assert!(matches!(
-        parse_jwc_header(&data),
-        Err(JwcError::InvalidValue { offset: 2421, .. })
-    ));
+    data[NAMES..NAMES + 8].copy_from_slice(b"LAYER-00");
+    // "日本語あ" in CP932: four double-byte characters fill the slot exactly.
+    data[NAMES + 8..NAMES + 16].copy_from_slice(b"\x93\xfa\x96{\x8c\xea\x82\xa0");
+    data[NAMES + 2048..NAMES + 2064].copy_from_slice(b"GROUP-0123456789");
+    // The last group slot ends exactly at EOF; a full slot must not read past it.
+    let end = data.len();
+    data[end - 16..end].copy_from_slice(b"GROUP-FEDCBA9876");
+
+    let header = parse_jwc_header(&data).expect("full slots hold names");
+    assert_eq!(header.layer_groups[0].layers[0].name.text, "LAYER-00");
+    assert_eq!(header.layer_groups[0].layers[1].name.text, "日本語あ");
+    assert_eq!(header.layer_groups[0].name.text, "GROUP-0123456789");
+    assert_eq!(header.layer_groups[15].name.text, "GROUP-FEDCBA9876");
+    assert_eq!(header.layout.names.byte_offset, NAMES);
+    assert_eq!(header.layout.string_pool.byte_length, 0);
+    // A full-slot CP932 name decodes without replacement characters.
+    assert!(header
+        .diagnostics
+        .iter()
+        .all(|d| d.code != "CP932_DECODE_REPLACED"));
+    // Two group slots and two layer slots, aggregated into one report per field.
+    assert_eq!(
+        unverified_fields(&header),
+        [
+            ("header.layer_group.name".to_string(), 2),
+            ("header.layer.name".to_string(), 2)
+        ]
+    );
+
+    // Names shorter than the slot keep ending at their terminator and stay silent.
+    let mut data = fixture("q000");
+    data[NAMES..NAMES + 8].copy_from_slice(b"AB\0\0\0\0\0\0");
+    let header = parse_jwc_header(&data).expect("terminated names still parse");
+    assert_eq!(header.layer_groups[0].layers[0].name.text, "AB");
+    assert!(header.diagnostics.is_empty());
+
+    // A slot of binary garbage without a terminator is accepted and reported once.
+    let mut data = fixture("q000");
+    data[NAMES..NAMES + 8].copy_from_slice(&[0x8d, 0xff, 0x01, 0x7f, 0xe0, 0x12, 0xab, 0xcd]);
+    let header = parse_jwc_header(&data).expect("a garbage slot does not reject the file");
+    assert_eq!(
+        header.layer_groups[0].layers[0].name.raw_bytes,
+        [0x8d, 0xff, 0x01, 0x7f, 0xe0, 0x12, 0xab, 0xcd]
+    );
+    let reports: Vec<_> = header
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "JWC_ATTRIBUTE_UNVERIFIED")
+        .collect();
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].severity, "warning");
+    assert_eq!(reports[0].action, "retained");
+    assert!(
+        reports[0].message.contains("no NUL terminator"),
+        "{}",
+        reports[0].message
+    );
+    let details = reports[0].unverified_details().unwrap();
+    assert_eq!(details.field, "header.layer.name");
+    assert_eq!(details.byte_offset, NAMES);
+    assert_eq!(details.count, 1);
+    assert_eq!(details.values, ["header.layer_groups[0].layers[0].name"]);
+
+    // Every slot unterminated still aggregates into one report per field.
+    let mut data = fixture("q000");
+    data[NAMES..NAMES + 2048].fill(b'A');
+    data[NAMES + 2048..NAMES + 2304].fill(b'B');
+    let header = parse_jwc_header(&data).expect("a fully occupied name area parses");
+    assert_eq!(header.diagnostics.len(), 2);
+    assert_eq!(
+        unverified_fields(&header),
+        [
+            ("header.layer_group.name".to_string(), 16),
+            ("header.layer.name".to_string(), 256)
+        ]
+    );
 }
 
 #[test]
