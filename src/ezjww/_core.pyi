@@ -146,12 +146,18 @@ class TruncationDiagnosticDetails(TypedDict):
     parsed_entities: int
     error: str
 
+class UnverifiedDiagnosticDetails(TypedDict):
+    field: str
+    byte_offset: int
+    count: int
+    values: list[str]
+
 class DecodeDiagnostic(TypedDict):
     code: str
     severity: str
     message: str
     action: str
-    details: DecodeDiagnosticDetails | TruncationDiagnosticDetails
+    details: DecodeDiagnosticDetails | TruncationDiagnosticDetails | UnverifiedDiagnosticDetails
 
 class DxfWriteReport(TypedDict):
     target_version: str
@@ -252,6 +258,8 @@ class JwcSection(TypedDict):
     byte_length: int
 
 class JwcLayout(TypedDict):
+    fixed_header: JwcSection
+    string_pool_start: int
     lines: JwcSection
     arcs: JwcSection
     text_records: JwcSection
@@ -301,12 +309,14 @@ class JwcEntityCounts(TypedDict):
     temporary_points: int
 
 class JwcHeader(TypedDict):
-    profile_id: Literal["fixed2421_csv32_v1"]
+    profile_id: Literal["fixed2421_csv32_v1", "fixed2389_u16scale_v1"]
+    fixed_header_size: int
     source_version: str | None
     counts: JwcEntityCounts
     paper: Literal["A0", "A1", "A2", "A3", "A4"]
     coordinate_extent: float
     write_layer_group: int
+    write_layer: int
     layer_groups: list[JwcLayerGroup]
     text_presets: list[JwcTextPreset]
     temporary_points: list[JwcTemporaryPoint]
@@ -380,7 +390,7 @@ class JwcText(TypedDict):
 JwcEntity: TypeAlias = JwcLine | JwcArc | JwcPoint | JwcTemporaryPointEntity | JwcText
 
 class JwcDocument(TypedDict):
-    profile_id: Literal["fixed2421_basic_v1"]
+    profile_id: Literal["fixed2421_basic_v1", "fixed2389_basic_v1"]
     header: JwcHeader
     entities: list[JwcEntity]
     diagnostics: list[DecodeDiagnostic]

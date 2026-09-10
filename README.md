@@ -148,11 +148,13 @@ JWW parsing supports CP932 and Unicode strings, block definitions, and structure
 diagnostics. Some damaged JWW entity lists can be read partially; inspect
 [diagnostics](https://github.com/monozukuri-ai/ezjww/blob/main/docs/DIAGNOSTICS.md) before relying on the result.
 
-JWC support is restricted to the `fixed2421_basic_v1` document profile. It includes
-lines, circles, circular arcs, full rotated ellipses, CP932 text, points, and
-auxiliary points. Partial ellipses and unknown layouts or attributes are rejected.
-Malformed JWC files raise an error instead of returning a partial document.
-Compatibility with all JWC generations, including old DOS files, is not established.
+JWC support covers the `fixed2421_basic_v1` and `fixed2389_basic_v1` document
+profiles (two header layouts sharing one record layout). It includes lines,
+circles, circular and elliptical arcs, rotated ellipses, CP932 text, points, and
+auxiliary points. Settings and attribute bits outside ezjww's reference corpus are
+retained and reported as `JWC_*` diagnostics; structurally inconsistent or
+malformed JWC files raise an error instead of returning a partial document.
+Compatibility with every JWC generation is not established.
 
 JWC output uses millimeters, with the sheet center as the origin and +Y pointing
 up. Palette, dash lengths, and fonts use documented conversion defaults; exact

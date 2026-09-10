@@ -2,6 +2,16 @@ use serde::Serialize;
 
 pub const CP932_DECODE_REPLACED: &str = "CP932_DECODE_REPLACED";
 pub const ENTITY_LIST_TRUNCATED: &str = "ENTITY_LIST_TRUNCATED";
+/// JWC header CSV settings differ from the reference corpus; retained as raw text.
+pub const JWC_HEADER_SETTINGS_UNVERIFIED: &str = "JWC_HEADER_SETTINGS_UNVERIFIED";
+/// JWC record attribute values (styles, flags, spare bytes) outside the reference corpus.
+pub const JWC_ATTRIBUTE_UNVERIFIED: &str = "JWC_ATTRIBUTE_UNVERIFIED";
+/// JWC line curve-marker bits did not form a verified start/member/end sequence.
+pub const JWC_CURVE_MARKERS_UNVERIFIED: &str = "JWC_CURVE_MARKERS_UNVERIFIED";
+/// A JWC layer group stored scale 0; scale 1 was substituted.
+pub const JWC_GROUP_SCALE_DEFAULTED: &str = "JWC_GROUP_SCALE_DEFAULTED";
+/// The JWC header write scale differs from the selected group's scale.
+pub const JWC_WRITE_SCALE_MISMATCH: &str = "JWC_WRITE_SCALE_MISMATCH";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DecodeDiagnosticDetails {
@@ -26,11 +36,25 @@ pub struct TruncationDiagnosticDetails {
     pub error: String,
 }
 
+/// Details of JWC values that lie outside the verified reference corpus but were retained.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnverifiedDiagnosticDetails {
+    /// Header or record field name, e.g. `line.flags` or `header.csv0`.
+    pub field: String,
+    /// Absolute byte offset of the first occurrence.
+    pub byte_offset: usize,
+    /// Number of occurrences aggregated into this diagnostic.
+    pub count: usize,
+    /// Up to eight distinct observed values, as text.
+    pub values: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum DiagnosticDetails {
     Decode(DecodeDiagnosticDetails),
     Truncation(TruncationDiagnosticDetails),
+    Unverified(UnverifiedDiagnosticDetails),
 }
 
 /// A structured parser diagnostic (CP932 replacement, truncated entity list, ...).
@@ -121,11 +145,35 @@ impl Diagnostic {
         }
     }
 
+    pub(crate) fn jwc_unverified(
+        code: &str,
+        severity: &str,
+        action: &str,
+        message: String,
+        details: UnverifiedDiagnosticDetails,
+    ) -> Self {
+        Self {
+            code: code.to_string(),
+            severity: severity.to_string(),
+            message,
+            action: action.to_string(),
+            details: DiagnosticDetails::Unverified(details),
+        }
+    }
+
+    /// Details when this diagnostic reports retained unverified JWC values.
+    pub fn unverified_details(&self) -> Option<&UnverifiedDiagnosticDetails> {
+        match &self.details {
+            DiagnosticDetails::Unverified(details) => Some(details),
+            _ => None,
+        }
+    }
+
     /// Decode details when this diagnostic is a CP932 replacement report.
     pub fn decode_details(&self) -> Option<&DecodeDiagnosticDetails> {
         match &self.details {
             DiagnosticDetails::Decode(details) => Some(details),
-            DiagnosticDetails::Truncation(_) => None,
+            _ => None,
         }
     }
 
@@ -133,7 +181,7 @@ impl Diagnostic {
     pub fn truncation_details(&self) -> Option<&TruncationDiagnosticDetails> {
         match &self.details {
             DiagnosticDetails::Truncation(details) => Some(details),
-            DiagnosticDetails::Decode(_) => None,
+            _ => None,
         }
     }
 }

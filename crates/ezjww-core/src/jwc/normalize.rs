@@ -4,6 +4,7 @@ use std::fmt;
 
 use serde::Serialize;
 
+use super::parser::JWC_CURVE_MARKER_MASK;
 use super::{JwcDocument, JwcEntityData, JwcError, JwcLayerAddress, JwcSection};
 use crate::{Arc, Coord2D, Diagnostic, Entity, EntityBase, Line, Point, Text};
 
@@ -94,12 +95,16 @@ pub struct JwcConversionNotice {
     pub detail: String,
 }
 
+/// ACI colors for JWC pens 1–9. Pens 1–5 come from the native reference DXF
+/// configuration; pens 6–9 (observed only in real files) are placeholders.
+pub const JWC_REFERENCE_ACI: [i32; 9] = [132, 18, 92, 52, 212, 170, 96, 10, 8];
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwcConversionReport {
     pub coordinate_space: JwcCoordinateSpace,
     /// Rendering policy, never claimed to be a palette embedded in the JWC.
     pub rendering_policy: String,
-    pub aci_colors: [i32; 5],
+    pub aci_colors: [i32; 9],
     pub mappings: Vec<JwcEntityMapping>,
     pub notices: Vec<JwcConversionNotice>,
     pub diagnostics: Vec<Diagnostic>,
@@ -178,11 +183,11 @@ pub fn normalize_jwc_document(
     let mut report = JwcConversionReport {
         coordinate_space: space,
         rendering_policy: "native_10021_reference_v1".into(),
-        aci_colors: [132, 18, 92, 52, 212],
+        aci_colors: JWC_REFERENCE_ACI,
         mappings: Vec::new(), diagnostics: doc.diagnostics.clone(),
         notices: vec![
-            notice(None, "palette", "default", "JWC RGB palette is not verified as stored. Pen 1..5 use ACI 132/18/92/52/212 from the native reference DXF configuration."),
-            notice(None, "line_patterns", "default", "Source style 1=continuous, 2=equal dash/gap 1.25, 3=equal dash/gap 2.5 output mm. Pattern lengths are rendering defaults, not recovered source lengths."),
+            notice(None, "palette", "default", "JWC RGB palette is not verified as stored. Pen 1..5 use ACI 132/18/92/52/212 from the native reference DXF configuration; pens 6..9 use ACI 170/96/10/8 as placeholders without a native reference."),
+            notice(None, "line_patterns", "default", "Source style 1=continuous, 2=equal dash/gap 1.25, 3=equal dash/gap 2.5 output mm (native reference). Styles 4..8 use JWW-numbered dashed/dash-dot/double-dash-dot placeholders and style 9 (auxiliary) is drawn continuous. Pattern lengths are rendering defaults, not recovered source lengths."),
             notice(None, "pen_width", "default", "No source line width is available; common pen_width=0 and DTO lineweight=-3. The DXF writer omits the negative lineweight field, so the file uses BYLAYER and the default layer width."),
             notice(None, "font", "default", "No source font is available; common font_name is empty and DXF uses STANDARD/txt with viewer font substitution."),
             notice(None, "layer_style", "default", "No source layer color or line pattern was recovered; DXF layer tables use neutral ACI 7 and CONTINUOUS. Entities carry explicit color and style."),
@@ -193,6 +198,8 @@ pub fn normalize_jwc_document(
     let mut entities = Vec::with_capacity(doc.entities.len());
     let mut next_group = 0;
     let mut open_group = None;
+    let mut tilted_circular_arcs = 0_usize;
+    let mut defaulted_presets = std::collections::BTreeSet::new();
     for (index, record) in doc.entities.iter().enumerate() {
         let layer = match &record.data {
             JwcEntityData::Line { attributes, .. } | JwcEntityData::Arc { attributes, .. } => {
@@ -238,10 +245,10 @@ pub fn normalize_jwc_document(
         };
         match &record.data {
             JwcEntityData::Line { attributes, .. } | JwcEntityData::Arc { attributes, .. } => {
-                base.pen_style = match attributes.pen_style {
-                    1 => 1,
-                    2 => 2,
-                    3 => 6,
+                // Low nibble = JWW-numbered line style; high-nibble attribute bits
+                // are retained in the source record and reported by the parser.
+                base.pen_style = match attributes.pen_style & 0x0f {
+                    style @ 1..=9 => style,
                     _ => return Err(invalid(Some(index), "unknown stroke style")),
                 };
                 base.pen_color = u16::from(attributes.pen_color);
@@ -252,10 +259,8 @@ pub fn normalize_jwc_document(
                 flags_raw,
                 ..
             } => {
-                if *flags_raw != 0 {
-                    return Err(invalid(Some(index), "unknown point flag"));
-                }
                 base.pen_color = u16::from(*pen_color);
+                base.flag = *flags_raw;
             }
             JwcEntityData::TemporaryPoint { .. } => {
                 report.notices.push(notice(Some(index), "point_style", "default", "Temporary point color is not stored; use pen 2 from the native reference policy. Marker code=0, angle=0, scale=1 are rendering defaults."));
@@ -270,22 +275,27 @@ pub fn normalize_jwc_document(
                 base.pen_color = preset.pen_color;
             }
         }
-        if !(1..=5).contains(&base.pen_color) {
+        if !(1..=9).contains(&base.pen_color) {
             return Err(invalid(Some(index), "unknown pen color"));
         }
-        if !matches!(record.data, JwcEntityData::Line { .. }) && open_group.is_some() {
-            return Err(invalid(Some(index), "unterminated curve group"));
+        if !matches!(record.data, JwcEntityData::Line { .. }) {
+            // Lines precede every other record; an open group here is the
+            // unterminated sequence the parser already reported.
+            open_group = None;
         }
         let entity = match &record.data {
             JwcEntityData::Line { start, end, .. } => {
-                match (base.flag, open_group) {
-                    (0, None) => {}
-                    (0x40, None) => {
+                // Same tolerant sequence as the parser: markers outside the
+                // verified pattern leave the line ungrouped.
+                match (base.flag & JWC_CURVE_MARKER_MASK, open_group) {
+                    (0, _) => {}
+                    (0x40, _) => {
                         next_group += 1;
                         open_group = Some(next_group);
                         base.group = next_group;
                     }
                     (0x80, Some(id)) => base.group = id,
+                    (0x80, None) => {}
                     (0xc0, current) => {
                         base.group = current.unwrap_or_else(|| {
                             next_group += 1;
@@ -293,9 +303,9 @@ pub fn normalize_jwc_document(
                         });
                         open_group = None;
                     }
-                    _ => return Err(invalid(Some(index), "unknown curve marker sequence")),
+                    _ => unreachable!("masked marker"),
                 }
-                if base.flag != 0 {
+                if base.flag & JWC_CURVE_MARKER_MASK != 0 {
                     report.notices.push(notice(Some(index), "group", "derived", "Curve group is a sequential ID derived from boundary markers, not the original authoring ID."));
                 }
                 let a = xy(*start)?;
@@ -318,8 +328,7 @@ pub fn normalize_jwc_document(
                 is_full_circle,
                 ..
             } => {
-                if base.flag != 0
-                    || !radius.is_finite()
+                if !radius.is_finite()
                     || *radius <= 0.
                     || !flatness.is_finite()
                     || *flatness <= 0.
@@ -331,10 +340,7 @@ pub fn normalize_jwc_document(
                     ]
                     .iter()
                     .any(|a| !a.is_finite() || !(0. ..360.).contains(a))
-                    || *is_full_circle != (*start_angle_degrees == 0. && *end_angle_degrees == 0.)
-                    || (!is_full_circle
-                        && (start_angle_degrees == end_angle_degrees || *flatness != 1.))
-                    || (*flatness == 1. && *tilt_angle_degrees != 0.)
+                    || *is_full_circle != (start_angle_degrees == end_angle_degrees)
                 {
                     return Err(invalid(Some(index), "unverified arc geometry"));
                 }
@@ -343,13 +349,27 @@ pub fn normalize_jwc_document(
                 if !radius.is_finite() {
                     return Err(invalid(Some(index), "radius overflow"));
                 }
+                // The start/end angles are measured in the tilted frame. The shared
+                // DXF writer only applies the tilt to ellipses, so circular arcs fold
+                // it into the start angle (verified on real files by endpoint continuity).
+                let (start_angle, tilt_angle) = if *flatness == 1. {
+                    if *tilt_angle_degrees != 0. && !*is_full_circle {
+                        tilted_circular_arcs += 1;
+                    }
+                    (
+                        (start_angle_degrees + tilt_angle_degrees).rem_euclid(360.),
+                        0.,
+                    )
+                } else {
+                    (*start_angle_degrees, *tilt_angle_degrees)
+                };
                 Entity::Arc(Arc {
                     base,
                     center_x: p.x,
                     center_y: p.y,
                     radius,
                     flatness: *flatness,
-                    start_angle: start_angle_degrees.to_radians(),
+                    start_angle: start_angle.to_radians(),
                     arc_angle: if *is_full_circle {
                         std::f64::consts::TAU
                     } else {
@@ -357,7 +377,7 @@ pub fn normalize_jwc_document(
                             .rem_euclid(360.)
                             .to_radians()
                     },
-                    tilt_angle: tilt_angle_degrees.to_radians(),
+                    tilt_angle: tilt_angle.to_radians(),
                     is_full_circle: *is_full_circle,
                 })
             }
@@ -387,8 +407,20 @@ pub fn normalize_jwc_document(
                 let a = xy(*start)?;
                 let b = xy(*end)?;
                 let preset = &doc.header.text_presets[usize::from(*text_preset)];
-                let size_x = f64::from(preset.width_tenths) / 10. * scale;
-                let size_y = f64::from(preset.height_tenths) / 10. * scale;
+                let (width_tenths, height_tenths) = if preset.width_tenths == 0
+                    || preset.height_tenths == 0
+                {
+                    // A zero-sized preset was never produced by the reference
+                    // corpus; use the smallest reference preset (2.0 mm) instead.
+                    if defaulted_presets.insert(*text_preset) {
+                        report.notices.push(notice(Some(index), "text.size", "default", format!("Text preset {text_preset} stores a zero width or height; 2.0 mm was substituted.")));
+                    }
+                    (20, 20)
+                } else {
+                    (preset.width_tenths, preset.height_tenths)
+                };
+                let size_x = f64::from(width_tenths) / 10. * scale;
+                let size_y = f64::from(height_tenths) / 10. * scale;
                 let spacing = f64::from(preset.spacing_tenths) / 10. * scale;
                 if a == b
                     || content.is_empty()
@@ -426,8 +458,8 @@ pub fn normalize_jwc_document(
         });
         entities.push(entity);
     }
-    if open_group.is_some() {
-        return Err(invalid(None, "unterminated curve group"));
+    if tilted_circular_arcs != 0 {
+        report.notices.push(notice(None, "arc.tilt", "derived", format!("{tilted_circular_arcs} circular arc(s) store a nonzero tilt; their start angle was rotated by the tilt, as the angles are measured in the tilted frame.")));
     }
     Ok(JwcNormalizedDocument {
         entities,

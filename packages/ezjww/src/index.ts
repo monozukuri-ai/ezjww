@@ -149,12 +149,23 @@ export interface TruncationDiagnosticDetails {
   error: string;
 }
 
+/** JWC values outside the verified reference corpus that were retained. */
+export interface UnverifiedDiagnosticDetails {
+  field: string;
+  byte_offset: number;
+  count: number;
+  values: string[];
+}
+
 export interface DecodeDiagnostic {
   code: string;
   severity: "info" | "warning" | "error";
   message: string;
   action: string;
-  details: DecodeDiagnosticDetails | TruncationDiagnosticDetails;
+  details:
+    | DecodeDiagnosticDetails
+    | TruncationDiagnosticDetails
+    | UnverifiedDiagnosticDetails;
 }
 
 export interface JwwDocument {
@@ -346,6 +357,8 @@ export interface JwcSection {
 }
 
 export interface JwcLayout {
+  fixed_header: JwcSection;
+  string_pool_start: number;
   lines: JwcSection;
   arcs: JwcSection;
   text_records: JwcSection;
@@ -403,12 +416,14 @@ export interface JwcEntityCounts {
 }
 
 export interface JwcHeader {
-  profile_id: "fixed2421_csv32_v1";
+  profile_id: "fixed2421_csv32_v1" | "fixed2389_u16scale_v1";
+  fixed_header_size: number;
   source_version: string | null;
   counts: JwcEntityCounts;
   paper: "A0" | "A1" | "A2" | "A3" | "A4";
   coordinate_extent: number;
   write_layer_group: number;
+  write_layer: number;
   layer_groups: JwcLayerGroup[];
   text_presets: JwcTextPreset[];
   temporary_points: JwcTemporaryPoint[];
@@ -493,7 +508,7 @@ export interface JwcText {
 export type JwcEntity = JwcLine | JwcArc | JwcPoint | JwcTemporaryPointEntity | JwcText;
 
 export interface JwcDocument {
-  profile_id: "fixed2421_basic_v1";
+  profile_id: "fixed2421_basic_v1" | "fixed2389_basic_v1";
   header: JwcHeader;
   entities: JwcEntity[];
   diagnostics: DecodeDiagnostic[];

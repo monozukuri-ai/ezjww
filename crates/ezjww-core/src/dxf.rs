@@ -539,6 +539,17 @@ impl AsciiDxfWriter<'_> {
                 "DASHED" => ("Dashed line", &[0.6, -0.3]),
                 "JWC_DASHED1" => ("JWC reference dashed 1", &[1.25, -1.25]),
                 "JWC_DASHED2" => ("JWC reference dashed 2", &[2.5, -2.5]),
+                "JWC_DASHED3" => ("JWC dashed 3 (placeholder)", &[0.6, -0.6]),
+                "JWC_DASHDOT1" => ("JWC dash-dot 1 (placeholder)", &[7.5, -1.25, 1.25, -1.25]),
+                "JWC_DASHDOT2" => ("JWC dash-dot 2 (placeholder)", &[12.5, -2.5, 2.5, -2.5]),
+                "JWC_DIVIDE1" => (
+                    "JWC double dash-dot 1 (placeholder)",
+                    &[7.5, -1.25, 1.25, -1.25, 1.25, -1.25],
+                ),
+                "JWC_DIVIDE2" => (
+                    "JWC double dash-dot 2 (placeholder)",
+                    &[12.5, -2.5, 2.5, -2.5, 2.5, -2.5],
+                ),
                 "DASHED2" => ("Dashed line x2", &[1.2, -0.6]),
                 "DASHDOT" => ("Dash dot", &[0.6, -0.2, 0.1, -0.2]),
                 "DASHDOT2" => ("Dash dot x2", &[1.2, -0.4, 0.2, -0.4]),

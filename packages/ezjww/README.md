@@ -55,10 +55,13 @@ minimum `1`), and `jwcCoordinates` (`"paper_millimeters"` by default or
 
 ## JWC support
 
-The supported binary document profile is `fixed2421_basic_v1`. It covers lines,
-circles, circular arcs, full rotated ellipses, CP932 text, points, and auxiliary
-points. Some curve sequences are represented as line segments. Old DOS generations
-and other JWC layouts are not covered by a general compatibility guarantee.
+The supported binary document profiles are `fixed2421_basic_v1` and
+`fixed2389_basic_v1` (two header layouts, one record layout). They cover lines,
+circles, circular and elliptical arcs, rotated ellipses, CP932 text, points, and
+auxiliary points. Some curve sequences are represented as line segments. Settings
+and attribute bits outside the reference corpus are retained and reported as
+`JWC_*` diagnostics. Other JWC layouts are not covered by a general compatibility
+guarantee.
 
 The source document retains original coordinates, names, attributes, and byte
 spans. `header.source_version` is currently `null`. DXF defaults to paper

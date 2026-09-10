@@ -11,6 +11,11 @@ CP932_DECODE_REPLACED = "CP932_DECODE_REPLACED"
 ENTITY_LIST_TRUNCATED = "ENTITY_LIST_TRUNCATED"
 UNRESOLVED_BLOCK_REFERENCES = "UNRESOLVED_BLOCK_REFERENCES"
 UNSUPPORTED_DXF_ENTITIES = "UNSUPPORTED_DXF_ENTITIES"
+JWC_HEADER_SETTINGS_UNVERIFIED = "JWC_HEADER_SETTINGS_UNVERIFIED"
+JWC_ATTRIBUTE_UNVERIFIED = "JWC_ATTRIBUTE_UNVERIFIED"
+JWC_CURVE_MARKERS_UNVERIFIED = "JWC_CURVE_MARKERS_UNVERIFIED"
+JWC_GROUP_SCALE_DEFAULTED = "JWC_GROUP_SCALE_DEFAULTED"
+JWC_WRITE_SCALE_MISMATCH = "JWC_WRITE_SCALE_MISMATCH"
 
 
 @dataclass(frozen=True)
@@ -49,6 +54,41 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "skipped",
         "DXF conversion",
         "One or more parsed JWW entity kinds are unsupported by DXF conversion.",
+    ),
+    JWC_HEADER_SETTINGS_UNVERIFIED: IssueCode(
+        "info",
+        "retained",
+        "JWC parser",
+        "Header CSV settings differ from the reference corpus; they were retained "
+        "as raw text and do not affect geometry.",
+    ),
+    JWC_ATTRIBUTE_UNVERIFIED: IssueCode(
+        "warning",
+        "retained",
+        "JWC parser",
+        "Record attribute values (style bits, flag bits, spare bytes, layer state "
+        "bits, text presets) lie outside the reference corpus and were retained.",
+    ),
+    JWC_CURVE_MARKERS_UNVERIFIED: IssueCode(
+        "warning",
+        "retained",
+        "JWC parser",
+        "Line curve-marker bits did not form a verified start/member/end sequence; "
+        "the lines were kept ungrouped.",
+    ),
+    JWC_GROUP_SCALE_DEFAULTED: IssueCode(
+        "warning",
+        "normalized",
+        "JWC parser",
+        "A layer group stores scale 0 in the u16-scale header profile; scale 1 was "
+        "substituted.",
+    ),
+    JWC_WRITE_SCALE_MISMATCH: IssueCode(
+        "warning",
+        "retained",
+        "JWC parser",
+        "The header write scale differs from the selected layer group's scale; "
+        "per-group scales were used.",
     ),
 }
 

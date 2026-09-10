@@ -21,6 +21,11 @@ class DiagnosticsCatalogTests(unittest.TestCase):
             "ENTITY_LIST_TRUNCATED",
             "UNRESOLVED_BLOCK_REFERENCES",
             "UNSUPPORTED_DXF_ENTITIES",
+            "JWC_HEADER_SETTINGS_UNVERIFIED",
+            "JWC_ATTRIBUTE_UNVERIFIED",
+            "JWC_CURVE_MARKERS_UNVERIFIED",
+            "JWC_GROUP_SCALE_DEFAULTED",
+            "JWC_WRITE_SCALE_MISMATCH",
         }
 
         self.assertEqual(tuple(sorted(set(ezjww.ALL_ISSUE_CODES))), ezjww.ALL_ISSUE_CODES)

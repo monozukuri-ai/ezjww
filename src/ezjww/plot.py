@@ -89,14 +89,26 @@ def _entity_color(aci: int, *, monochrome: bool) -> Any:
     return _aci_to_color(aci)
 
 
+# JWC rendering-policy dash patterns in output millimeters (on, off, ...).
+_JWC_PATTERNS_MM: dict[str, tuple[float, ...]] = {
+    "JWC_DASHED1": (1.25, 1.25),
+    "JWC_DASHED2": (2.5, 2.5),
+    "JWC_DASHED3": (0.6, 0.6),
+    "JWC_DASHDOT1": (7.5, 1.25, 1.25, 1.25),
+    "JWC_DASHDOT2": (12.5, 2.5, 2.5, 2.5),
+    "JWC_DIVIDE1": (7.5, 1.25, 1.25, 1.25, 1.25, 1.25),
+    "JWC_DIVIDE2": (12.5, 2.5, 2.5, 2.5, 2.5, 2.5),
+}
+
+
 def _line_style(line_type: str) -> Any:
     name = line_type.upper()
     if name == "CONTINUOUS":
         return "-"
-    if name == "JWC_DASHED1":
-        return (0.0, (7.0, 7.0))
-    if name == "JWC_DASHED2":
-        return (0.0, (14.0, 14.0))
+    if name in _JWC_PATTERNS_MM:
+        # Preview approximation in points; the exact millimeter pattern is applied
+        # after the axes scale is known (see ``patterned_artists``).
+        return (0.0, tuple(value * 5.6 for value in _JWC_PATTERNS_MM[name]))
     if name == "DASHED":
         return (0.0, (7.0, 3.0))
     if name in {"DASHED2", "DASHEDX2"}:
@@ -459,7 +471,7 @@ def plot_dxf_document(
         else set()
     )
     widths = iter(dxf_document.get("text_width_factors", []))
-    patterned_artists: list[tuple[Any, float, float]] = []
+    patterned_artists: list[tuple[Any, tuple[float, ...], float]] = []
 
     for entity in dxf_document.get("entities", []):
         if is_jwc and entity.get("type") == "TEXT":
@@ -647,10 +659,10 @@ def plot_dxf_document(
                         **text_kwargs,
                     )
 
-        if is_jwc and line_type in {"JWC_DASHED1", "JWC_DASHED2"}:
-            length = 1.25 if line_type == "JWC_DASHED1" else 2.5
+        if is_jwc and line_type in _JWC_PATTERNS_MM:
+            pattern = _JWC_PATTERNS_MM[line_type]
             for artist in list(ax.lines)[line_start:] + list(ax.patches)[patch_start:]:
-                patterned_artists.append((artist, length, entity_linewidth))
+                patterned_artists.append((artist, pattern, entity_linewidth))
 
     text_points = []
     for entity, _ in pending_text:
@@ -677,12 +689,12 @@ def plot_dxf_document(
         ax.set_axis_off()
 
     unit_to_points = _data_unit_to_points(ax)
-    for artist, length, line_width in patterned_artists:
+    for artist, pattern, line_width in patterned_artists:
         # Matplotlib's dash lengths are in points and normally scaled by the
         # stroke width; P4 patterns are explicitly in output millimeters.
         divisor = line_width if plt.rcParams["lines.scale_dashes"] else 1.0
-        dash = length * unit_to_points / max(divisor, 1e-12)
-        artist.set_linestyle((0, (dash, dash)))
+        scale = unit_to_points / max(divisor, 1e-12)
+        artist.set_linestyle((0, tuple(length * scale for length in pattern)))
     for entity, color in pending_text:
         content = str(entity.get("content", ""))
         text_x, text_y, horizontal_alignment, vertical_alignment = _text_anchor(

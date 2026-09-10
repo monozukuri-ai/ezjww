@@ -6,18 +6,96 @@ use serde::Serialize;
 
 use super::layout::{validate_layout, JwcLayout};
 use super::reader::Reader;
+use super::unverified::UnverifiedCollector;
 use super::{
-    JwcError, FIXED_SIGNATURE, JWC_FAMILY_SIGNATURE, JWC_FIXED_HEADER_SIZE, JWC_MAX_ENTITIES,
-    JWC_MAX_FILE_SIZE,
+    JwcError, FIXED_SIGNATURE, JWC_FAMILY_SIGNATURE, JWC_FIXED_HEADER_SIZE,
+    JWC_FIXED_HEADER_SIZE_U16_SCALES, JWC_MAX_ENTITIES, JWC_MAX_FILE_SIZE,
+    JWC_SIGNATURE_VARIANT_OFFSET,
 };
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{
+    Diagnostic, JWC_ATTRIBUTE_UNVERIFIED, JWC_GROUP_SCALE_DEFAULTED,
+    JWC_HEADER_SETTINGS_UNVERIFIED, JWC_WRITE_SCALE_MISMATCH,
+};
 
 /// An ezjww header/framing profile, not a Jw_cad application or DOS version.
+///
+/// Both profiles share the CSV blocks, temporary-point arrays and text preset
+/// tables. They differ in how the 16 layer-group scales are stored, which moves
+/// every later offset by 32 bytes. Signature byte 22 selects the profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum JwcHeaderProfile {
+    /// 2,421-byte fixed header; layer-group scales are `f32 × 16` (signature byte 22 = `f`).
     #[serde(rename = "fixed2421_csv32_v1")]
     Fixed2421Csv32V1,
+    /// 2,389-byte fixed header; layer-group scales are `u16 × 16` (signature byte 22 = `.`).
+    #[serde(rename = "fixed2389_u16scale_v1")]
+    Fixed2389U16ScaleV1,
 }
+
+impl JwcHeaderProfile {
+    pub fn fixed_header_size(self) -> usize {
+        match self {
+            Self::Fixed2421Csv32V1 => JWC_FIXED_HEADER_SIZE,
+            Self::Fixed2389U16ScaleV1 => JWC_FIXED_HEADER_SIZE_U16_SCALES,
+        }
+    }
+
+    fn scales_are_u16(self) -> bool {
+        matches!(self, Self::Fixed2389U16ScaleV1)
+    }
+
+    fn scale_table_length(self) -> usize {
+        if self.scales_are_u16() {
+            32
+        } else {
+            64
+        }
+    }
+
+    fn edit_flags_offset(self) -> usize {
+        SCALES_OFFSET + self.scale_table_length()
+    }
+
+    fn visible_flags_offset(self) -> usize {
+        self.edit_flags_offset() + 272
+    }
+
+    fn write_layers_offset(self) -> usize {
+        self.visible_flags_offset() + 272
+    }
+}
+
+const SCALES_OFFSET: usize = 1797;
+const TEXT_PRESETS_OFFSET: usize = 1709;
+
+/// csv0 fields whose values were constant in the reference corpus. Differences
+/// are reported as `JWC_HEADER_SETTINGS_UNVERIFIED`; they no longer reject a file.
+const CSV0_REFERENCE: &[(usize, &str)] = &[
+    (5, "3"),
+    (6, "2"),
+    (7, "1"),
+    (8, "1"),
+    (12, "2"),
+    (13, "1"),
+    (14, "0"),
+    (15, "0"),
+    (16, "5"),
+    (17, "10"),
+    (19, "1"),
+    (20, "2"),
+    (21, "3"),
+    (22, "4"),
+    (23, "5"),
+    (24, "6"),
+    (25, "5"),
+    (26, "5"),
+    (27, "259"),
+    (29, "0"),
+    (30, "518"),
+    (31, "0"),
+];
+const SETTINGS_REFERENCE: &str = "0.5,0.0,3.0,15.0,1,1,0,0,0,2,0.0,0.0,0.0,0.0,0.0,0.0,0,0,0,1000.000,100.000,200.000,300.000,400.000,500.000,0,0,1";
+const STORAGE_SUFFIX_REFERENCE: &str = "0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,36,-23.45,1.5,0,-1,14,0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct JwcEntityCounts {
@@ -100,12 +178,16 @@ pub struct JwcTemporaryPoint {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwcHeader {
     pub profile_id: JwcHeaderProfile,
+    /// Bytes before the first entity record (2,421 or 2,389 depending on the profile).
+    pub fixed_header_size: usize,
     /// Unknown in the investigated files; never fabricated from a profile ID.
     pub source_version: Option<String>,
     pub counts: JwcEntityCounts,
     pub paper: JwcPaper,
     pub coordinate_extent: f64,
     pub write_layer_group: u8,
+    /// Low nibble of the write selection; the layer currently written within the group.
+    pub write_layer: u8,
     pub layer_groups: [JwcLayerGroup; 16],
     /// Slot zero is retained as the observed zero-valued spare.
     pub text_presets: [JwcTextPreset; 11],
@@ -150,20 +232,16 @@ impl CsvField<'_> {
         }
         Ok(value)
     }
-
-    fn expect(&self, expected: &str, name: &str) -> Result<(), JwcError> {
-        if self.text != expected {
-            return Err(JwcError::unsupported(
-                self.offset,
-                name,
-                format!("unverified setting; expected {expected:?}"),
-            ));
-        }
-        Ok(())
-    }
 }
 
-fn csv<'a>(reader: &Reader<'a>, start: usize, count: usize) -> Result<Vec<CsvField<'a>>, JwcError> {
+/// Read one bounded CSV block. Framing (NUL terminator, NUL/space padding,
+/// printable ASCII) is structural and still fails; the field count only has a
+/// lower bound because real files carry 31 or 32 csv0 fields.
+fn csv<'a>(
+    reader: &Reader<'a>,
+    start: usize,
+    min_fields: usize,
+) -> Result<Vec<CsvField<'a>>, JwcError> {
     let data = reader.bytes(start, 199, "header.csv")?;
     let end = data.iter().position(|&b| b == 0).ok_or_else(|| {
         JwcError::unsupported(start, "header.csv", "missing bounded CSV terminator")
@@ -199,43 +277,129 @@ fn csv<'a>(reader: &Reader<'a>, start: usize, count: usize) -> Result<Vec<CsvFie
             field
         })
         .collect();
-    if fields.len() != count {
+    if fields.len() < min_fields {
         return Err(JwcError::unsupported(
             start,
             "header.csv",
-            format!("expected {count} fields, found {}", fields.len()),
+            format!(
+                "expected at least {min_fields} fields, found {}",
+                fields.len()
+            ),
         ));
     }
     Ok(fields)
 }
 
-fn layer_state(reader: &Reader<'_>, index: usize) -> Result<JwcLayerState, JwcError> {
-    let edit = reader.bytes(1861 + index, 1, "layer.edit")?[0];
-    let visible = reader.bytes(2133 + index, 1, "layer.visible")?[0];
-    if visible > 1 {
-        return Err(JwcError::unsupported(
-            2133 + index,
-            "layer.visible",
-            "unverified visibility flags",
-        ));
+/// `SSSS:OOOO` — a DOS far pointer (segment:offset, hexadecimal). The reference
+/// corpus always used segment `4000`; real files use other segments.
+fn far_pointer(field: &CsvField<'_>, name: &str) -> Result<u32, JwcError> {
+    let parse = |part: &str| -> Option<u32> {
+        (part.len() == 4 && part.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| u32::from_str_radix(part, 16).ok())
+            .flatten()
+    };
+    field
+        .text
+        .split_once(':')
+        .and_then(|(segment, offset)| Some((parse(segment)? << 16) | parse(offset)?))
+        .ok_or_else(|| JwcError::unsupported(field.offset, name, "unverified pool address form"))
+}
+
+fn compare_reference(
+    fields: &[CsvField<'_>],
+    reference: impl IntoIterator<Item = (usize, &'static str)>,
+    name: &str,
+    unverified: &mut UnverifiedCollector,
+) {
+    for (index, expected) in reference {
+        if let Some(field) = fields.get(index) {
+            if field.text != expected {
+                unverified.note(
+                    JWC_HEADER_SETTINGS_UNVERIFIED,
+                    name,
+                    field.offset,
+                    format!("[{index}]={}", field.text),
+                );
+            }
+        }
     }
-    if !matches!((edit, visible), (0, 0) | (0, 1) | (1, 1) | (3, 1)) {
-        return Err(JwcError::unsupported(
-            1861 + index,
+}
+
+fn layer_state(
+    reader: &Reader<'_>,
+    profile: JwcHeaderProfile,
+    index: usize,
+    unverified: &mut UnverifiedCollector,
+) -> Result<JwcLayerState, JwcError> {
+    let edit_offset = profile.edit_flags_offset() + index;
+    let visible_offset = profile.visible_flags_offset() + index;
+    let edit = reader.bytes(edit_offset, 1, "layer.edit")?[0];
+    let visible = reader.bytes(visible_offset, 1, "layer.visible")?[0];
+    if edit & !3 != 0 {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
             "layer.edit",
-            "unverified edit/protection combination",
-        ));
+            edit_offset,
+            format!("{edit:#04x}"),
+        );
+    }
+    if visible & !1 != 0 {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
+            "layer.visible",
+            visible_offset,
+            format!("{visible:#04x}"),
+        );
+    }
+    if !matches!((edit & 3, visible & 1), (0, 0) | (0, 1) | (1, 1) | (3, 1)) {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
+            "layer.state",
+            edit_offset,
+            format!("edit={edit} visible={visible}"),
+        );
     }
     Ok(JwcLayerState {
         editable: edit & 1 != 0,
-        visible: visible != 0,
+        visible: visible & 1 != 0,
         protected: edit & 2 != 0,
     })
 }
 
+fn signature_profile(reader: &Reader<'_>) -> Result<JwcHeaderProfile, JwcError> {
+    let signature = reader.bytes(0, FIXED_SIGNATURE.len(), "signature")?;
+    let profile = match signature[JWC_SIGNATURE_VARIANT_OFFSET] {
+        b'f' => JwcHeaderProfile::Fixed2421Csv32V1,
+        b'.' => JwcHeaderProfile::Fixed2389U16ScaleV1,
+        _ => {
+            return Err(JwcError::unsupported(
+                JWC_SIGNATURE_VARIANT_OFFSET,
+                "signature",
+                "unverified JWC signature variant",
+            ))
+        }
+    };
+    if let Some(offset) = signature
+        .iter()
+        .zip(FIXED_SIGNATURE)
+        .enumerate()
+        .position(|(index, (a, b))| index != JWC_SIGNATURE_VARIANT_OFFSET && a != b)
+    {
+        return Err(JwcError::unsupported(
+            offset,
+            "signature",
+            "unverified JWC signature variant",
+        ));
+    }
+    Ok(profile)
+}
+
 /// Read a complete file because names follow the entity arrays and string pool.
-/// Validates the fixed2421_csv32_v1 header and framing, but does NOT validate
+/// Validates the header framing (fixed LFs, CSV blocks, pool addresses, record
+/// spans, temporary-point slots, write-layer packing) but does NOT validate
 /// line/arc/text/point geometry, entity attributes, or document convertibility.
+/// Settings that merely differ from the reference corpus are retained and
+/// reported as diagnostics instead of rejecting the file.
 pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
     let matched = data.len().min(JWC_FAMILY_SIGNATURE.len());
     if let Some(offset) = data[..matched]
@@ -246,22 +410,12 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         return Err(JwcError::InvalidSignature { offset });
     }
     let reader = Reader::new(data);
-    let signature = reader.bytes(0, FIXED_SIGNATURE.len(), "signature")?;
-    if let Some(offset) = signature
-        .iter()
-        .zip(FIXED_SIGNATURE)
-        .position(|(a, b)| a != b)
-    {
-        return Err(JwcError::unsupported(
-            offset,
-            "signature",
-            "unverified JWC signature variant",
-        ));
-    }
+    let profile = signature_profile(&reader)?;
     if data.len() > JWC_MAX_FILE_SIZE {
         return Err(JwcError::limit(0, "file", "file exceeds 64 MiB"));
     }
-    let fixed = reader.bytes(0, JWC_FIXED_HEADER_SIZE, "header")?;
+    let fixed_header_size = profile.fixed_header_size();
+    let fixed = reader.bytes(0, fixed_header_size, "header")?;
     for offset in [199, 399, 599, 799] {
         if fixed[offset] != b'\n' {
             return Err(JwcError::unsupported(
@@ -271,65 +425,47 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
             ));
         }
     }
-    let fields = csv(&reader, 200, 32)?;
-    let settings = csv(&reader, 400, 28)?;
-    let storage = csv(&reader, 600, 24)?;
-
-    // Opaque settings are pinned to the native corpus. This is a deliberate
-    // narrow profile, not acceptance of unknown configuration combinations.
-    for (index, expected) in [
-        (5, "3"),
-        (6, "2"),
-        (7, "1"),
-        (8, "1"),
-        (12, "2"),
-        (13, "1"),
-        (14, "0"),
-        (15, "0"),
-        (16, "5"),
-        (17, "10"),
-        (19, "1"),
-        (20, "2"),
-        (21, "3"),
-        (22, "4"),
-        (23, "5"),
-        (24, "6"),
-        (25, "5"),
-        (26, "5"),
-        (27, "259"),
-        (29, "0"),
-        (30, "518"),
-        (31, "0"),
-    ] {
-        fields[index].expect(expected, &format!("header.csv0[{index}]"))?;
-    }
-    const SETTINGS: &str = "0.5,0.0,3.0,15.0,1,1,0,0,0,2,0.0,0.0,0.0,0.0,0.0,0.0,0,0,0,1000.000,100.000,200.000,300.000,400.000,500.000,0,0,1";
-    for (index, expected) in SETTINGS.split(',').enumerate() {
-        settings[index].expect(expected, &format!("header.csv1[{index}]"))?;
-    }
-    storage[0].expect("4000:0000", "header.string_pool_start")?;
-    const STORAGE_SUFFIX: &str = "0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,36,-23.45,1.5,0,-1,14,0";
-    for (index, expected) in STORAGE_SUFFIX.split(',').enumerate() {
-        storage[index + 2].expect(expected, &format!("header.csv2[{}]", index + 2))?;
-    }
-    let end = storage[1]
-        .text
-        .strip_prefix("4000:")
-        .filter(|s| s.len() == 4 && s.bytes().all(|b| b.is_ascii_hexdigit()))
-        .ok_or_else(|| {
-            JwcError::unsupported(
-                storage[1].offset,
-                "header.string_pool_end",
-                "unverified pool address form",
-            )
-        })?;
-    let pool_length = u16::from_str_radix(end, 16).map_err(|_| {
-        JwcError::invalid(
+    let mut unverified = UnverifiedCollector::new();
+    let fields = csv(&reader, 200, 12)?;
+    let settings = csv(&reader, 400, 0)?;
+    let storage = csv(&reader, 600, 2)?;
+    compare_reference(
+        &fields,
+        CSV0_REFERENCE.iter().copied(),
+        "header.csv0",
+        &mut unverified,
+    );
+    compare_reference(
+        &settings,
+        SETTINGS_REFERENCE.split(',').enumerate(),
+        "header.csv1",
+        &mut unverified,
+    );
+    compare_reference(
+        &storage,
+        STORAGE_SUFFIX_REFERENCE
+            .split(',')
+            .enumerate()
+            .map(|(index, value)| (index + 2, value)),
+        "header.csv2",
+        &mut unverified,
+    );
+    let pool_start = far_pointer(&storage[0], "header.string_pool_start")?;
+    let pool_end = far_pointer(&storage[1], "header.string_pool_end")?;
+    let pool_length = pool_end.checked_sub(pool_start).ok_or_else(|| {
+        JwcError::unsupported(
             storage[1].offset,
             "header.string_pool_end",
-            "invalid hexadecimal offset",
+            "pool end precedes pool start",
         )
     })? as usize;
+    if pool_length > 0xffff {
+        return Err(JwcError::limit(
+            storage[1].offset,
+            "header.string_pool_end",
+            "text pool exceeds 65535 bytes",
+        ));
+    }
     let mut counts = [0; 5];
     let mut total = 0_u64;
     for (index, count) in counts.iter_mut().enumerate() {
@@ -371,17 +507,12 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
             ))
         }
     };
-    let (width, height) = paper.dimensions_mm();
-    if (fields[28].number("header.view_y")? - height * 259. / width).abs() > 0.0005 {
-        return Err(JwcError::unsupported(
-            fields[28].offset,
-            "header.view_y",
-            "unverified view origin",
-        ));
-    }
-    fields[18].integer("header.csv0[18]")?; // Varies during repeated native runs; no semantic label.
+    let coordinate_extent = match fields.get(30) {
+        Some(field) => field.number("header.coordinate_extent")?,
+        None => 518.,
+    };
     let write = fields[10].integer("header.write_selection")?;
-    if write > 255 || write & 15 != 0 {
+    if write > 255 {
         return Err(JwcError::unsupported(
             fields[10].offset,
             "header.write_selection",
@@ -389,24 +520,43 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         ));
     }
     let write_layer_group = (write >> 4) as u8;
-    let layout = validate_layout(data, counts, pool_length)?;
+    let write_layer = (write & 15) as u8;
+    let layout = validate_layout(data, counts, pool_start, pool_length, fixed_header_size)?;
     let mut diagnostics = Vec::new();
     let mut layer_groups: [JwcLayerGroup; 16] = std::array::from_fn(|_| JwcLayerGroup::default());
+    let write_layers_offset = profile.write_layers_offset();
     for (g, group) in layer_groups.iter_mut().enumerate() {
-        group.state = layer_state(&reader, g)?;
-        let scale = reader.finite_f32(1797 + 4 * g, "header.group.scale")?;
-        if scale <= 0. {
-            return Err(JwcError::invalid(
-                1797 + 4 * g,
-                "header.group.scale",
-                "scale must be positive",
-            ));
-        }
-        group.scale = f64::from(scale);
-        let write = fixed[2405 + g];
+        group.state = layer_state(&reader, profile, g, &mut unverified)?;
+        group.scale = if profile.scales_are_u16() {
+            let offset = SCALES_OFFSET + 2 * g;
+            let scale = reader.u16(offset, "header.group.scale")?;
+            if scale == 0 {
+                unverified.note(
+                    JWC_GROUP_SCALE_DEFAULTED,
+                    "header.group.scale",
+                    offset,
+                    g.to_string(),
+                );
+                1.
+            } else {
+                f64::from(scale)
+            }
+        } else {
+            let offset = SCALES_OFFSET + 4 * g;
+            let scale = reader.finite_f32(offset, "header.group.scale")?;
+            if scale <= 0. {
+                return Err(JwcError::invalid(
+                    offset,
+                    "header.group.scale",
+                    "scale must be positive",
+                ));
+            }
+            f64::from(scale)
+        };
+        let write = fixed[write_layers_offset + g];
         if write >> 4 != g as u8 {
             return Err(JwcError::unsupported(
-                2405 + g,
+                write_layers_offset + g,
                 "header.group.write_layer",
                 "packed group does not match its array index",
             ));
@@ -420,7 +570,7 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
             &mut diagnostics,
         )?;
         for (l, layer) in group.layers.iter_mut().enumerate() {
-            layer.state = layer_state(&reader, 16 + 16 * g + l)?;
+            layer.state = layer_state(&reader, profile, 16 + 16 * g + l, &mut unverified)?;
             layer.name = reader.fixed_cp932(
                 layout.names.byte_offset + 8 * (16 * g + l),
                 8,
@@ -431,36 +581,47 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         }
     }
     let write_scale = fields[9].number("header.write_scale")?;
-    if write_scale <= 0.
-        || write_scale as f32 != layer_groups[usize::from(write_layer_group)].scale as f32
-    {
-        return Err(JwcError::invalid(
-            fields[9].offset,
+    let selected_scale = layer_groups[usize::from(write_layer_group)].scale;
+    if write_scale <= 0. || write_scale as f32 != selected_scale as f32 {
+        unverified.note(
+            JWC_WRITE_SCALE_MISMATCH,
             "header.write_scale",
-            "write scale does not match selected group",
-        ));
+            fields[9].offset,
+            format!("write_scale={write_scale} group[{write_layer_group}]={selected_scale}"),
+        );
     }
     let mut text_presets = [JwcTextPreset::default(); 11];
     for (index, preset) in text_presets.iter_mut().enumerate() {
         *preset = JwcTextPreset {
-            pen_color: reader.u16(1709 + 2 * index, "header.text_preset.color")?,
-            width_tenths: reader.u16(1731 + 2 * index, "header.text_preset.width")?,
-            height_tenths: reader.u16(1753 + 2 * index, "header.text_preset.height")?,
-            spacing_tenths: reader.u16(1775 + 2 * index, "header.text_preset.spacing")?,
+            pen_color: reader.u16(TEXT_PRESETS_OFFSET + 2 * index, "header.text_preset.color")?,
+            width_tenths: reader.u16(
+                TEXT_PRESETS_OFFSET + 22 + 2 * index,
+                "header.text_preset.width",
+            )?,
+            height_tenths: reader.u16(
+                TEXT_PRESETS_OFFSET + 44 + 2 * index,
+                "header.text_preset.height",
+            )?,
+            spacing_tenths: reader.u16(
+                TEXT_PRESETS_OFFSET + 66 + 2 * index,
+                "header.text_preset.spacing",
+            )?,
         };
         if index == 0 && *preset != JwcTextPreset::default() {
-            return Err(JwcError::unsupported(
-                1709,
+            unverified.note(
+                JWC_ATTRIBUTE_UNVERIFIED,
                 "header.text_preset[0]",
-                "nonzero spare preset",
-            ));
+                TEXT_PRESETS_OFFSET,
+                format!("{preset:?}"),
+            );
         }
         if index != 0 && (preset.width_tenths == 0 || preset.height_tenths == 0) {
-            return Err(JwcError::unsupported(
-                1731 + 2 * index,
+            unverified.note(
+                JWC_ATTRIBUTE_UNVERIFIED,
                 "header.text_preset",
-                "zero text dimensions are unverified",
-            ));
+                TEXT_PRESETS_OFFSET + 22 + 2 * index,
+                format!("preset {index} has zero width or height"),
+            );
         }
     }
     let mut temporary_points = Vec::with_capacity(counts.temporary_points as usize);
@@ -490,13 +651,16 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
             layer: packed & 15,
         });
     }
+    diagnostics.extend(unverified.into_diagnostics());
     Ok(JwcHeader {
-        profile_id: JwcHeaderProfile::Fixed2421Csv32V1,
+        profile_id: profile,
+        fixed_header_size,
         source_version: None,
         counts,
         paper,
-        coordinate_extent: 518.,
+        coordinate_extent,
         write_layer_group,
+        write_layer,
         layer_groups,
         text_presets,
         temporary_points,

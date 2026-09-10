@@ -37,12 +37,15 @@ fn common_detection_is_not_validation_and_unknown_formats_fail() {
     let data = b"jw_cad(c)data";
     assert_eq!(detect_format(data), Some(CadFormat::Jwc));
     assert!(matches!(parse_cad_document(data), Err(CadError::Jwc(_))));
-    for (name, offset) in [("r011.jwc", 2441), ("r080.jwc", 2483)] {
-        let Err(CadError::Jwc(error)) = read_cad_document_from_file(fixture(name)) else {
-            panic!()
-        };
-        assert_eq!(error.byte_offset(), Some(offset));
-    }
+    let Err(CadError::Jwc(error)) = read_cad_document_from_file(fixture("r080.jwc")) else {
+        panic!()
+    };
+    assert_eq!(error.byte_offset(), Some(2483));
+    // Unverified attribute bits are retained with a diagnostic, not rejected.
+    let Ok(CadDocument::Jwc(flagged)) = read_cad_document_from_file(fixture("r011.jwc")) else {
+        panic!()
+    };
+    assert_eq!(flagged.diagnostics[0].code, "JWC_ATTRIBUTE_UNVERIFIED");
 }
 
 #[test]

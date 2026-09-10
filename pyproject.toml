@@ -1,6 +1,6 @@
 [project]
 name = "ezjww"
-version = "0.3.0"
+version = "0.3.1"
 description = "JWW/JWC parser and DXF converter powered by Rust"
 readme = "README.md"
 authors = [

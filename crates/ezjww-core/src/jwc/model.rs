@@ -13,6 +13,9 @@ use crate::{Coord2D, Diagnostic};
 pub enum JwcDocumentProfile {
     #[serde(rename = "fixed2421_basic_v1")]
     Fixed2421BasicV1,
+    /// Same record profile on the 2,389-byte header with u16 layer-group scales.
+    #[serde(rename = "fixed2389_basic_v1")]
+    Fixed2389BasicV1,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,8 +59,9 @@ pub enum JwcEntityData {
         end: Coord2D,
         attributes: JwcStrokeAttributes,
     },
-    /// Full circles and full ellipses use start=end=0. Partial elliptical arcs
-    /// and other equal-angle representations are not supported by this profile.
+    /// Closed curves (circles, full ellipses) have equal start and end angles.
+    /// `tilt_angle_degrees` rotates the angle frame for circular arcs as well as
+    /// the major axis of ellipses.
     Arc {
         center: Coord2D,
         radius: f64,

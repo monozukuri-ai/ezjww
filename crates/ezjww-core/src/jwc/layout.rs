@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use super::header::JwcEntityCounts;
 use super::reader::Reader;
-use super::{JwcError, JWC_FIXED_HEADER_SIZE, JWC_MAX_TEXT_BYTES, JWC_NAMES_SIZE};
+use super::{JwcError, JWC_MAX_TEXT_BYTES, JWC_NAMES_SIZE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct JwcSection {
@@ -13,6 +13,10 @@ pub struct JwcSection {
 /// Verified framing only. These spans do not certify geometry or attributes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct JwcLayout {
+    pub fixed_header: JwcSection,
+    /// Far pointer (`segment << 16 | offset`) declared for the string pool;
+    /// text references are relative to this value.
+    pub string_pool_start: u32,
     pub lines: JwcSection,
     pub arcs: JwcSection,
     pub text_records: JwcSection,
@@ -21,12 +25,17 @@ pub struct JwcLayout {
     pub names: JwcSection,
 }
 
+/// `pool_start` is the DOS far pointer (`segment << 16 | offset`) declared in the
+/// storage CSV. Text string references carry the same far-pointer form, so the
+/// pool-relative offset is the wrapping difference between the two.
 pub(super) fn validate_layout(
     data: &[u8],
     counts: JwcEntityCounts,
+    pool_start: u32,
     pool_length: usize,
+    fixed_header_size: usize,
 ) -> Result<JwcLayout, JwcError> {
-    let mut offset = JWC_FIXED_HEADER_SIZE;
+    let mut offset = fixed_header_size;
     let mut section = |count: usize, stride: usize, field: &str| -> Result<JwcSection, JwcError> {
         let length = count
             .checked_mul(stride)
@@ -67,14 +76,7 @@ pub(super) fn validate_layout(
     for index in 0..counts.texts as usize {
         let reference_offset = text_records.byte_offset + 24 * index + 16;
         let reference = reader.u32(reference_offset, "text.string_reference")?;
-        if reference & 0xc000_0000 != 0x4000_0000 {
-            return Err(JwcError::unsupported(
-                reference_offset,
-                "text.string_reference",
-                "unverified reference high bits",
-            ));
-        }
-        let relative = (reference & 0x3fff_ffff) as usize;
+        let relative = reference.wrapping_sub(pool_start) as usize;
         if relative >= pool_length || relative < cursor {
             return Err(JwcError::invalid(
                 reference_offset,
@@ -119,6 +121,11 @@ pub(super) fn validate_layout(
         ));
     }
     Ok(JwcLayout {
+        fixed_header: JwcSection {
+            byte_offset: 0,
+            byte_length: fixed_header_size,
+        },
+        string_pool_start: pool_start,
         lines,
         arcs,
         text_records,
@@ -126,4 +133,10 @@ pub(super) fn validate_layout(
         points,
         names,
     })
+}
+
+impl JwcLayout {
+    pub fn string_pool_start(&self) -> u32 {
+        self.string_pool_start
+    }
 }

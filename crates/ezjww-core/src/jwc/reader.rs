@@ -66,13 +66,8 @@ impl<'a> Reader<'a> {
                 "name exceeds observed slot capacity",
             ));
         }
-        if raw[length..].iter().any(|&b| b != 0) {
-            return Err(JwcError::unsupported(
-                offset + length,
-                field,
-                "nonzero name padding",
-            ));
-        }
+        // Bytes after the NUL terminator are uninitialized memory in real DOS
+        // files; they stay in `raw_bytes` and are not validated.
         let text = self.cp932(offset, length, field, diagnostics)?;
         Ok(JwcName {
             text,

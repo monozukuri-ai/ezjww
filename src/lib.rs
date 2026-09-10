@@ -859,6 +859,12 @@ fn decode_diagnostic_to_pydict<'py>(
             details.set_item("parsed_entities", truncation.parsed_entities)?;
             details.set_item("error", &truncation.error)?;
         }
+        DiagnosticDetails::Unverified(unverified) => {
+            details.set_item("field", &unverified.field)?;
+            details.set_item("byte_offset", unverified.byte_offset)?;
+            details.set_item("count", unverified.count)?;
+            details.set_item("values", &unverified.values)?;
+        }
     }
     out.set_item("details", details)?;
     Ok(out)

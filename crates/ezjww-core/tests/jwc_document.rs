@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use ezjww_core::diagnostics::{JWC_ATTRIBUTE_UNVERIFIED, JWC_CURVE_MARKERS_UNVERIFIED};
 use ezjww_core::jwc::{JwcDocumentProfile, JwcEntityData, JwcLayerAddress, JWC_MAX_FILE_SIZE};
 use ezjww_core::{
     metadata_setting_from_text, parse_document, parse_jwc_document, parse_jwc_header,
@@ -90,7 +91,6 @@ fn native_corpus_matches_known_inputs_and_independently_reopened_jww() {
             Ok(doc) => doc,
             Err(error) => {
                 let expected = match id {
-                    "r011" => 2441,
                     "r080" => 2483,
                     _ => panic!("{id}: {error}"),
                 };
@@ -101,12 +101,22 @@ fn native_corpus_matches_known_inputs_and_independently_reopened_jww() {
             }
         };
         assert_eq!(doc.profile_id, JwcDocumentProfile::Fixed2421BasicV1);
+        assert_eq!(doc.header.fixed_header_size, 2421);
         assert_eq!(
             doc.entity_counts().values().sum::<usize>(),
             doc.entities.len()
         );
+        // Entity text must not add decode diagnostics beyond the header's own.
+        let decode_codes = |diagnostics: &[ezjww_core::Diagnostic]| {
+            diagnostics
+                .iter()
+                .filter(|d| d.unverified_details().is_none())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
-            doc.diagnostics, doc.header.diagnostics,
+            decode_codes(&doc.diagnostics),
+            decode_codes(&doc.header.diagnostics),
             "native text should decode: {id}"
         );
         let native = parse_document(
@@ -188,7 +198,13 @@ fn native_corpus_matches_known_inputs_and_independently_reopened_jww() {
                     native_layer(attributes.layer, &line.base);
                     assert_eq!(attributes.pen_style, line.base.pen_style);
                     assert_eq!(u16::from(attributes.pen_color), line.base.pen_color);
-                    assert_eq!(attributes.flags_raw, line.base.flag);
+                    // Native Jw_cad clears some stored flag bits when it re-exports
+                    // JWW (see `expected_native_flag_changes` in the case files).
+                    let expected_flag = case["expected_native_flag_changes"]["line"]
+                        [attributes.flags_raw.to_string()]
+                    .as_u64()
+                    .map_or(attributes.flags_raw, |value| value as u16);
+                    assert_eq!(expected_flag, line.base.flag, "{id}");
                 }
                 (
                     JwcEntityData::Arc {
@@ -330,8 +346,8 @@ fn native_corpus_matches_known_inputs_and_independently_reopened_jww() {
         assert!(remaining.is_empty());
         accepted += 1;
     }
-    assert_eq!(accepted, 78);
-    assert_eq!(rejected, ["r011", "r080"]);
+    assert_eq!(accepted, 79);
+    assert_eq!(rejected, ["r080"]);
 }
 
 #[test]
@@ -390,30 +406,51 @@ fn all_coordinate_fields_reject_nonfinite_values_with_exact_offsets() {
 }
 
 #[test]
-fn unsupported_attributes_and_curve_sequences_are_never_silently_dropped() {
+fn unverified_attributes_are_retained_and_reported_not_dropped() {
+    // (fixture, offset, value, expected JWC_ATTRIBUTE_UNVERIFIED field or "" for none)
+    for (id, offset, value, field) in [
+        ("q001", 2437, 5, ""),                  // JWW-numbered dash-dot style
+        ("q001", 2437, 18, "entity.pen_style"), // style 2 with attribute bit 0x10
+        ("q001", 2438, 6, ""),                  // pen 6 exists in real files
+        ("q001", 2440, 1, "entity.spare"),
+        ("q001", 2441, 2, "line.flags"),
+        ("q010", 2447, 9, ""),
+        ("q010", 2450, 1, "entity.spare"),
+        ("q010", 2451, 1, "arc.flags"),
+        ("q020", 2430, 7, ""),
+        ("q020", 2431, 1, "point.flags"),
+        ("q030", 2443, 1, "text.flags"),
+        ("q030", 1715, 6, ""), // preset 3 uses pen 6
+    ] {
+        let mut data = fixture(id);
+        data[offset] = value;
+        let doc = parse_jwc_document(&data).unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(doc.entities.len(), 1, "{id}");
+        let attributes: Vec<_> = doc
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == JWC_ATTRIBUTE_UNVERIFIED)
+            .collect();
+        if field.is_empty() {
+            assert!(attributes.is_empty(), "{id} {offset}: {attributes:?}");
+        } else {
+            assert_eq!(attributes.len(), 1, "{id} {offset}");
+            let details = attributes[0].unverified_details().unwrap();
+            assert_eq!(details.field, field, "{id}");
+            assert_eq!((details.byte_offset, details.count), (offset, 1), "{id}");
+            assert_eq!(attributes[0].severity, "warning");
+            assert_eq!(attributes[0].action, "retained");
+        }
+    }
+    // Values with no plausible meaning still fail at the exact byte.
     for (id, offset, value) in [
-        ("q001", 2437, 4),
-        ("q001", 2438, 6),
-        ("q001", 2440, 1),
-        ("q001", 2441, 2),
-        ("q001", 2442, 1),
-        ("q001", 2441, 0x80),
-        ("q001", 2441, 0x40),
-        ("q010", 2447, 4),
-        ("q010", 2448, 6),
-        ("q010", 2450, 1),
-        ("q010", 2451, 1),
-        ("q020", 2430, 6),
-        ("q020", 2431, 1),
-        ("q020", 2432, 1),
+        ("q001", 2437, 0),
+        ("q001", 2437, 10),
+        ("q001", 2438, 0),
+        ("q001", 2438, 10),
         ("q030", 2441, 0),
         ("q030", 2441, 11),
-        ("q030", 2443, 1),
-        ("q030", 2444, 1),
-        ("q030", 1715, 6),
-        // An ungrouped line inside an open curve is unverified, even though
-        // the rest of the drawing and all byte boundaries are valid.
-        ("r024", 2485, 0),
+        ("q030", 1715, 10),
     ] {
         let mut data = fixture(id);
         data[offset] = value;
@@ -422,17 +459,39 @@ fn unsupported_attributes_and_curve_sequences_are_never_silently_dropped() {
             matches!(error, JwcError::UnsupportedLayout { .. }),
             "{id}: {error}"
         );
-        // The line flag is a u16 field; its error points to the field start.
-        let expected_offset = if id == "q001" && offset == 2442 {
-            2441
-        } else {
-            offset
-        };
-        assert_eq!(error.byte_offset(), Some(expected_offset), "{id}");
+        assert_eq!(error.byte_offset(), Some(offset), "{id}");
     }
-    assert!(parse_jwc_header(&fixture("r011")).is_ok());
-    assert!(parse_jwc_document(&fixture("r011")).is_err());
+    // Curve markers outside the verified sequence keep the lines ungrouped.
+    for (id, offset, value, marker) in [
+        ("q001", 2441, 0x80, "0x80"),
+        ("q001", 2441, 0x40, "unterminated"),
+        ("r024", 2485, 0, "0x00"),
+    ] {
+        let mut data = fixture(id);
+        data[offset] = value;
+        let doc = parse_jwc_document(&data).unwrap_or_else(|error| panic!("{id}: {error}"));
+        let markers: Vec<_> = doc
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == JWC_CURVE_MARKERS_UNVERIFIED)
+            .collect();
+        assert_eq!(markers.len(), 1, "{id}");
+        let details = markers[0].unverified_details().unwrap();
+        assert_eq!(
+            (details.count, details.values.as_slice()),
+            (1, &[marker.to_string()][..]),
+            "{id}"
+        );
+    }
+    // r011 stores line flag 2, which native Jw_cad clears on re-export.
+    let flagged = parse_jwc_document(&fixture("r011")).unwrap();
+    assert!(matches!(
+        flagged.entities[0].data,
+        JwcEntityData::Line { attributes, .. } if attributes.flags_raw == 2
+    ));
+    assert_eq!(flagged.diagnostics.len(), 1);
     let grouped = parse_jwc_document(&fixture("r024")).unwrap();
+    assert!(grouped.diagnostics.is_empty());
     let flags: Vec<_> = grouped
         .entities
         .iter()
@@ -445,7 +504,7 @@ fn unsupported_attributes_and_curve_sequences_are_never_silently_dropped() {
 }
 
 #[test]
-fn arc_radius_flatness_angles_and_unverified_elliptical_arcs_fail_explicitly() {
+fn arc_radius_flatness_and_angle_ranges_fail_while_tilts_and_elliptical_arcs_are_read() {
     for radius in [0_f32, -1.] {
         let mut data = fixture("q010");
         data[2429..2433].copy_from_slice(&radius.to_le_bytes());
@@ -469,22 +528,36 @@ fn arc_radius_flatness_angles_and_unverified_elliptical_arcs_fail_explicitly() {
             );
         }
     }
+    // Equal nonzero angles denote a closed curve in real files.
     let mut equal = fixture("q010");
     equal[2435..2439].copy_from_slice(&65536_i32.to_le_bytes());
     equal[2439..2443].copy_from_slice(&65536_i32.to_le_bytes());
+    let doc = parse_jwc_document(&equal).unwrap();
     assert!(matches!(
-        parse_jwc_document(&equal),
-        Err(JwcError::UnsupportedLayout { offset: 2435, .. })
+        doc.entities[0].data,
+        JwcEntityData::Arc { is_full_circle: true, start_angle_degrees, .. } if start_angle_degrees == 1.
     ));
+    assert_eq!(doc.entities[0].entity_type(), "CIRCLE");
+    assert_eq!(
+        doc.diagnostics[0].unverified_details().unwrap().field,
+        "arc.angles"
+    );
+    // Partial elliptical arcs and tilted circular arcs are read as stored.
     let mut ellipse = fixture("q012");
     ellipse[2433..2435].copy_from_slice(&5000_u16.to_le_bytes());
+    let doc = parse_jwc_document(&ellipse).unwrap();
     assert!(matches!(
-        parse_jwc_document(&ellipse),
-        Err(JwcError::UnsupportedLayout { offset: 2433, .. })
+        doc.entities[0].data,
+        JwcEntityData::Arc { flatness, is_full_circle: false, .. } if flatness == 0.5
     ));
-    let mut tilted_circle = fixture("q010");
-    tilted_circle[2443..2447].copy_from_slice(&65536_i32.to_le_bytes());
-    assert!(parse_jwc_document(&tilted_circle).is_err());
+    let mut tilted = fixture("q012");
+    tilted[2443..2447].copy_from_slice(&(30 * 65536_i32).to_le_bytes());
+    let doc = parse_jwc_document(&tilted).unwrap();
+    assert!(matches!(
+        doc.entities[0].data,
+        JwcEntityData::Arc { tilt_angle_degrees, flatness, .. } if tilt_angle_degrees == 30. && flatness == 1.
+    ));
+    assert!(doc.diagnostics.is_empty());
 }
 
 #[test]

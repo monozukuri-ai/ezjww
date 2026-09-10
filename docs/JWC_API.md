@@ -57,8 +57,15 @@ from the fixed record. These coordinates have not been converted to millimeters.
 
 `header.source_version` is currently `None`/`null`; the field is typed as a
 nullable string. The profile identifier describes ezjww's accepted layout, not
-the creating application or a JWW version. The header does not invent a source
-font or RGB palette.
+the creating application or a JWW version: `fixed2421_basic_v1` (f32 layer-group
+scales, 2,421-byte header) or `fixed2389_basic_v1` (u16 scales, 2,389-byte
+header). `header.fixed_header_size`, `header.write_layer` and
+`layout.string_pool_start` expose the selected layout. The header does not invent
+a source font or RGB palette.
+
+Settings and attribute bits that differ from ezjww's reference corpus do not
+reject a file; they are retained and reported as `JWC_*` diagnostics (see the
+[diagnostic catalog](DIAGNOSTICS.md)). Structural inconsistencies still raise.
 
 Source entity counts follow stored record categories. Full circles and full
 ellipses both count as `CIRCLE`; inspect `flatness` to distinguish them. Converted

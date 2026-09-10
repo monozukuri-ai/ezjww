@@ -6,8 +6,14 @@ use super::model::{
     JwcStrokeAttributes,
 };
 use super::reader::Reader;
-use super::{parse_jwc_header, JwcError, JwcHeader, JwcSection};
+use super::unverified::UnverifiedCollector;
+use super::{parse_jwc_header, JwcError, JwcHeader, JwcHeaderProfile, JwcSection};
+use crate::diagnostics::{JWC_ATTRIBUTE_UNVERIFIED, JWC_CURVE_MARKERS_UNVERIFIED};
 use crate::Coord2D;
+
+/// Bits of the line flag word that encode curve-group boundaries
+/// (`0x40` start, `0x80` member, `0xC0` end or singleton).
+pub const JWC_CURVE_MARKER_MASK: u16 = 0xc0;
 
 fn xy(reader: &Reader<'_>, offset: usize, field: &str) -> Result<Coord2D, JwcError> {
     Ok(Coord2D::new(
@@ -16,23 +22,25 @@ fn xy(reader: &Reader<'_>, offset: usize, field: &str) -> Result<Coord2D, JwcErr
     ))
 }
 
-fn zero(reader: &Reader<'_>, offset: usize, length: usize, field: &str) -> Result<(), JwcError> {
-    if let Some(index) = reader
-        .bytes(offset, length, field)?
-        .iter()
-        .position(|&b| b != 0)
-    {
-        return Err(JwcError::unsupported(
-            offset + index,
-            field,
-            "unverified attribute bits",
-        ));
+/// Spare bytes were always zero in the reference corpus; real files carry
+/// attribute bits there. They are retained in the record's raw bytes and reported.
+fn spare(
+    reader: &Reader<'_>,
+    offset: usize,
+    length: usize,
+    field: &str,
+    unverified: &mut UnverifiedCollector,
+) -> Result<(), JwcError> {
+    let bytes = reader.bytes(offset, length, field)?;
+    if bytes.iter().any(|&b| b != 0) {
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        unverified.note(JWC_ATTRIBUTE_UNVERIFIED, field, offset, format!("0x{hex}"));
     }
     Ok(())
 }
 
 fn color(value: u16, offset: usize) -> Result<(), JwcError> {
-    if !(1..=5).contains(&value) {
+    if !(1..=9).contains(&value) {
         return Err(JwcError::unsupported(
             offset,
             "entity.pen_color",
@@ -42,17 +50,36 @@ fn color(value: u16, offset: usize) -> Result<(), JwcError> {
     Ok(())
 }
 
-fn stroke(reader: &Reader<'_>, offset: usize) -> Result<JwcStrokeAttributes, JwcError> {
-    let bytes = reader.bytes(offset, 6, "entity.attributes")?;
-    if !(1..=3).contains(&bytes[0]) {
+/// The low nibble is the line style number (1–9, JWW numbering); the high
+/// nibble carries attribute bits observed only in real files (e.g. `0x10`).
+fn style(value: u8, offset: usize, unverified: &mut UnverifiedCollector) -> Result<(), JwcError> {
+    if !(1..=9).contains(&(value & 0x0f)) {
         return Err(JwcError::unsupported(
             offset,
             "entity.pen_style",
             "unverified line style",
         ));
     }
+    if value & 0xf0 != 0 {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
+            "entity.pen_style",
+            offset,
+            value.to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn stroke(
+    reader: &Reader<'_>,
+    offset: usize,
+    unverified: &mut UnverifiedCollector,
+) -> Result<JwcStrokeAttributes, JwcError> {
+    let bytes = reader.bytes(offset, 6, "entity.attributes")?;
+    style(bytes[0], offset, unverified)?;
     color(u16::from(bytes[1]), offset + 1)?;
-    zero(reader, offset + 3, 1, "entity.attributes")?;
+    spare(reader, offset + 3, 1, "entity.spare", unverified)?;
     Ok(JwcStrokeAttributes {
         pen_style: bytes[0],
         pen_color: bytes[1],
@@ -92,7 +119,11 @@ fn angle(reader: &Reader<'_>, offset: usize) -> Result<f64, JwcError> {
     Ok(f64::from(raw) / 65536.)
 }
 
-fn arc(reader: &Reader<'_>, offset: usize) -> Result<JwcEntityData, JwcError> {
+fn arc(
+    reader: &Reader<'_>,
+    offset: usize,
+    unverified: &mut UnverifiedCollector,
+) -> Result<JwcEntityData, JwcError> {
     let center = xy(reader, offset, "arc.center")?;
     let radius = f64::from(reader.finite_f32(offset + 8, "arc.radius")?);
     if radius <= 0. {
@@ -120,25 +151,19 @@ fn arc(reader: &Reader<'_>, offset: usize) -> Result<JwcEntityData, JwcError> {
     let start_angle_degrees = angle(reader, offset + 14)?;
     let end_angle_degrees = angle(reader, offset + 18)?;
     let tilt_angle_degrees = angle(reader, offset + 22)?;
-    let is_full_circle = start_angle_degrees == 0. && end_angle_degrees == 0.;
-    if !is_full_circle && start_angle_degrees == end_angle_degrees {
-        return Err(JwcError::unsupported(
-            offset + 14,
+    // Equal angles denote a closed curve. The reference corpus only stored 0/0;
+    // real files may store any equal pair.
+    let is_full_circle = start_angle_degrees == end_angle_degrees;
+    if is_full_circle && start_angle_degrees != 0. {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
             "arc.angles",
-            "nonzero equal angles are unverified",
-        ));
+            offset + 14,
+            format!("start=end={start_angle_degrees}"),
+        );
     }
-    if (!is_full_circle && flatness_raw != 10000)
-        || (flatness_raw == 10000 && tilt_angle_degrees != 0.)
-    {
-        return Err(JwcError::unsupported(
-            offset + 12,
-            "arc.geometry",
-            "elliptical arcs and tilted circular arcs are unverified",
-        ));
-    }
-    let attributes = stroke(reader, offset + 26)?;
-    zero(reader, offset + 30, 2, "arc.flags")?;
+    let attributes = stroke(reader, offset + 26, unverified)?;
+    spare(reader, offset + 30, 2, "arc.flags", unverified)?;
     Ok(JwcEntityData::Arc {
         center,
         radius,
@@ -157,6 +182,7 @@ fn text(
     offset: usize,
     entity_index: usize,
     diagnostics: &mut Vec<crate::Diagnostic>,
+    unverified: &mut UnverifiedCollector,
 ) -> Result<JwcEntityData, JwcError> {
     let start = xy(reader, offset, "text.start")?;
     let end = xy(reader, offset + 8, "text.end")?;
@@ -179,10 +205,11 @@ fn text(
         header.text_presets[usize::from(preset)].pen_color,
         1709 + usize::from(preset) * 2,
     )?;
-    zero(reader, offset + 22, 2, "text.attributes")?;
-    // P2 has already validated reference flags, ranges, contiguity, bounded NULs,
+    spare(reader, offset + 22, 2, "text.flags", unverified)?;
+    // P2 has already validated reference ranges, contiguity, bounded NULs,
     // and the entire file layout. Scan only this pool, never the name slots.
-    let relative = (reader.u32(offset + 16, "text.string_reference")? & 0x3fff_ffff) as usize;
+    let reference = reader.u32(offset + 16, "text.string_reference")?;
+    let relative = reference.wrapping_sub(header.layout.string_pool_start()) as usize;
     let string_offset = header.layout.string_pool.byte_offset + relative;
     let remaining = header.layout.string_pool.byte_length - relative;
     let pool = reader.bytes(
@@ -224,8 +251,10 @@ fn text(
     })
 }
 
-/// Decode the bounded fixed2421_basic_v1 record profile atomically. No partial
-/// result, DXF conversion, paper/model-unit scaling or guessed font is returned.
+/// Decode the bounded record profile atomically. No partial result, DXF
+/// conversion, paper/model-unit scaling or guessed font is returned. Values
+/// outside the reference corpus (style bits, flags, spare bytes) are retained
+/// and reported as diagnostics; structural inconsistencies still fail.
 pub fn parse_jwc_document(data: &[u8]) -> Result<JwcDocument, JwcError> {
     let header = parse_jwc_header(data)?;
     let reader = Reader::new(data);
@@ -234,6 +263,7 @@ pub fn parse_jwc_document(data: &[u8]) -> Result<JwcDocument, JwcError> {
     let count = counts.lines + counts.arcs + counts.texts + counts.points + counts.temporary_points;
     let mut entities = Vec::with_capacity(count as usize);
     let mut diagnostics = header.diagnostics.clone();
+    let mut unverified = UnverifiedCollector::new();
     for point in &header.temporary_points {
         let index = usize::from(point.array_index);
         entities.push(JwcEntity {
@@ -255,25 +285,39 @@ pub fn parse_jwc_document(data: &[u8]) -> Result<JwcDocument, JwcError> {
             },
         });
     }
-    let mut curve_start = None;
+    let mut curve_open = false;
+    let mut last_flags_offset = None;
     for index in 0..counts.lines as usize {
         let offset = header.layout.lines.byte_offset + index * 22;
         let start = xy(&reader, offset, "line.start")?;
         let end = xy(&reader, offset + 8, "line.end")?;
-        let attributes = stroke(&reader, offset + 16)?;
-        match (attributes.flags_raw, curve_start.is_some()) {
+        let attributes = stroke(&reader, offset + 16, &mut unverified)?;
+        let marker = attributes.flags_raw & JWC_CURVE_MARKER_MASK;
+        let other = attributes.flags_raw & !JWC_CURVE_MARKER_MASK;
+        if other != 0 {
+            unverified.note(
+                JWC_ATTRIBUTE_UNVERIFIED,
+                "line.flags",
+                offset + 20,
+                format!("{other:#06x}"),
+            );
+        }
+        match (marker, curve_open) {
             (0, false) => {}
-            (0x40, false) => curve_start = Some(offset + 20),
+            (0x40, false) => curve_open = true,
             (0x80, true) => {}
-            (0xc0, _) => curve_start = None, // End of a group, or a singleton.
+            (0xc0, _) => curve_open = false, // End of a group, or a singleton.
             _ => {
-                return Err(JwcError::unsupported(
-                    offset + 20,
+                unverified.note(
+                    JWC_CURVE_MARKERS_UNVERIFIED,
                     "line.flags",
-                    "unverified flags or curve-marker sequence",
-                ))
+                    offset + 20,
+                    format!("{marker:#04x}"),
+                );
+                curve_open = marker == 0x40;
             }
         }
+        last_flags_offset = Some(offset + 20);
         entities.push(JwcEntity {
             source: source(&reader, &[(offset, 22)])?,
             data: JwcEntityData::Line {
@@ -283,23 +327,31 @@ pub fn parse_jwc_document(data: &[u8]) -> Result<JwcDocument, JwcError> {
             },
         });
     }
-    if let Some(offset) = curve_start {
-        return Err(JwcError::unsupported(
-            offset,
+    if curve_open {
+        unverified.note(
+            JWC_CURVE_MARKERS_UNVERIFIED,
             "line.flags",
-            "unterminated curve-marker sequence",
-        ));
+            last_flags_offset.unwrap_or(header.layout.lines.byte_offset),
+            "unterminated",
+        );
     }
     for index in 0..counts.arcs as usize {
         let offset = header.layout.arcs.byte_offset + index * 32;
         entities.push(JwcEntity {
             source: source(&reader, &[(offset, 32)])?,
-            data: arc(&reader, offset)?,
+            data: arc(&reader, offset, &mut unverified)?,
         });
     }
     for index in 0..counts.texts as usize {
         let offset = header.layout.text_records.byte_offset + index * 24;
-        let record = text(&reader, &header, offset, entities.len(), &mut diagnostics)?;
+        let record = text(
+            &reader,
+            &header,
+            offset,
+            entities.len(),
+            &mut diagnostics,
+            &mut unverified,
+        )?;
         entities.push(JwcEntity {
             source: source(&reader, &[(offset, 24)])?,
             data: record,
@@ -310,19 +362,23 @@ pub fn parse_jwc_document(data: &[u8]) -> Result<JwcDocument, JwcError> {
         let position = xy(&reader, offset, "point.position")?;
         let bytes = reader.bytes(offset + 8, 4, "point.attributes")?;
         color(u16::from(bytes[1]), offset + 9)?;
-        zero(&reader, offset + 10, 2, "point.flags")?;
+        spare(&reader, offset + 10, 2, "point.flags", &mut unverified)?;
         entities.push(JwcEntity {
             source: source(&reader, &[(offset, 12)])?,
             data: JwcEntityData::Point {
                 position,
                 layer: JwcLayerAddress::from_packed(bytes[0]),
                 pen_color: bytes[1],
-                flags_raw: 0,
+                flags_raw: reader.u16(offset + 10, "point.flags")?,
             },
         });
     }
+    diagnostics.extend(unverified.into_diagnostics());
     Ok(JwcDocument {
-        profile_id: JwcDocumentProfile::Fixed2421BasicV1,
+        profile_id: match header.profile_id {
+            JwcHeaderProfile::Fixed2421Csv32V1 => JwcDocumentProfile::Fixed2421BasicV1,
+            JwcHeaderProfile::Fixed2389U16ScaleV1 => JwcDocumentProfile::Fixed2389BasicV1,
+        },
         header,
         entities,
         diagnostics,

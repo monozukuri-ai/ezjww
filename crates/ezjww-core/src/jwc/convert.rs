@@ -102,10 +102,17 @@ pub fn convert_jwc_document(
         // Explicit JWC rendering policy. A numeric JWW pen/style identity is
         // not enough to reproduce the reference DXF colors and line patterns.
         let color = normalized.report.aci_colors[usize::from(entity.base().pen_color - 1)];
+        // JWW-numbered styles: 1 continuous, 2/3/4 dashed, 5/6 dash-dot,
+        // 7/8 double dash-dot, 9 auxiliary (drawn continuous).
         let style = match entity.base().pen_style {
-            1 => "CONTINUOUS",
+            1 | 9 => "CONTINUOUS",
             2 => "JWC_DASHED1",
-            6 => "JWC_DASHED2",
+            3 => "JWC_DASHED2",
+            4 => "JWC_DASHED3",
+            5 => "JWC_DASHDOT1",
+            6 => "JWC_DASHDOT2",
+            7 => "JWC_DIVIDE1",
+            8 => "JWC_DIVIDE2",
             _ => return Err(invalid(Some(index), "unknown normalized line style")),
         };
         match converted {

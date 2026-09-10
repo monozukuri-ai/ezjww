@@ -75,7 +75,19 @@ def test_jww_only_readers_and_content_detection(tmp_path):
         ezjww.read_jwc_header(str(tmp_path / "missing.jwc"))
 
 
-@pytest.mark.parametrize("name,offset", [("r011", 2441), ("r080", 2483)])
+def test_unverified_flag_bits_are_retained_and_reported():
+    path = sample("r011")
+    document = ezjww.read_jwc_document(path)
+    assert document["entities"][0]["attributes"]["flags_raw"] == 2
+    codes = {d["code"] for d in document["diagnostics"]}
+    assert codes == {"JWC_ATTRIBUTE_UNVERIFIED"}
+    details = document["diagnostics"][0]["details"]
+    assert details["field"] == "line.flags" and details["count"] == 1
+    assert ezjww.audit(path)["has_issues"]
+    assert ezjww.read_dxf_document(path)["entities"][0]["type"] == "LINE"
+
+
+@pytest.mark.parametrize("name,offset", [("r080", 2483)])
 def test_unsupported_inputs_fail_all_document_and_conversion_readers(name, offset):
     path = sample(name)
     assert ezjww.is_jwc_file(path)
