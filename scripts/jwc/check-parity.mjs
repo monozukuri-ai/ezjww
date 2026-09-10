@@ -7,7 +7,6 @@ import { resolve } from "node:path";
 
 const sha = value => createHash("sha256").update(value).digest("hex");
 const errors = {
-  r011: "unsupported JWC layout at byte 2441 (line.flags): unverified flags or curve-marker sequence",
   r080: "unsupported JWC layout at byte 2483 (text.string_reference): unexplained gap in string pool",
 };
 
@@ -62,6 +61,7 @@ print(json.dumps({"python_module": ezjww.__file__, "cases": out}, ensure_ascii=F
   }));
   const evidence = [];
   let dxfHashes = 0;
+  let parityHashes = 0;
   for (const sample of cases) {
     const input = readFileSync(sample.path);
     const py = expected.cases[sample.id];
@@ -92,18 +92,25 @@ print(json.dumps({"python_module": ezjww.__file__, "cases": out}, ensure_ascii=F
       assert.deepEqual(api.readDxfDocument(input, { ...opts, explodeInserts: true }), dxf);
       const reference = p4.cases.find(c => c.id === sample.name && `${c.space}_millimeters` === space);
       // P4 calls paper coordinates "paper"; model coordinates "model".
-      assert.ok(reference, `${sample.id} ${space}: missing P4 reference`);
+      // r011 was rejected when P4 was archived. Keep that archive unchanged;
+      // its newly accepted output still requires full Python/TypeScript parity.
+      if (sample.name === "r011") assert.equal(reference, undefined);
+      else assert.ok(reference, `${sample.id} ${space}: missing P4 reference`);
       for (const targetVersion of ["AC1015", "AC1024"]) {
         const text = api.readDxfString(input, { ...opts, targetVersion });
         assert.equal(text, api.readDxfString(input, { ...opts, targetVersion, explodeInserts: true }));
         assert.equal(sha(text), hashes[targetVersion], sample.id);
-        assert.equal(sha(text), targetVersion === "AC1015" ? reference.dxf_sha256 : reference.dxf_2010_sha256);
-        dxfHashes++;
+        parityHashes++;
+        if (reference) {
+          assert.equal(sha(text), targetVersion === "AC1015" ? reference.dxf_sha256 : reference.dxf_2010_sha256);
+          dxfHashes++;
+        }
       }
       conversions.push({ space, hashes });
     }
     evidence.push({ id: sample.id, input_sha256: sample.sha256, entities: py.cad.document.entities.length, conversions });
   }
   assert.equal(dxfHashes, 312);
-  return { inputs: 80, accepted: 78, rejected: 2, dxf_hashes: dxfHashes, python_module: expected.python_module, cases: evidence };
+  assert.equal(parityHashes, 316);
+  return { inputs: 80, accepted: 79, rejected: 1, dxf_hashes: dxfHashes, dxf_parity_hashes: parityHashes, python_module: expected.python_module, cases: evidence };
 }

@@ -78,7 +78,32 @@ def probe(work):
     cli_dxf = work / "cli.dxf"
     run(*base, "to-dxf", source, "-o", str(cli_dxf), capture_output=True)
     assert cli_dxf.read_text(encoding="utf-8") == ezjww.read_dxf_string(source)
-    for name, offset in [("r011", 2441), ("r080", 2483)]:
+    flagged_path = str(work / "r011.jwc")
+    flagged = ezjww.read_jwc_document(flagged_path)
+    assert len(flagged["entities"]) == 1
+    assert flagged["entities"][0]["attributes"]["flags_raw"] == 2
+    assert len(flagged["diagnostics"]) == 1
+    diagnostic = flagged["diagnostics"][0]
+    assert diagnostic["code"] == "JWC_ATTRIBUTE_UNVERIFIED"
+    assert diagnostic["severity"] == "warning" and diagnostic["action"] == "retained"
+    assert diagnostic["details"] == {
+        "field": "line.flags", "byte_offset": 2441, "count": 1, "values": ["0x0002"]
+    }
+    assert ezjww.read_cad_document(flagged_path) == {"format": "jwc", "document": flagged}
+    flagged_dxf = ezjww.read_dxf_document(flagged_path)
+    assert len(flagged_dxf["entities"]) == 1
+    assert flagged_dxf["entities"][0]["type"] == "LINE"
+    assert flagged_dxf["jwc_conversion_report"]["diagnostics"] == flagged["diagnostics"]
+    flagged_audit = json.loads(
+        run(*base, "audit", flagged_path, "--json", capture_output=True).stdout
+    )
+    assert flagged_audit["has_issues"]
+    assert flagged_audit["diagnostics"] == flagged["diagnostics"]
+    flagged_output = work / "r011.dxf"
+    run(*base, "to-dxf", flagged_path, "-o", str(flagged_output), capture_output=True)
+    assert flagged_output.read_text(encoding="utf-8") == ezjww.read_dxf_string(flagged_path)
+
+    for name, offset in [("r080", 2483)]:
         path = str(work / f"{name}.jwc")
         for read in [
             ezjww.read_jwc_document,
@@ -143,7 +168,8 @@ def probe(work):
             "CP932 diagnostics",
             "five JSON CLI readers",
             "DXF CLI",
-            "two rejections",
+            "unverified line flags and diagnostics (API and CLI)",
+            "structural rejection",
             "mixed batch",
             "collision before write",
             "console script",

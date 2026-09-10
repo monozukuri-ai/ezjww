@@ -47,7 +47,24 @@ const tags = dxf.split(/\r?\n/).map(line => line.trim());
 const units = tags.indexOf('$INSUNITS');
 assert.deepEqual(tags.slice(units + 1, units + 3), ['70', '4']);
 assert.ok(ez.readDxfDocument(input).text_width_factors.length > 0);
-for (const [name, offset] of [['r011',2441], ['r080',2483]]) {
+const flaggedInput = fs.readFileSync('r011.jwc');
+const flagged = ez.readJwcDocument(flaggedInput);
+assert.equal(flagged.entities.length, 1);
+assert.equal(flagged.entities[0].attributes.flags_raw, 2);
+assert.equal(flagged.diagnostics.length, 1);
+assert.equal(flagged.diagnostics[0].code, 'JWC_ATTRIBUTE_UNVERIFIED');
+assert.equal(flagged.diagnostics[0].severity, 'warning');
+assert.equal(flagged.diagnostics[0].action, 'retained');
+assert.deepEqual(flagged.diagnostics[0].details, {
+  field: 'line.flags', byte_offset: 2441, count: 1, values: ['0x0002'],
+});
+assert.deepEqual(ez.readCadDocument(flaggedInput), {format: 'jwc', document: flagged});
+const flaggedDxf = ez.readDxfDocument(flaggedInput);
+assert.equal(flaggedDxf.entities.length, 1);
+assert.equal(flaggedDxf.entities[0].type, 'LINE');
+assert.deepEqual(flaggedDxf.jwc_conversion_report.diagnostics, flagged.diagnostics);
+assert.ok(ez.readDxfString(flaggedInput).includes('\nLINE\n'));
+for (const [name, offset] of [['r080',2483]]) {
   const data = fs.readFileSync(name + '.jwc');
   for (const read of [ez.readJwcDocument, ez.readCadDocument, ez.readDxfString]) {
     assert.throws(() => read(data), e => String(e).includes('byte ' + offset));
@@ -83,7 +100,7 @@ const sha = p => createHash("sha256").update(readFileSync(p)).digest("hex");
 const report = {
   ...result, workdir, archive, archive_sha256: sha(archive),
   jwc_dxf_sha256: sha(join(workdir, "q032.dxf")),
-  checked: ["JWW", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "two rejections", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
+  checked: ["JWW", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
 };
 mkdirSync(dirname(resolve(values.report)), { recursive: true });
 writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");

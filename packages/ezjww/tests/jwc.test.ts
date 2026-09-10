@@ -62,7 +62,27 @@ describe("JWC public API", () => {
     expect(() => readCadDocument(new Uint8Array())).toThrow();
   });
 
-  it.each([["r011", 2441], ["r080", 2483]] as const)("rejects %s with its source offset", (name, offset) => {
+  it("retains unverified line flags and reports them through source and conversion APIs", () => {
+    const input = sample("r011");
+    const document = readJwcDocument(input);
+    expect(document.entities).toHaveLength(1);
+    expect(document.entities[0]).toMatchObject({ type: "line", attributes: { flags_raw: 2 } });
+    expect(document.diagnostics).toHaveLength(1);
+    expect(document.diagnostics[0]).toMatchObject({
+      code: "JWC_ATTRIBUTE_UNVERIFIED",
+      severity: "warning",
+      action: "retained",
+      details: { field: "line.flags", byte_offset: 2441, count: 1, values: ["0x0002"] },
+    });
+    expect(readCadDocument(input)).toEqual({ format: "jwc", document });
+    const dxf = readDxfDocument(input);
+    expect(dxf.entities).toHaveLength(1);
+    expect(dxf.entities[0].type).toBe("LINE");
+    expect(dxf.jwc_conversion_report?.diagnostics).toEqual(document.diagnostics);
+    expect(readDxfString(input)).toContain("\nLINE\n");
+  });
+
+  it.each([["r080", 2483]] as const)("rejects %s with its source offset", (name, offset) => {
     const input = sample(name);
     expect(isJwcFile(input)).toBe(true);
     for (const read of [readJwcDocument, readCadDocument, readDxfDocument, readDxfString]) {
