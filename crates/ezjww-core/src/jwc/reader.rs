@@ -4,6 +4,7 @@ use encoding_rs::SHIFT_JIS;
 
 use super::error::JwcError;
 use super::header::JwcName;
+use super::unverified::{UnverifiedCollector, UNTERMINATED_NAME_SLOT};
 use crate::diagnostics::Diagnostic;
 
 pub(super) struct Reader<'a> {
@@ -51,21 +52,22 @@ impl<'a> Reader<'a> {
         &self,
         offset: usize,
         width: usize,
-        content_limit: usize,
         field: &str,
+        slot_field: &'static str,
         diagnostics: &mut Vec<Diagnostic>,
+        unverified: &mut UnverifiedCollector,
     ) -> Result<JwcName, JwcError> {
         let raw = self.bytes(offset, width, field)?;
-        let length = raw.iter().position(|&b| b == 0).ok_or_else(|| {
-            JwcError::invalid(offset, field, "missing NUL terminator in name slot")
-        })?;
-        if length > content_limit {
-            return Err(JwcError::unsupported(
-                offset,
-                field,
-                "name exceeds observed slot capacity",
-            ));
-        }
+        // A name that fills its slot has no room for a terminator,
+        // so the NUL is optional: it ends the name when present, otherwise the slot is the name.
+        let length = match raw.iter().position(|&b| b == 0) {
+            Some(length) => length,
+            None => {
+                // Accepted, but the native writer always terminates, so report it.
+                unverified.note(UNTERMINATED_NAME_SLOT, slot_field, offset, field);
+                width
+            }
+        };
         // Bytes after the NUL terminator are uninitialized memory in real DOS
         // files; they stay in `raw_bytes` and are not validated.
         let text = self.cp932(offset, length, field, diagnostics)?;

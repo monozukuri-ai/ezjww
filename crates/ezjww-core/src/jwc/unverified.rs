@@ -14,6 +14,10 @@ use crate::diagnostics::{
 
 const MAX_VALUES: usize = 8;
 
+/// Internal aggregation key for fixed-width name slots that carry no NUL terminator.
+/// It is not a public issue code: like every key outside the dedicated list below it is emitted as `JWC_ATTRIBUTE_UNVERIFIED`.
+pub(super) const UNTERMINATED_NAME_SLOT: &str = "jwc.name_slot.unterminated";
+
 struct Entry {
     first_offset: usize,
     count: usize,
@@ -98,6 +102,14 @@ impl UnverifiedCollector {
                     format!(
                         "Header write scale differs from the selected layer group's scale at byte {} ({examples}); per-group scales were used.",
                         entry.first_offset
+                    ),
+                ),
+                UNTERMINATED_NAME_SLOT => (
+                    "warning",
+                    "retained",
+                    format!(
+                        "{} {field} slot(s) carry no NUL terminator; the whole fixed-width slot was accepted as the name (first at byte {}; e.g. {examples}).",
+                        entry.count, entry.first_offset
                     ),
                 ),
                 _ => (
