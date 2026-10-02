@@ -24,8 +24,9 @@ pub use dxf::{
 pub use error::{CadError, JwwError};
 pub use format::{detect_format, CadFormat};
 pub use header::{
-    is_jww_signature, parse_header, read_header_from_file, JwwHeader, JwwPalette, LayerGroupHeader,
-    LayerHeader,
+    is_jww_signature, parse_header, read_header_from_file, JwwHeader, JwwLineTypes, JwwPalette,
+    LayerGroupHeader, LayerHeader, LineTypePattern, RandomLineType, SxfLineType,
+    PRINTER_PITCH_UNIT_MM,
 };
 pub use jwc::{
     is_jwc_signature, parse_jwc_document, parse_jwc_header, read_jwc_document_from_file,

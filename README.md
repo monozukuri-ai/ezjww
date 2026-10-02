@@ -98,6 +98,33 @@ from the stored endpoint span and half/full-width character cells. Actual glyph
 advances depend on the selected font; this is not an exact fit for every font
 substitution. JWC retains its existing width/height ratio.
 
+### Line type settings
+
+A JWW file records how each of its line types is drawn. `read_header` and
+`read_document` report them as `header["line_types"]` (`None` for files older
+than version 3.00):
+
+```python
+import ezjww
+
+line_types = ezjww.read_header("drawing.jww")["line_types"]
+for item in line_types["standard"]:          # line types 2-9
+    print(item["number"], item["runs"], item["segments_mm"])
+for item in line_types["sxf"] or []:         # line types 30-62 (version 4.20+)
+    print(item["number"], item["name"], item["segments_mm"])
+```
+
+- `standard` (2-9: dashed 1-3, chain 1-2, double-dot chain 1-2, construction
+  line) and `double_length` (16-19) carry the bit `pattern`, its `unit_dots`,
+  the screen `pitch` and the `printer_pitch`. `runs` is the pattern as dash and
+  gap lengths in bits, starting with the longest dash, and `segments_mm` the
+  lengths it prints at: one bit is `printer_pitch / 32` mm.
+- `random` (11-15) carries the amplitude and pitch of the hand-drawn line types.
+- `sxf` (30-62) carries the SXF-compatible line types with their `name` and the
+  `segments_mm` stored in the file. Numbers 47-62 are user-defined.
+
+Entities refer to a line type by `pen_style`.
+
 Use `text_em_scale` when a target renderer draws a larger em box per unit of DXF
 text height. It must be positive and finite; the default is `1.0`. This divides
 the exported text height (group 40). A value such as `1.364` is an example that

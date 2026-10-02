@@ -55,6 +55,44 @@ class PublicApiTests(unittest.TestCase):
         self.assertEqual(palette["extended_colors"][1], 0x000000)
         self.assertEqual(palette["extended_colors"][2], 0x0000FF)
 
+    def test_read_header_exposes_the_line_type_settings(self):
+        header = ezjww.read_header(str(sample_path()))
+        line_types = header["line_types"]
+        self.assertIsNotNone(line_types)
+        assert line_types is not None
+
+        self.assertEqual(
+            [item["number"] for item in line_types["standard"]], list(range(2, 10))
+        )
+        self.assertEqual(
+            [item["number"] for item in line_types["random"]], list(range(11, 16))
+        )
+        self.assertEqual(
+            [item["number"] for item in line_types["double_length"]], list(range(16, 20))
+        )
+        # Chain line 1 with the Jw_cad default settings: the bit pattern comes
+        # with its run lengths and the lengths it prints at.
+        chain = line_types["standard"][3]
+        self.assertEqual(chain["pattern"], 0xF99FF99F)
+        self.assertEqual(chain["unit_dots"], 16)
+        self.assertEqual(chain["printer_pitch"], 10)
+        self.assertEqual(chain["runs"], [10, 2, 2, 2])
+        self.assertEqual(chain["segments_mm"], [3.125, 0.625, 0.625, 0.625])
+
+        sxf = line_types["sxf"]
+        self.assertIsNotNone(sxf)
+        assert sxf is not None
+        self.assertEqual(len(sxf), 33)
+        self.assertEqual(sxf[0]["number"], 30)
+        self.assertEqual(sxf[2]["name"], "dashed")
+        self.assertEqual(sxf[2]["segments_mm"], [6.0, 1.5])
+        self.assertEqual(sxf[17]["number"], 47)
+        self.assertEqual(sxf[17]["segments_mm"], [])
+
+        # The document header is the same structure.
+        document = ezjww.read_document(str(sample_path()))
+        self.assertEqual(document["header"]["line_types"], line_types)
+
     def test_internal_settings_are_exposed_but_not_converted_to_dxf_text(self):
         path = ROOT / "jww_samples" / "block_regressions" / "non_block.jww"
 

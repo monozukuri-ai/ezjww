@@ -2396,6 +2396,7 @@ mod tests {
                 }),
             }),
             palette: None,
+            line_types: None,
         }
     }
 

@@ -18,8 +18,8 @@ pub use ezjww_core::{
     ConvertOptions, Coord2D, DecodeDiagnostic, DiagnosticDetails, Dimension, DxfArc, DxfBlock,
     DxfCircle, DxfDocument, DxfDocumentDto, DxfEllipse, DxfEntity, DxfFilledPolygon, DxfInsert,
     DxfLayer, DxfLine, DxfPoint, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, Entity,
-    EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader, JwwPalette, LayerGroupHeader,
-    LayerHeader, Line, MetadataSetting, Point, Solid, Text,
+    EntityBase, JwwDocument, JwwDocumentDto, JwwError, JwwHeader, JwwLineTypes, JwwPalette,
+    LayerGroupHeader, LayerHeader, Line, LineTypePattern, MetadataSetting, Point, Solid, Text,
 };
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
@@ -326,6 +326,12 @@ fn header_to_pydict<'py>(py: Python<'py>, header: &JwwHeader) -> PyResult<Bound<
         out.set_item("palette", py.None())?;
     }
 
+    if let Some(line_types) = &header.line_types {
+        out.set_item("line_types", line_types_to_pydict(py, line_types)?)?;
+    } else {
+        out.set_item("line_types", py.None())?;
+    }
+
     let layer_groups = PyList::empty_bound(py);
     for group in &header.layer_groups {
         let group_dict = PyDict::new_bound(py);
@@ -348,6 +354,71 @@ fn header_to_pydict<'py>(py: Python<'py>, header: &JwwHeader) -> PyResult<Bound<
     }
 
     out.set_item("layer_groups", layer_groups)?;
+    Ok(out)
+}
+
+fn line_type_pattern_to_pydict<'py>(
+    py: Python<'py>,
+    pattern: &LineTypePattern,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new_bound(py);
+    out.set_item("number", pattern.number)?;
+    out.set_item("pattern", pattern.pattern)?;
+    out.set_item("unit_dots", pattern.unit_dots)?;
+    out.set_item("pitch", pattern.pitch)?;
+    out.set_item("printer_pitch", pattern.printer_pitch)?;
+    Ok(out)
+}
+
+fn line_types_to_pydict<'py>(
+    py: Python<'py>,
+    line_types: &JwwLineTypes,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new_bound(py);
+
+    // The bit patterns come with their run lengths and printed lengths, so that
+    // callers do not have to decode the bits themselves.
+    let patterns_to_list = |patterns: &[LineTypePattern]| -> PyResult<Bound<'py, PyList>> {
+        let list = PyList::empty_bound(py);
+        for pattern in patterns {
+            let item = line_type_pattern_to_pydict(py, pattern)?;
+            item.set_item("runs", pattern.runs())?;
+            item.set_item("segments_mm", pattern.printed_segments_mm())?;
+            list.append(item)?;
+        }
+        Ok(list)
+    };
+    out.set_item("standard", patterns_to_list(&line_types.standard)?)?;
+    out.set_item(
+        "double_length",
+        patterns_to_list(&line_types.double_length)?,
+    )?;
+
+    let random = PyList::empty_bound(py);
+    for line_type in &line_types.random {
+        let item = PyDict::new_bound(py);
+        item.set_item("number", line_type.number)?;
+        item.set_item("pattern", line_type.pattern)?;
+        item.set_item("width", line_type.width)?;
+        item.set_item("pitch", line_type.pitch)?;
+        item.set_item("printer_width", line_type.printer_width)?;
+        item.set_item("printer_pitch", line_type.printer_pitch)?;
+        random.append(item)?;
+    }
+    out.set_item("random", random)?;
+
+    if let Some(sxf) = &line_types.sxf {
+        let list = PyList::empty_bound(py);
+        for line_type in sxf {
+            let item = line_type_pattern_to_pydict(py, &line_type.pattern)?;
+            item.set_item("name", &line_type.name)?;
+            item.set_item("segments_mm", line_type.segments_mm.clone())?;
+            list.append(item)?;
+        }
+        out.set_item("sxf", list)?;
+    } else {
+        out.set_item("sxf", py.None())?;
+    }
     Ok(out)
 }
 

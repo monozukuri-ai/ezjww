@@ -265,6 +265,7 @@ mod tests {
                 ..LayerGroupHeader::default()
             }),
             palette: None,
+            line_types: None,
         }
     }
 }

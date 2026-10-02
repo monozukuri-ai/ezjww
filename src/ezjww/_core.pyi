@@ -19,6 +19,38 @@ class JwwPalette(TypedDict):
     pen_colors: list[int]
     extended_colors: list[int] | None
 
+class LineTypePattern(TypedDict):
+    number: int
+    pattern: int
+    unit_dots: int
+    pitch: int
+    printer_pitch: int
+    runs: list[int]
+    segments_mm: list[float]
+
+class RandomLineType(TypedDict):
+    number: int
+    pattern: int
+    width: int
+    pitch: int
+    printer_width: int
+    printer_pitch: int
+
+class SxfLineType(TypedDict):
+    number: int
+    pattern: int
+    unit_dots: int
+    pitch: int
+    printer_pitch: int
+    name: str
+    segments_mm: list[float]
+
+class JwwLineTypes(TypedDict):
+    standard: list[LineTypePattern]
+    random: list[RandomLineType]
+    double_length: list[LineTypePattern]
+    sxf: list[SxfLineType] | None
+
 class JwwHeader(TypedDict):
     version: int
     memo: str
@@ -26,6 +58,7 @@ class JwwHeader(TypedDict):
     write_layer_group: int
     layer_groups: list[LayerGroupHeader]
     palette: JwwPalette | None
+    line_types: JwwLineTypes | None
 
 class EntityBase(TypedDict):
     group: int

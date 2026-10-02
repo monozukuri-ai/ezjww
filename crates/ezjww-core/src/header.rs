@@ -60,6 +60,170 @@ impl JwwPalette {
     }
 }
 
+/// One pattern bit prints as `printer_pitch * PRINTER_PITCH_UNIT_MM` millimetres.
+///
+/// Jw_cad stores, for its SXF-compatible line types, both the bit pattern with
+/// its printer pitch and the segment lengths in millimetres. The two agree at
+/// this ratio (within the rounding of the integer pitch) in every header inspected.
+pub const PRINTER_PITCH_UNIT_MM: f64 = 1.0 / 32.0;
+
+/// Line type number (entity pen style) of the first standard dashed line type.
+pub const STANDARD_LINE_TYPE_BASE: u32 = 2;
+/// Line type number of the first random ("hand-drawn") line type.
+pub const RANDOM_LINE_TYPE_BASE: u32 = 11;
+/// Line type number of the first double-length line type.
+pub const DOUBLE_LENGTH_LINE_TYPE_BASE: u32 = 16;
+/// Line type number offset of the SXF-compatible line types (`30 + SXF code`).
+pub const SXF_LINE_TYPE_BASE: u32 = 30;
+/// SXF-compatible line types from this index (line type number 47) on are user-defined.
+pub const SXF_USER_DEFINED_FIRST_INDEX: usize = 17;
+
+/// Dash pattern and pitches of one Jw_cad line type.
+///
+/// The lowest `unit_dots` bits of `pattern` are one repetition; a set bit draws
+/// and a clear bit is a gap. `pitch` scales the pattern on screen and
+/// `printer_pitch` on paper.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct LineTypePattern {
+    /// Line type number as stored in the entity pen style.
+    pub number: u32,
+    pub pattern: u32,
+    pub unit_dots: u32,
+    pub pitch: u32,
+    pub printer_pitch: u32,
+}
+
+impl LineTypePattern {
+    /// Run lengths in pattern bits, alternating dash and gap and starting with the longest dash.
+    ///
+    /// The pattern repeats, so the runs are taken around the unit:
+    /// a dash that wraps from the end of the unit to its start is one run.
+    /// Empty for a solid pattern, an all-gap pattern or an unusable `unit_dots`.
+    pub fn runs(&self) -> Vec<u32> {
+        let unit = self.unit_dots as usize;
+        if !(1..=32).contains(&unit) {
+            return Vec::new();
+        }
+        let bit = |index: usize| (self.pattern >> (index % unit)) & 1 == 1;
+        // Start where a dash begins, so that every run is whole.
+        let Some(start) = (0..unit).find(|&i| bit(i) && !bit(i + unit - 1)) else {
+            return Vec::new();
+        };
+        let mut runs = Vec::new();
+        let mut current = true;
+        let mut length = 0u32;
+        for offset in 0..unit {
+            let value = bit(start + offset);
+            if value == current {
+                length += 1;
+            } else {
+                runs.push(length);
+                current = value;
+                length = 1;
+            }
+        }
+        runs.push(length);
+        // A chain line reads "long dash, gap, short dash, gap" wherever the unit happens to start.
+        let longest = (0..runs.len())
+            .step_by(2)
+            .rev()
+            .max_by_key(|&index| runs[index])
+            .unwrap_or(0);
+        runs.rotate_left(longest);
+        runs
+    }
+
+    /// Printed dash and gap lengths in millimetres, alternating and starting with a dash.
+    pub fn printed_segments_mm(&self) -> Vec<f64> {
+        let unit = f64::from(self.printer_pitch) * PRINTER_PITCH_UNIT_MM;
+        self.runs()
+            .into_iter()
+            .map(|run| f64::from(run) * unit)
+            .collect()
+    }
+}
+
+/// Settings of one random ("hand-drawn") line type, numbers 11..=15.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct RandomLineType {
+    /// Line type number as stored in the entity pen style.
+    pub number: u32,
+    pub pattern: u32,
+    /// Screen amplitude.
+    pub width: u32,
+    pub pitch: u32,
+    /// Printer output amplitude.
+    pub printer_width: u32,
+    pub printer_pitch: u32,
+}
+
+/// One SXF-compatible line type, numbers 30..=62 (`30 + index`).
+///
+/// Indices 1..=16 are the SXF predefined line types and 17..=32 are user-defined.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SxfLineType {
+    #[serde(flatten)]
+    pub pattern: LineTypePattern,
+    pub name: String,
+    /// Dash and gap lengths in millimetres on paper, alternating and starting
+    /// with a dash. Empty for an undefined slot or a solid line.
+    pub segments_mm: Vec<f64>,
+}
+
+/// Line type settings recorded in the JWW header.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct JwwLineTypes {
+    /// Line types 2..=9: dashed 1-3, chain 1-2, double-dot chain 1-2 and the
+    /// construction line type.
+    pub standard: Vec<LineTypePattern>,
+    /// Random line types 11..=15.
+    pub random: Vec<RandomLineType>,
+    /// Double-length line types 16..=19.
+    pub double_length: Vec<LineTypePattern>,
+    /// SXF-compatible line types 30..=62.
+    ///
+    /// `None` before JWW version 420, which does not store them, and when the
+    /// section could not be read.
+    pub sxf: Option<Vec<SxfLineType>>,
+}
+
+impl JwwLineTypes {
+    /// Pattern settings for a line type number, or `None` when the header does not define it.
+    ///
+    /// Random line types have no dash pattern and are not reported here.
+    pub fn pattern(&self, number: u32) -> Option<&LineTypePattern> {
+        self.standard
+            .iter()
+            .chain(&self.double_length)
+            .chain(
+                self.sxf
+                    .iter()
+                    .flatten()
+                    .map(|line_type| &line_type.pattern),
+            )
+            .find(|pattern| pattern.number == number)
+    }
+
+    /// Printed dash and gap lengths in millimetres for a line type number.
+    ///
+    /// SXF-compatible line types report the lengths stored with their definition;
+    /// the others derive them from the bit pattern and the printer pitch.
+    /// Empty for a solid, undefined or random line type.
+    pub fn printed_segments_mm(&self, number: u32) -> Vec<f64> {
+        if let Some(line_type) = self
+            .sxf
+            .iter()
+            .flatten()
+            .find(|line_type| line_type.pattern.number == number)
+        {
+            return line_type.segments_mm.clone();
+        }
+        self.pattern(number)
+            .map(LineTypePattern::printed_segments_mm)
+            .unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwwHeader {
     pub version: u32,
@@ -69,6 +233,8 @@ pub struct JwwHeader {
     pub layer_groups: [LayerGroupHeader; 16],
     /// Only available when the layer name section was parsed successfully.
     pub palette: Option<JwwPalette>,
+    /// Only available when the layer name section was parsed successfully.
+    pub line_types: Option<JwwLineTypes>,
 }
 
 pub fn is_jww_signature(data: &[u8]) -> bool {
@@ -121,17 +287,21 @@ pub(crate) fn parse_header_with_diagnostics(
     // Layer names and group names are stored later in the header block.
     // If this optional extraction fails, keep deterministic default names.
     let diagnostic_checkpoint = reader.decode_diagnostic_count();
-    let palette = if parse_layer_names(&mut reader, version, &mut layer_groups).is_err() {
-        // This section is optional and layout-dependent. Discard diagnostics
-        // collected while probing bytes that were not confirmed as names.
-        reader.truncate_decode_diagnostics(diagnostic_checkpoint);
-        apply_default_layer_names(&mut layer_groups);
-        // The read position is already lost, so every later offset is unreliable.
-        None
-    } else {
-        apply_default_layer_names_for_blanks(&mut layer_groups);
-        parse_palette(&mut reader, version).ok()
-    };
+    let (palette, line_types) =
+        if parse_layer_names(&mut reader, version, &mut layer_groups).is_err() {
+            // This section is optional and layout-dependent. Discard diagnostics
+            // collected while probing bytes that were not confirmed as names.
+            reader.truncate_decode_diagnostics(diagnostic_checkpoint);
+            apply_default_layer_names(&mut layer_groups);
+            // The read position is already lost, so every later offset is unreliable.
+            (None, None)
+        } else {
+            apply_default_layer_names_for_blanks(&mut layer_groups);
+            match parse_display_settings(&mut reader, version) {
+                Ok((palette, line_types)) => (Some(palette), line_types),
+                Err(_) => (None, None),
+            }
+        };
 
     Ok((
         JwwHeader {
@@ -141,17 +311,22 @@ pub(crate) fn parse_header_with_diagnostics(
             write_layer_group,
             layer_groups,
             palette,
+            line_types,
         },
         reader.into_decode_diagnostics(),
     ))
 }
 
-/// Advances from just after the layer group names to the screen color palette.
+/// Reads the screen color palette and the line type settings that follow the layer group names.
 ///
-/// Everything between the names and the palette is fixed width,
-/// and the only variable length strings (the user defined color names) live after the printer color block,
-/// so plain skips are enough to get there.
-fn parse_palette(reader: &mut Reader<'_>, version: u32) -> Result<JwwPalette, JwwError> {
+/// Everything between the names and the SXF color names is fixed width,
+/// so plain skips are enough to get to the palette and the standard line types.
+/// The SXF-compatible line types sit behind the user defined color names,
+/// which are variable length strings.
+fn parse_display_settings(
+    reader: &mut Reader<'_>,
+    version: u32,
+) -> Result<(JwwPalette, Option<JwwLineTypes>), JwwError> {
     // Below version 300 the zoom and dummy sections have a different layout.
     if version < 300 {
         return Err(JwwError::UnexpectedEof("header.palette"));
@@ -176,35 +351,145 @@ fn parse_palette(reader: &mut Reader<'_>, version: u32) -> Result<JwwPalette, Jw
         let _pen_width = reader.read_u32()?;
     }
 
-    let extended_colors = if version >= 420 {
-        reader.skip(
-            160          // printer color, width, dot radius per pen: 10 x (u32*2 + f64)
-            + 128        // line type patterns 2-9: 8 x u32*4
-            + 100        // random line patterns 1-5: 5 x u32*5
-            + 64         // double length line type patterns 6-9: 4 x u32*4
-            + 44         // dot drawing, reverse draw/search and print flags: u32 x 11
-            + 20         // draw time, 2.5D start flag, horizontal eye angles: u32*5
-            + 40         // 2.5D eye height, distance and vertical angle: f64 x 5
-            + 32         // last used line length, box width/height, circle radius: f64 x 4
-            + 8, // arbitrary solid color flag and its default value
-        )?;
-        // The file stores 257 entries for pen color numbers 100..=356.
-        // Number 100 is a spare that duplicates black and carries no color name,
-        // 101..=116 are the SXF standard colors, and 117..=356 are user defined.
-        let mut colors = vec![0u32; 257].into_boxed_slice();
-        for color in colors.iter_mut() {
-            *color = normalize_colorref(reader.read_u32()?);
-            let _pen_width = reader.read_u32()?;
-        }
-        Some(colors)
-    } else {
-        None
-    };
+    if version < 420 {
+        // Older files end the color data here. The line types follow directly;
+        // a short or damaged section only loses them, not the palette.
+        let line_types = parse_line_type_patterns(reader).ok();
+        return Ok((
+            JwwPalette {
+                pen_colors,
+                extended_colors: None,
+            },
+            line_types.filter(JwwLineTypes::is_plausible),
+        ));
+    }
 
-    Ok(JwwPalette {
-        pen_colors,
-        extended_colors,
+    let mut line_types = parse_line_type_patterns(reader)?;
+    reader.skip(
+        44           // dot drawing, reverse draw/search and print flags: u32 x 11
+        + 20         // draw time, 2.5D start flag, horizontal eye angles: u32*5
+        + 40         // 2.5D eye height, distance and vertical angle: f64 x 5
+        + 32         // last used line length, box width/height, circle radius: f64 x 4
+        + 8, // arbitrary solid color flag and its default value
+    )?;
+    // The file stores 257 entries for pen color numbers 100..=356.
+    // Number 100 is a spare that duplicates black and carries no color name,
+    // 101..=116 are the SXF standard colors, and 117..=356 are user defined.
+    let mut colors = vec![0u32; 257].into_boxed_slice();
+    for color in colors.iter_mut() {
+        *color = normalize_colorref(reader.read_u32()?);
+        let _pen_width = reader.read_u32()?;
+    }
+
+    // The SXF line types are optional for the caller: when the section is short or
+    // implausible, keep the palette and the standard line types read so far.
+    let diagnostic_checkpoint = reader.decode_diagnostic_count();
+    match parse_sxf_line_types(reader) {
+        Ok(sxf) => line_types.sxf = Some(sxf),
+        Err(_) => reader.truncate_decode_diagnostics(diagnostic_checkpoint),
+    }
+
+    Ok((
+        JwwPalette {
+            pen_colors,
+            extended_colors: Some(colors),
+        },
+        Some(line_types).filter(JwwLineTypes::is_plausible),
+    ))
+}
+
+/// Reads the printer colors and the standard, random and double-length line types
+/// that follow the screen pen colors.
+fn parse_line_type_patterns(reader: &mut Reader<'_>) -> Result<JwwLineTypes, JwwError> {
+    reader.skip(160)?; // printer color, width, dot radius per pen: 10 x (u32*2 + f64)
+
+    let mut standard = Vec::with_capacity(8);
+    for index in 0..8 {
+        standard.push(read_line_type_pattern(
+            reader,
+            STANDARD_LINE_TYPE_BASE + index,
+        )?);
+    }
+    let mut random = Vec::with_capacity(5);
+    for index in 0..5 {
+        random.push(RandomLineType {
+            number: RANDOM_LINE_TYPE_BASE + index,
+            pattern: reader.read_u32()?,
+            width: reader.read_u32()?,
+            pitch: reader.read_u32()?,
+            printer_width: reader.read_u32()?,
+            printer_pitch: reader.read_u32()?,
+        });
+    }
+    let mut double_length = Vec::with_capacity(4);
+    for index in 0..4 {
+        double_length.push(read_line_type_pattern(
+            reader,
+            DOUBLE_LENGTH_LINE_TYPE_BASE + index,
+        )?);
+    }
+    Ok(JwwLineTypes {
+        standard,
+        random,
+        double_length,
+        sxf: None,
     })
+}
+
+fn read_line_type_pattern(
+    reader: &mut Reader<'_>,
+    number: u32,
+) -> Result<LineTypePattern, JwwError> {
+    Ok(LineTypePattern {
+        number,
+        pattern: reader.read_u32()?,
+        unit_dots: reader.read_u32()?,
+        pitch: reader.read_u32()?,
+        printer_pitch: reader.read_u32()?,
+    })
+}
+
+/// Reads the SXF-compatible line types, starting right after the extended screen colors.
+fn parse_sxf_line_types(reader: &mut Reader<'_>) -> Result<Vec<SxfLineType>, JwwError> {
+    // Color name, printer color, printer width and dot radius per extended color.
+    for index in 0..257 {
+        let field = format!("header.extended_colors[{index}].name");
+        let _name = reader.read_cstring_with_context(&field)?;
+        reader.skip(4 + 4 + 8)?;
+    }
+
+    let mut line_types = Vec::with_capacity(33);
+    for index in 0..33 {
+        line_types.push(SxfLineType {
+            pattern: read_line_type_pattern(reader, SXF_LINE_TYPE_BASE + index)?,
+            ..SxfLineType::default()
+        });
+    }
+    for (index, line_type) in line_types.iter_mut().enumerate() {
+        let field = format!("header.line_types.sxf[{index}].name");
+        line_type.name = reader.read_cstring_with_context(&field)?;
+        let segments = reader.read_u32()?;
+        let mut lengths = [0f64; 10];
+        for length in &mut lengths {
+            *length = reader.read_f64()?;
+        }
+        if segments as usize > lengths.len() || lengths.iter().any(|v| !v.is_finite() || *v < 0.0) {
+            return Err(JwwError::UnexpectedEof("header.line_types.sxf"));
+        }
+        line_type.segments_mm = lengths[..segments as usize].to_vec();
+    }
+    Ok(line_types)
+}
+
+impl JwwLineTypes {
+    /// A header whose read position drifted yields arbitrary numbers here.
+    /// Every real file keeps the unit within the 32 bits of the pattern.
+    fn is_plausible(&self) -> bool {
+        self.standard
+            .iter()
+            .chain(&self.double_length)
+            .all(|pattern| (1..=32).contains(&pattern.unit_dots))
+    }
 }
 
 /// Jw_cad may set the Win32 `PALETTERGB` marker (`0x02` in the high byte).
@@ -287,7 +572,7 @@ mod tests {
 
     use super::{
         is_jww_signature, normalize_colorref, parse_header, read_header_from_file, JwwError,
-        JwwPalette,
+        JwwPalette, LineTypePattern,
     };
 
     fn jww_samples_dir() -> PathBuf {
@@ -382,6 +667,274 @@ mod tests {
     fn colorref_normalization_strips_the_palettergb_marker() {
         assert_eq!(normalize_colorref(0x02BF_00FF), 0x00BF_00FF);
         assert_eq!(normalize_colorref(0x00C0_C000), 0x00C0_C000);
+    }
+
+    fn line_type(pattern: u32, unit_dots: u32, printer_pitch: u32) -> LineTypePattern {
+        LineTypePattern {
+            number: 0,
+            pattern,
+            unit_dots,
+            pitch: 1,
+            printer_pitch,
+        }
+    }
+
+    #[test]
+    fn line_type_runs_follow_the_pattern_bits() {
+        // The Jw_cad default patterns of line types 2..=9.
+        assert_eq!(line_type(0x9999_9999, 4, 10).runs(), [2, 2]);
+        assert_eq!(line_type(0xC3C3_C3C3, 8, 10).runs(), [4, 4]);
+        assert_eq!(line_type(0xE7E7_E7E7, 8, 10).runs(), [6, 2]);
+        assert_eq!(line_type(0xF99F_F99F, 16, 10).runs(), [10, 2, 2, 2]);
+        assert_eq!(line_type(0xFFF9_9FFF, 32, 10).runs(), [26, 2, 2, 2]);
+        assert_eq!(line_type(0xF24F_F24F, 16, 10).runs(), [8, 2, 1, 2, 1, 2]);
+        assert_eq!(line_type(0xFFF2_4FFF, 32, 10).runs(), [24, 2, 1, 2, 1, 2]);
+        assert_eq!(line_type(0x2222_2222, 4, 10).runs(), [1, 3]);
+        // Only the lowest `unit_dots` bits count.
+        assert_eq!(line_type(0xFFFF_FF0F, 8, 10).runs(), [4, 4]);
+
+        // A solid pattern, an empty pattern and an unusable unit have no runs.
+        assert!(line_type(0xFFFF_FFFF, 32, 10).runs().is_empty());
+        assert!(line_type(0, 32, 10).runs().is_empty());
+        assert!(line_type(0x9999_9999, 0, 10).runs().is_empty());
+        assert!(line_type(0x9999_9999, 33, 10).runs().is_empty());
+    }
+
+    #[test]
+    fn line_type_printed_lengths_scale_with_the_printer_pitch() {
+        // One pattern bit is printer pitch / 32 millimetres.
+        assert_eq!(
+            line_type(0xF99F_F99F, 16, 10).printed_segments_mm(),
+            [3.125, 0.625, 0.625, 0.625]
+        );
+        assert_eq!(
+            line_type(0xF99F_F99F, 16, 5).printed_segments_mm(),
+            [1.5625, 0.3125, 0.3125, 0.3125]
+        );
+        assert!(line_type(0xFFFF_FFFF, 32, 10)
+            .printed_segments_mm()
+            .is_empty());
+    }
+
+    #[test]
+    fn line_types_are_read_from_real_sample() {
+        let path = jww_samples_dir().join("Test1.jww");
+        let header = read_header_from_file(&path).expect("sample header");
+        let line_types = header.line_types.expect("line types");
+
+        let numbers = |patterns: &[LineTypePattern]| -> Vec<u32> {
+            patterns.iter().map(|pattern| pattern.number).collect()
+        };
+        assert_eq!(numbers(&line_types.standard), [2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(numbers(&line_types.double_length), [16, 17, 18, 19]);
+        assert_eq!(
+            line_types
+                .random
+                .iter()
+                .map(|line_type| line_type.number)
+                .collect::<Vec<_>>(),
+            [11, 12, 13, 14, 15]
+        );
+        // Chain line 1 with the Jw_cad default settings.
+        assert_eq!(
+            line_types.standard[3],
+            LineTypePattern {
+                number: 5,
+                pattern: 0xF99F_F99F,
+                unit_dots: 16,
+                pitch: 1,
+                printer_pitch: 10,
+            }
+        );
+        assert_eq!(line_types.double_length[0].printer_pitch, 20);
+
+        // 33 SXF-compatible slots: line type numbers 30..=62.
+        let sxf = line_types.sxf.as_ref().expect("SXF line types");
+        assert_eq!(sxf.len(), 33);
+        assert_eq!(sxf[0].pattern.number, 30);
+        assert_eq!(sxf[32].pattern.number, 62);
+        assert_eq!(sxf[1].name, "continuous");
+        assert!(sxf[1].segments_mm.is_empty());
+        assert_eq!(sxf[2].name, "dashed");
+        assert_eq!(sxf[2].segments_mm, [6.0, 1.5]);
+        assert_eq!(sxf[8].name, "chain");
+        assert_eq!(sxf[8].segments_mm, [12.0, 1.5, 3.5, 1.5]);
+        // The sample defines no user line types.
+        assert!(sxf[17..]
+            .iter()
+            .all(|line_type| line_type.segments_mm.is_empty()));
+
+        // Lookup by line type number: bit pattern types derive their lengths,
+        // SXF types report the stored ones.
+        assert_eq!(line_types.pattern(5), Some(&line_types.standard[3]));
+        assert_eq!(line_types.pattern(32), Some(&sxf[2].pattern));
+        assert_eq!(line_types.pattern(11), None);
+        assert_eq!(
+            line_types.printed_segments_mm(5),
+            [3.125, 0.625, 0.625, 0.625]
+        );
+        assert_eq!(line_types.printed_segments_mm(32), [6.0, 1.5]);
+        assert!(line_types.printed_segments_mm(1).is_empty());
+        assert!(line_types.printed_segments_mm(11).is_empty());
+    }
+
+    /// Header bytes of a file with empty names, up to the screen pen colors.
+    fn header_through_pen_colors(version: u32) -> Vec<u8> {
+        let mut data = Vec::<u8>::new();
+        data.extend_from_slice(b"JwwData.");
+        data.extend_from_slice(&version.to_le_bytes());
+        data.push(0); // memo
+        data.extend_from_slice(&[0u8; 8]); // paper size, write layer group
+        for _ in 0..16 {
+            data.extend_from_slice(&[0u8; 8]); // state, write layer
+            data.extend_from_slice(&1.0f64.to_le_bytes()); // scale
+            data.extend_from_slice(&[0u8; 4]); // protect
+            data.extend_from_slice(&[0u8; 16 * 8]); // layer state, protect
+        }
+        data.extend_from_slice(&[0u8; (14 + 5 + 1 + 1) * 4]);
+        data.extend_from_slice(&[0u8; 16 + 8 + 4 + 4 + 8 + 16 + 16]);
+        data.extend_from_slice(&[0u8; 16 * 16 + 16]); // layer and layer group names
+        data.extend_from_slice(&[0u8; 464]); // sunlight settings .. parallel line stub
+        for index in 0..10u32 {
+            data.extend_from_slice(&index.to_le_bytes()); // screen color
+            data.extend_from_slice(&1u32.to_le_bytes()); // pen width
+        }
+        data
+    }
+
+    fn push_u32s(data: &mut Vec<u8>, values: &[u32]) {
+        for value in values {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+    }
+
+    /// Printer colors and the standard, random and double-length line types.
+    fn append_line_type_patterns(data: &mut Vec<u8>, unit_dots: u32, printer_pitch: u32) {
+        data.extend_from_slice(&[0u8; 160]); // printer colors
+        for _ in 2..=9 {
+            push_u32s(data, &[0x9999_9999, unit_dots, 1, printer_pitch]);
+        }
+        for _ in 11..=15 {
+            push_u32s(data, &[0x1234_5678, 2, 3, 4, 5]);
+        }
+        for _ in 16..=19 {
+            push_u32s(data, &[0xFFFE_7FFF, 32, 2, 20]);
+        }
+    }
+
+    /// Print flags .. solid color, the extended screen colors and their names.
+    fn append_extended_colors(data: &mut Vec<u8>) {
+        data.extend_from_slice(&[0u8; 44 + 20 + 40 + 32 + 8]);
+        data.extend_from_slice(&[0u8; 257 * 8]); // screen color, width
+        for _ in 0..257 {
+            data.push(0); // color name
+            data.extend_from_slice(&[0u8; 4 + 4 + 8]); // printer color, width, dot radius
+        }
+    }
+
+    fn append_sxf_line_types(data: &mut Vec<u8>, user_name: &[u8], user_segments: &[f64]) {
+        for _ in 0..33 {
+            push_u32s(data, &[0xFFFF_FFFF, 32, 1, 10]);
+        }
+        for index in 0..33 {
+            let (name, segments): (&[u8], &[f64]) = if index == 17 {
+                (user_name, user_segments)
+            } else {
+                (b"", &[])
+            };
+            data.push(name.len() as u8);
+            data.extend_from_slice(name);
+            data.extend_from_slice(&(segments.len() as u32).to_le_bytes());
+            for slot in 0..10 {
+                let value = segments.get(slot).copied().unwrap_or(0.0);
+                data.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+
+    #[test]
+    fn line_types_keep_the_settings_of_the_file() {
+        let mut data = header_through_pen_colors(600);
+        append_line_type_patterns(&mut data, 4, 5);
+        append_extended_colors(&mut data);
+        append_sxf_line_types(&mut data, b"user dash", &[2.0, 1.0, 0.5, 1.0]);
+
+        let header = parse_header(&data).expect("header");
+        assert!(header.palette.expect("palette").extended_colors.is_some());
+        let line_types = header.line_types.expect("line types");
+        // A printer pitch of 5 halves the printed pattern of the default 10.
+        assert_eq!(line_types.standard[0].printer_pitch, 5);
+        assert_eq!(line_types.printed_segments_mm(2), [0.3125, 0.3125]);
+        assert_eq!(line_types.random[0].printer_pitch, 5);
+        assert_eq!(line_types.random[4].number, 15);
+
+        // The first user-defined SXF line type is line type number 47.
+        let sxf = line_types.sxf.as_ref().expect("SXF line types");
+        assert_eq!(sxf[17].pattern.number, 47);
+        assert_eq!(sxf[17].name, "user dash");
+        assert_eq!(sxf[17].segments_mm, [2.0, 1.0, 0.5, 1.0]);
+        assert_eq!(line_types.printed_segments_mm(47), [2.0, 1.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn truncated_sxf_line_types_keep_palette_and_standard_line_types() {
+        let mut data = header_through_pen_colors(600);
+        append_line_type_patterns(&mut data, 4, 10);
+        append_extended_colors(&mut data);
+        append_sxf_line_types(&mut data, b"user dash", &[2.0, 1.0]);
+        data.truncate(data.len() - 40);
+
+        let header = parse_header(&data).expect("header");
+        assert!(header.palette.is_some());
+        let line_types = header.line_types.expect("line types");
+        assert_eq!(line_types.standard.len(), 8);
+        assert_eq!(line_types.sxf, None);
+    }
+
+    #[test]
+    fn sxf_line_types_with_too_many_segments_are_dropped() {
+        let mut data = header_through_pen_colors(600);
+        append_line_type_patterns(&mut data, 4, 10);
+        append_extended_colors(&mut data);
+        // 11 segments cannot be stored in the 10 length slots.
+        append_sxf_line_types(&mut data, b"bad", &[1.0; 11]);
+
+        let line_types = parse_header(&data)
+            .expect("header")
+            .line_types
+            .expect("line types");
+        assert_eq!(line_types.sxf, None);
+    }
+
+    #[test]
+    fn implausible_line_types_are_not_reported() {
+        // A unit of 77 bits does not fit the 32-bit pattern: the read position drifted.
+        let mut data = header_through_pen_colors(600);
+        append_line_type_patterns(&mut data, 77, 10);
+        append_extended_colors(&mut data);
+        append_sxf_line_types(&mut data, b"", &[]);
+
+        let header = parse_header(&data).expect("header");
+        assert!(header.palette.is_some());
+        assert_eq!(header.line_types, None);
+    }
+
+    #[test]
+    fn line_types_before_version_420_have_no_sxf_section() {
+        let mut data = header_through_pen_colors(351);
+        append_line_type_patterns(&mut data, 4, 10);
+
+        let header = parse_header(&data).expect("header");
+        assert_eq!(header.palette.expect("palette").extended_colors, None);
+        let line_types = header.line_types.expect("line types");
+        assert_eq!(line_types.standard[7].number, 9);
+        assert_eq!(line_types.sxf, None);
+
+        // A file that ends right after the pen colors still has its palette.
+        let data = header_through_pen_colors(351);
+        let header = parse_header(&data).expect("header");
+        assert!(header.palette.is_some());
+        assert_eq!(header.line_types, None);
     }
 
     #[test]

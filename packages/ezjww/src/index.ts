@@ -20,6 +20,35 @@ export interface JwwPalette {
   extended_colors: number[] | null;
 }
 
+export interface LineTypePattern {
+  number: number;
+  pattern: number;
+  unit_dots: number;
+  pitch: number;
+  printer_pitch: number;
+}
+
+export interface RandomLineType {
+  number: number;
+  pattern: number;
+  width: number;
+  pitch: number;
+  printer_width: number;
+  printer_pitch: number;
+}
+
+export interface SxfLineType extends LineTypePattern {
+  name: string;
+  segments_mm: number[];
+}
+
+export interface JwwLineTypes {
+  standard: LineTypePattern[];
+  random: RandomLineType[];
+  double_length: LineTypePattern[];
+  sxf: SxfLineType[] | null;
+}
+
 export interface JwwHeader {
   version: number;
   memo: string;
@@ -27,6 +56,7 @@ export interface JwwHeader {
   write_layer_group: number;
   layer_groups: LayerGroupHeader[];
   palette: JwwPalette | null;
+  line_types: JwwLineTypes | null;
 }
 
 export interface EntityBase {
