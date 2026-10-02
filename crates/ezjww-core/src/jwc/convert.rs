@@ -73,6 +73,7 @@ pub fn convert_jwc_document(
             block_defs: &[],
             layers: &layers,
             palette: None,
+            line_types: None,
             is_metadata_text: |_| false,
             include_temporary_points: true,
         },
@@ -148,6 +149,9 @@ pub fn convert_jwc_document(
             _ => return Err(invalid(Some(index), "unexpected converted entity kind")),
         }
     }
+    // The entities now use the JWC reference linetypes, which the DXF writer
+    // defines itself; the JWW definitions of the shared converter do not apply.
+    document.line_types.clear();
     // No input layer color was recovered; the table uses a neutral rendering
     // default. Every entity above has an explicit ACI color.
     for layer in &mut document.layers {

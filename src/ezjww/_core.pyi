@@ -219,6 +219,11 @@ class JwwDocument(TypedDict):
     validation: BlockReferenceValidation
     diagnostics: list[DecodeDiagnostic]
 
+class DxfLineType(TypedDict):
+    name: str
+    description: str
+    pattern: list[float]
+
 class DxfLayer(TypedDict):
     name: str
     color: int
@@ -276,6 +281,7 @@ class DxfBlock(TypedDict):
 
 class _DxfDocumentGeometry(TypedDict):
     layers: list[DxfLayer]
+    line_types: list[DxfLineType]
     entities: list[DxfEntity]
     blocks: list[DxfBlock]
     unsupported_entities: list[str]

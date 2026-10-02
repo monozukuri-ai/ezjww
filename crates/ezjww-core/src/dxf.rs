@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
-use crate::header::JwwPalette;
+use crate::header::{JwwLineTypes, JwwPalette, PRINTER_PITCH_UNIT_MM};
 use crate::model::{
     metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text,
 };
@@ -250,9 +250,24 @@ pub struct DxfBlock {
     pub entities: Vec<DxfEntity>,
 }
 
+/// A linetype of the DXF `LTYPE` table.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DxfLineType {
+    pub name: String,
+    pub description: String,
+    /// Dash lengths in drawing units (millimetres on paper): positive = dash,
+    /// negative = gap. Empty for a continuous line.
+    pub pattern: Vec<f64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DxfDocument {
     pub layers: Vec<DxfLayer>,
+    /// Definitions of the linetypes the entities use, sorted by name.
+    ///
+    /// A linetype without an entry here is written from the built-in table
+    /// (`CONTINUOUS`, the JWC reference line types).
+    pub line_types: Vec<DxfLineType>,
     pub entities: Vec<DxfEntity>,
     pub blocks: Vec<DxfBlock>,
     pub unsupported_entities: Vec<String>,
@@ -316,6 +331,8 @@ pub(crate) struct ConversionView<'a> {
     pub block_defs: &'a [BlockDef],
     pub layers: &'a [[ConversionLayer<'a>; 16]; 16],
     pub palette: Option<&'a JwwPalette>,
+    /// Line type settings of the file; `None` uses the Jw_cad defaults.
+    pub line_types: Option<&'a JwwLineTypes>,
     pub is_metadata_text: fn(&Text) -> bool,
     pub include_temporary_points: bool,
 }
@@ -337,6 +354,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             block_defs: &doc.block_defs,
             layers: &layers,
             palette: doc.header.palette.as_ref(),
+            line_types: doc.header.line_types.as_ref(),
             is_metadata_text: |text| metadata_setting_from_text(text).is_some(),
             include_temporary_points: false,
         },
@@ -352,7 +370,10 @@ pub(crate) fn convert_view_with_options(
     let layers = convert_layers(view.layers, &layer_name_map);
     let block_name_map = block_name_map(view.block_defs);
     let block_defs = block_defs_by_number(view.block_defs);
-    let colors = ColorTable::new(view.palette);
+    let pens = PenStyles {
+        colors: ColorTable::new(view.palette),
+        line_types: LineTypeTable::new(view.line_types),
+    };
 
     let mut unsupported_entities = Vec::<String>::new();
     let entities = if options.explode_inserts {
@@ -363,7 +384,7 @@ pub(crate) fn convert_view_with_options(
             block_defs: &block_defs,
             unsupported_entities: &mut unsupported_entities,
             options,
-            colors: &colors,
+            pens: &pens,
             is_metadata_text: view.is_metadata_text,
             include_temporary_points: view.include_temporary_points,
         };
@@ -379,7 +400,7 @@ pub(crate) fn convert_view_with_options(
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
-            &colors,
+            &pens,
             options,
             view,
         )
@@ -392,17 +413,20 @@ pub(crate) fn convert_view_with_options(
             &layer_name_map,
             &block_name_map,
             &mut unsupported_entities,
-            &colors,
+            &pens,
             options,
         )
     };
 
-    DxfDocument {
+    let mut document = DxfDocument {
         layers,
+        line_types: Vec::new(),
         entities,
         blocks,
         unsupported_entities,
-    }
+    };
+    document.line_types = pens.line_types.definitions(&collect_line_types(&document));
+    document
 }
 
 pub fn document_to_string(doc: &DxfDocument) -> String {
@@ -531,8 +555,17 @@ impl AsciiDxfWriter<'_> {
         self.write_handle();
         self.group_i32(70, line_types.len() as i32);
 
+        let defined: HashMap<&str, &DxfLineType> = doc
+            .line_types
+            .iter()
+            .map(|line_type| (line_type.name.as_str(), line_type))
+            .collect();
         for name in line_types {
             let (description, pattern): (&str, &[f64]) = match name.as_str() {
+                name if defined.contains_key(name) => {
+                    let line_type = defined[name];
+                    (&line_type.description, &line_type.pattern)
+                }
                 "BYLAYER" => ("", &[]),
                 "BYBLOCK" => ("", &[]),
                 "CONTINUOUS" => ("Solid line", &[]),
@@ -564,7 +597,7 @@ impl AsciiDxfWriter<'_> {
             self.write_handle();
             self.group_str(2, &name);
             self.group_i32(70, 0);
-            self.group_str(3, description);
+            self.group_str(3, &escape_unicode(description));
             self.group_i32(72, 65);
             self.group_i32(73, pattern.len() as i32);
             self.group_f64(40, length);
@@ -1119,7 +1152,7 @@ struct ExplodeContext<'a> {
     block_defs: &'a HashMap<u32, &'a BlockDef>,
     unsupported_entities: &'a mut Vec<String>,
     options: ConvertOptions,
-    colors: &'a ColorTable,
+    pens: &'a PenStyles,
     is_metadata_text: fn(&Text) -> bool,
     include_temporary_points: bool,
 }
@@ -1169,7 +1202,7 @@ fn convert_entities_exploded(
                 entity,
                 context.layer_names,
                 context.block_name_map,
-                context.colors,
+                context.pens,
                 context.options,
                 context.is_metadata_text,
                 context.include_temporary_points,
@@ -1464,7 +1497,7 @@ fn convert_blocks(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
-    colors: &ColorTable,
+    pens: &PenStyles,
     options: ConvertOptions,
 ) -> Vec<DxfBlock> {
     let mut blocks = Vec::<DxfBlock>::with_capacity(view.block_defs.len());
@@ -1478,7 +1511,7 @@ fn convert_blocks(
             layer_names,
             block_name_map,
             unsupported_entities,
-            colors,
+            pens,
             options,
             view,
         );
@@ -1497,7 +1530,7 @@ fn convert_entities(
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
     unsupported_entities: &mut Vec<String>,
-    colors: &ColorTable,
+    pens: &PenStyles,
     options: ConvertOptions,
     view: &ConversionView<'_>,
 ) -> Vec<DxfEntity> {
@@ -1507,7 +1540,7 @@ fn convert_entities(
             entity,
             layer_names,
             block_name_map,
-            colors,
+            pens,
             options,
             view.is_metadata_text,
             view.include_temporary_points,
@@ -1527,15 +1560,15 @@ fn convert_entity(
     entity: &Entity,
     layer_names: &HashMap<(u16, u16), String>,
     block_name_map: &HashMap<u32, String>,
-    colors: &ColorTable,
+    pens: &PenStyles,
     options: ConvertOptions,
     is_metadata_text: fn(&Text) -> bool,
     include_temporary_points: bool,
 ) -> Option<Vec<DxfEntity>> {
     let base = entity.base();
     let layer = layer_name(layer_names, base.layer_group, base.layer);
-    let color = colors.aci(base.pen_color);
-    let line_type = map_line_type(base.pen_style).to_string();
+    let color = pens.colors.aci(base.pen_color);
+    let line_type = pens.line_types.name(base.pen_style).to_string();
     let line_weight = map_line_weight(base.pen_width);
 
     match entity {
@@ -2318,19 +2351,248 @@ fn map_color_fallback(pen_color: u16) -> i32 {
     }
 }
 
-fn map_line_type(pen_style: u8) -> &'static str {
-    match pen_style {
-        0 | 1 => "CONTINUOUS",
-        2 => "DASHED",
-        3 => "DASHDOT",
-        4 => "CENTER",
-        5 => "DOT",
-        6 => "DASHED2",
-        7 => "DASHDOT2",
-        8 => "CENTER2",
-        9 => "DOT2",
-        _ => "BYLAYER",
+/// Pen colors and line types of one document, resolved once.
+struct PenStyles {
+    colors: ColorTable,
+    line_types: LineTypeTable,
+}
+
+/// Jw_cad line types 2..=9 and 16..=19: number, DXF linetype name, description,
+/// default bit pattern as dash/gap runs, default printer pitch.
+///
+/// Jw_cad numbers them 2-4 dashed, 5-6 chain, 7-8 double-dot chain and 9 the
+/// construction line type, which is shown on screen but never printed; 16-19
+/// are the double-length variants. One pattern bit prints as
+/// `printer pitch * PRINTER_PITCH_UNIT_MM` millimetres.
+const STANDARD_LINE_TYPES: [(u8, &str, &str, &[u32], u32); 12] = [
+    (2, "JWW_DASHED1", "Jw_cad dashed line 1", &[2, 2], 10),
+    (3, "JWW_DASHED2", "Jw_cad dashed line 2", &[4, 4], 10),
+    (4, "JWW_DASHED3", "Jw_cad dashed line 3", &[6, 2], 10),
+    (5, "JWW_DASHDOT1", "Jw_cad chain line 1", &[10, 2, 2, 2], 10),
+    (6, "JWW_DASHDOT2", "Jw_cad chain line 2", &[26, 2, 2, 2], 10),
+    (
+        7,
+        "JWW_DIVIDE1",
+        "Jw_cad double-dot chain line 1",
+        &[8, 2, 1, 2, 1, 2],
+        10,
+    ),
+    (
+        8,
+        "JWW_DIVIDE2",
+        "Jw_cad double-dot chain line 2",
+        &[24, 2, 1, 2, 1, 2],
+        10,
+    ),
+    (
+        9,
+        "JWW_CONSTRUCTION",
+        "Jw_cad construction line (not printed)",
+        &[1, 3],
+        10,
+    ),
+    (
+        16,
+        "JWW_DASHDOT_X2",
+        "Jw_cad double-length chain line",
+        &[26, 2, 2, 2],
+        20,
+    ),
+    (
+        17,
+        "JWW_DIVIDE_X2",
+        "Jw_cad double-length double-dot chain line",
+        &[24, 2, 1, 2, 1, 2],
+        20,
+    ),
+    (
+        18,
+        "JWW_DASHED_X2",
+        "Jw_cad double-length dashed line",
+        &[30, 2],
+        20,
+    ),
+    (
+        19,
+        "JWW_DASHED_X4",
+        "Jw_cad quadruple-length dashed line",
+        &[30, 2],
+        40,
+    ),
+];
+
+/// Jw_cad numbers its SXF-compatible line types as 30 + SXF line type code.
+const SXF_LINE_TYPE_OFFSET: u8 = 30;
+/// SXF line type 1 is the continuous line.
+const SXF_CONTINUOUS_CODE: u8 = 1;
+/// SXF line type codes 17..=32 are user-defined.
+const SXF_USER_DEFINED_CODES: std::ops::RangeInclusive<u8> = 17..=32;
+
+/// SXF Ver.3.1 predefined line types 2..=15: code, name and reference pattern
+/// in millimetres (positive = dash, negative = gap).
+const SXF_LINE_TYPES: [(u8, &str, &[f64]); 14] = [
+    (2, "dashed", &[6.0, -1.5]),
+    (3, "dashed spaced", &[6.0, -6.0]),
+    (4, "long dashed dotted", &[12.0, -1.5, 0.25, -1.5]),
+    (
+        5,
+        "long dashed double-dotted",
+        &[12.0, -1.5, 0.25, -1.5, 0.25, -1.5],
+    ),
+    (
+        6,
+        "long dashed triplicate-dotted",
+        &[12.0, -1.5, 0.25, -1.5, 0.25, -1.5, 0.25, -1.5],
+    ),
+    (7, "dotted", &[0.25, -1.5]),
+    (8, "chain", &[12.0, -1.5, 3.5, -1.5]),
+    (9, "chain double dash", &[12.0, -1.5, 3.5, -1.5, 3.5, -1.5]),
+    (10, "dashed dotted", &[6.0, -1.5, 0.25, -1.5]),
+    (
+        11,
+        "double-dashed dotted",
+        &[6.0, -1.5, 6.0, -1.5, 0.25, -1.5],
+    ),
+    (
+        12,
+        "dashed double-dotted",
+        &[6.0, -1.5, 0.25, -1.5, 0.25, -1.5],
+    ),
+    (
+        13,
+        "double-dashed double-dotted",
+        &[6.0, -1.5, 6.0, -1.5, 0.25, -1.5, 0.25, -1.5],
+    ),
+    (
+        14,
+        "dashed triplicate-dotted",
+        &[6.0, -1.5, 0.25, -1.5, 0.25, -1.5, 0.25, -1.5],
+    ),
+    (
+        15,
+        "double-dashed triplicate-dotted",
+        &[6.0, -1.5, 6.0, -1.5, 0.25, -1.5, 0.25, -1.5, 0.25, -1.5],
+    ),
+];
+
+/// Jw_cad line type numbers (the entity pen style) resolved to DXF linetypes.
+///
+/// The patterns are the ones the file records in its header when they are
+/// available, and the Jw_cad defaults otherwise. All lengths are millimetres on
+/// paper, like JWW coordinates, so the DXF needs no linetype scale.
+struct LineTypeTable {
+    by_pen_style: BTreeMap<u8, DxfLineType>,
+}
+
+impl LineTypeTable {
+    fn new(settings: Option<&JwwLineTypes>) -> Self {
+        let mut by_pen_style = BTreeMap::<u8, DxfLineType>::new();
+        for (number, name, description, runs, printer_pitch) in STANDARD_LINE_TYPES {
+            let unit = f64::from(printer_pitch) * PRINTER_PITCH_UNIT_MM;
+            let segments: Vec<f64> = runs.iter().map(|run| f64::from(*run) * unit).collect();
+            by_pen_style.insert(
+                number,
+                DxfLineType {
+                    name: name.to_string(),
+                    description: description.to_string(),
+                    pattern: dash_gap_pattern(&segments),
+                },
+            );
+        }
+        for (code, name, pattern) in SXF_LINE_TYPES {
+            by_pen_style.insert(
+                SXF_LINE_TYPE_OFFSET + code,
+                DxfLineType {
+                    name: format!("SXF_{}", name.to_uppercase().replace([' ', '-'], "_")),
+                    description: format!("SXF line type: {name}"),
+                    pattern: pattern.to_vec(),
+                },
+            );
+        }
+
+        let Some(settings) = settings else {
+            return Self { by_pen_style };
+        };
+        for pattern in settings.standard.iter().chain(&settings.double_length) {
+            let entry = u8::try_from(pattern.number)
+                .ok()
+                .and_then(|number| by_pen_style.get_mut(&number));
+            if let Some(entry) = entry {
+                // One run or none is a line without gaps (a pattern the user turned solid).
+                entry.pattern = dash_gap_pattern(&pattern.printed_segments_mm());
+            }
+        }
+        for line_type in settings.sxf.iter().flatten() {
+            let Some(number) = u8::try_from(line_type.pattern.number).ok() else {
+                continue;
+            };
+            let Some(code) = number.checked_sub(SXF_LINE_TYPE_OFFSET) else {
+                continue;
+            };
+            let segments = &line_type.segments_mm;
+            if SXF_USER_DEFINED_CODES.contains(&code) {
+                if segments.is_empty() {
+                    continue; // an empty slot: entities that refer to it stay BYLAYER
+                }
+                let label = line_type.name.trim();
+                by_pen_style.insert(
+                    number,
+                    DxfLineType {
+                        name: format!("SXF_USER_{code}"),
+                        description: if label.is_empty() {
+                            "SXF user-defined line type".to_string()
+                        } else {
+                            format!("SXF user-defined line type: {label}")
+                        },
+                        pattern: dash_gap_pattern(segments),
+                    },
+                );
+            } else if segments.len() >= 2 {
+                // A predefined line type keeps the reference pattern when the
+                // file names it without lengths.
+                if let Some(entry) = by_pen_style.get_mut(&number) {
+                    entry.pattern = dash_gap_pattern(segments);
+                }
+            }
+        }
+        Self { by_pen_style }
     }
+
+    /// DXF linetype name for a pen style. Random line types (11..=15) and
+    /// undefined numbers have no pattern of their own and follow the layer.
+    fn name(&self, pen_style: u8) -> &str {
+        if pen_style <= 1 || pen_style == SXF_LINE_TYPE_OFFSET + SXF_CONTINUOUS_CODE {
+            return "CONTINUOUS";
+        }
+        self.by_pen_style
+            .get(&pen_style)
+            .map_or("BYLAYER", |line_type| line_type.name.as_str())
+    }
+
+    /// Definitions of the given linetype names, sorted by name.
+    fn definitions(&self, names: &BTreeSet<String>) -> Vec<DxfLineType> {
+        let mut out: Vec<DxfLineType> = self
+            .by_pen_style
+            .values()
+            .filter(|line_type| names.contains(&line_type.name))
+            .cloned()
+            .collect();
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+}
+
+/// Alternating dash and gap lengths as a DXF pattern (positive = dash,
+/// negative = gap). Fewer than two runs leave no gap: a continuous line.
+fn dash_gap_pattern(segments: &[f64]) -> Vec<f64> {
+    if segments.len() < 2 {
+        return Vec::new();
+    }
+    segments
+        .iter()
+        .enumerate()
+        .map(|(index, length)| if index % 2 == 0 { *length } else { -*length })
+        .collect()
 }
 
 fn map_line_weight(pen_width: u16) -> i32 {
@@ -2364,7 +2626,10 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use crate::header::{JwwHeader, JwwPalette, LayerGroupHeader, LayerHeader};
+    use crate::header::{
+        JwwHeader, JwwLineTypes, JwwPalette, LayerGroupHeader, LayerHeader, LineTypePattern,
+        SxfLineType,
+    };
     use crate::model::{
         Arc, Block, BlockDef, CircleSolid, Entity, EntityBase, JwwDocument, Line, Solid, Text,
     };
@@ -2372,9 +2637,10 @@ mod tests {
 
     use super::{
         aci_rgb, convert_document, convert_document_with_options, document_to_string,
-        document_to_string_with_version, map_color_fallback, map_line_type, rgb_to_aci,
-        solid_vertices_cross, text_box, text_cell_width, ColorTable, ConvertOptions, DxfDocument,
-        DxfEntity, DxfLayer, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, DEFAULT_TEXT_HEIGHT,
+        document_to_string_with_version, map_color_fallback, rgb_to_aci, solid_vertices_cross,
+        text_box, text_cell_width, ColorTable, ConvertOptions, DxfDocument, DxfEntity, DxfLayer,
+        DxfLineType, DxfSolid, DxfTargetVersion, DxfText, DxfVertex, LineTypeTable,
+        DEFAULT_TEXT_HEIGHT,
     };
 
     fn empty_header() -> JwwHeader {
@@ -2627,24 +2893,219 @@ mod tests {
     }
 
     #[test]
-    fn map_line_type_matches_jww_pen_style_numbers() {
+    fn line_types_follow_the_jw_cad_numbering() {
+        let table = LineTypeTable::new(None);
         let cases = [
             (0, "CONTINUOUS"),
             (1, "CONTINUOUS"),
-            (2, "DASHED"),
-            (3, "DASHDOT"),
-            (4, "CENTER"),
-            (5, "DOT"),
-            (6, "DASHED2"),
-            (7, "DASHDOT2"),
-            (8, "CENTER2"),
-            (9, "DOT2"),
-            (42, "BYLAYER"),
+            (2, "JWW_DASHED1"),
+            (3, "JWW_DASHED2"),
+            (4, "JWW_DASHED3"),
+            (5, "JWW_DASHDOT1"),
+            (6, "JWW_DASHDOT2"),
+            (7, "JWW_DIVIDE1"),
+            (8, "JWW_DIVIDE2"),
+            (9, "JWW_CONSTRUCTION"),
+            // Random line types have no dash pattern.
+            (11, "BYLAYER"),
+            (16, "JWW_DASHDOT_X2"),
+            (17, "JWW_DIVIDE_X2"),
+            (18, "JWW_DASHED_X2"),
+            (19, "JWW_DASHED_X4"),
+            // 30 + SXF line type code.
+            (31, "CONTINUOUS"),
+            (32, "SXF_DASHED"),
+            (38, "SXF_CHAIN"),
+            (45, "SXF_DOUBLE_DASHED_TRIPLICATE_DOTTED"),
+            // User-defined line types exist only in the settings of a file.
+            (47, "BYLAYER"),
+            (200, "BYLAYER"),
         ];
-
         for (pen_style, expected) in cases {
-            assert_eq!(map_line_type(pen_style), expected);
+            assert_eq!(table.name(pen_style), expected, "pen style {pen_style}");
         }
+
+        // Jw_cad defaults: one pattern bit prints as 10 / 32 mm (20 / 32 for 16..=18).
+        let names: BTreeSet<String> = ["JWW_DASHDOT1", "JWW_DASHED_X2", "SXF_DASHED"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let definitions = table.definitions(&names);
+        assert_eq!(
+            definitions
+                .iter()
+                .map(|line_type| (line_type.name.as_str(), line_type.pattern.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("JWW_DASHDOT1", vec![3.125, -0.625, 0.625, -0.625]),
+                ("JWW_DASHED_X2", vec![18.75, -1.25]),
+                ("SXF_DASHED", vec![6.0, -1.5]),
+            ]
+        );
+    }
+
+    fn line_type_pattern(
+        number: u32,
+        pattern: u32,
+        unit_dots: u32,
+        printer_pitch: u32,
+    ) -> LineTypePattern {
+        LineTypePattern {
+            number,
+            pattern,
+            unit_dots,
+            pitch: 1,
+            printer_pitch,
+        }
+    }
+
+    fn sxf_line_type(number: u32, name: &str, segments_mm: &[f64]) -> SxfLineType {
+        SxfLineType {
+            pattern: line_type_pattern(number, 0, 0, 0),
+            name: name.to_string(),
+            segments_mm: segments_mm.to_vec(),
+        }
+    }
+
+    fn file_line_types() -> JwwLineTypes {
+        JwwLineTypes {
+            standard: vec![
+                // Dashed 1 printed at pitch 20 instead of the default 10.
+                line_type_pattern(2, 0b0011, 4, 20),
+                // Dashed 2 turned into a solid line.
+                line_type_pattern(3, 0xFFFF_FFFF, 32, 10),
+            ],
+            random: vec![],
+            double_length: vec![line_type_pattern(18, 0b0111, 4, 40)],
+            sxf: Some(vec![
+                // Named without lengths: keeps the SXF reference pattern.
+                sxf_line_type(32, "破線", &[]),
+                sxf_line_type(38, "一点鎖線", &[10.0, 2.0, 1.0, 2.0]),
+                sxf_line_type(47, "中心線", &[19.05, 3.175, 3.175, 3.175]),
+                sxf_line_type(48, "", &[9999.0]),
+                // An empty slot.
+                sxf_line_type(49, "", &[]),
+            ]),
+        }
+    }
+
+    #[test]
+    fn line_types_use_the_settings_of_the_file() {
+        let settings = file_line_types();
+        let table = LineTypeTable::new(Some(&settings));
+        assert_eq!(table.name(47), "SXF_USER_17");
+        assert_eq!(table.name(48), "SXF_USER_18");
+        assert_eq!(table.name(49), "BYLAYER");
+
+        let names: BTreeSet<String> = [
+            "JWW_DASHED1",
+            "JWW_DASHED2",
+            "JWW_DASHED3",
+            "JWW_DASHED_X2",
+            "SXF_DASHED",
+            "SXF_CHAIN",
+            "SXF_USER_17",
+            "SXF_USER_18",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        let patterns: Vec<(String, Vec<f64>)> = table
+            .definitions(&names)
+            .into_iter()
+            .map(|line_type| (line_type.name, line_type.pattern))
+            .collect();
+        assert_eq!(
+            patterns,
+            vec![
+                ("JWW_DASHED1".to_string(), vec![1.25, -1.25]),
+                ("JWW_DASHED2".to_string(), vec![]),
+                // Not in the settings: the Jw_cad default.
+                ("JWW_DASHED3".to_string(), vec![1.875, -0.625]),
+                ("JWW_DASHED_X2".to_string(), vec![3.75, -1.25]),
+                ("SXF_CHAIN".to_string(), vec![10.0, -2.0, 1.0, -2.0]),
+                ("SXF_DASHED".to_string(), vec![6.0, -1.5]),
+                (
+                    "SXF_USER_17".to_string(),
+                    vec![19.05, -3.175, 3.175, -3.175]
+                ),
+                // A single run has no gap.
+                ("SXF_USER_18".to_string(), vec![]),
+            ]
+        );
+        let user = &table.definitions(&names)[6];
+        assert_eq!(user.description, "SXF user-defined line type: 中心線");
+    }
+
+    #[test]
+    fn convert_document_writes_the_line_types_of_the_file() {
+        let mut header = empty_header();
+        header.line_types = Some(file_line_types());
+        let line = |pen_style: u8| {
+            Entity::Line(Line {
+                base: EntityBase {
+                    pen_style,
+                    ..EntityBase::default()
+                },
+                start_x: 0.0,
+                start_y: 0.0,
+                end_x: 10.0,
+                end_y: 0.0,
+            })
+        };
+        let doc = JwwDocument {
+            header,
+            entities: vec![line(1), line(2), line(5), line(47), line(49), line(12)],
+            block_defs: vec![],
+        };
+
+        let dxf = convert_document(&doc);
+        let line_types: Vec<&str> = dxf
+            .entities
+            .iter()
+            .map(|entity| match entity {
+                DxfEntity::Line(line) => line.line_type.as_str(),
+                other => panic!("unexpected entity {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            line_types,
+            vec![
+                "CONTINUOUS",
+                "JWW_DASHED1",
+                "JWW_DASHDOT1",
+                "SXF_USER_17",
+                "BYLAYER",
+                "BYLAYER"
+            ]
+        );
+        // Only the linetypes in use are defined, with the patterns of the file.
+        assert_eq!(
+            dxf.line_types,
+            vec![
+                DxfLineType {
+                    name: "JWW_DASHDOT1".to_string(),
+                    description: "Jw_cad chain line 1".to_string(),
+                    pattern: vec![3.125, -0.625, 0.625, -0.625],
+                },
+                DxfLineType {
+                    name: "JWW_DASHED1".to_string(),
+                    description: "Jw_cad dashed line 1".to_string(),
+                    pattern: vec![1.25, -1.25],
+                },
+                DxfLineType {
+                    name: "SXF_USER_17".to_string(),
+                    description: "SXF user-defined line type: 中心線".to_string(),
+                    pattern: vec![19.05, -3.175, 3.175, -3.175],
+                },
+            ]
+        );
+
+        let out = document_to_string(&dxf);
+        let chain = "  2\nJWW_DASHDOT1\n 70\n0\n  3\nJw_cad chain line 1\n 72\n65\n 73\n4\n 40\n5.000000000000\n 49\n3.125000000000\n 49\n-0.625000000000\n 49\n0.625000000000\n 49\n-0.625000000000\n";
+        assert!(out.contains(chain), "{out}");
+        assert!(out.contains("  3\nSXF user-defined line type: \\U+4E2D\\U+5FC3\\U+7DDA\n"));
+        assert!(out.contains("  6\nSXF_USER_17\n"));
     }
 
     /// A `Text` spanning `start_x` to `end_x` on the X axis, as Jw_cad records it.
@@ -3020,6 +3481,7 @@ mod tests {
                 block_defs: &blocks,
                 layers: &layers,
                 palette: None,
+                line_types: None,
                 include_temporary_points: false,
                 is_metadata_text: if filter_settings {
                     |text| crate::model::metadata_setting_from_text(text).is_some()
@@ -3719,6 +4181,7 @@ mod tests {
     fn document_to_string_can_emit_ac1024_header() {
         let dxf = DxfDocument {
             layers: vec![],
+            line_types: vec![],
             entities: vec![],
             blocks: vec![],
             unsupported_entities: vec![],
@@ -3826,6 +4289,7 @@ mod tests {
         // the writer -- has to emit the 4th corner as group 12 and the 3rd as 13.
         let dxf = DxfDocument {
             layers: vec![],
+            line_types: vec![],
             entities: vec![DxfEntity::Solid(DxfSolid {
                 layer: "0".to_string(),
                 color: 7,
@@ -3872,6 +4336,7 @@ mod tests {
                 frozen: false,
                 locked: false,
             }],
+            line_types: vec![],
             entities: vec![DxfEntity::Text(DxfText {
                 layer: "図面".to_string(),
                 color: 7,

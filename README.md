@@ -125,6 +125,41 @@ for item in line_types["sxf"] or []:         # line types 30-62 (version 4.20+)
 
 Entities refer to a line type by `pen_style`.
 
+### DXF line types
+
+The DXF conversion names each Jw_cad line type and defines the ones a drawing
+uses in the `LTYPE` table, with the dash pattern the file records (the Jw_cad
+defaults for files older than version 3.00):
+
+| Jw_cad line type | DXF linetype |
+| --- | --- |
+| 1, SXF 31 | `CONTINUOUS` |
+| 2-4 (dashed 1-3) | `JWW_DASHED1`-`JWW_DASHED3` |
+| 5-6 (chain 1-2) | `JWW_DASHDOT1`, `JWW_DASHDOT2` |
+| 7-8 (double-dot chain 1-2) | `JWW_DIVIDE1`, `JWW_DIVIDE2` |
+| 9 (construction line) | `JWW_CONSTRUCTION` |
+| 16-19 (double length) | `JWW_DASHDOT_X2`, `JWW_DIVIDE_X2`, `JWW_DASHED_X2`, `JWW_DASHED_X4` |
+| 32-45 (SXF predefined) | `SXF_DASHED`, `SXF_CHAIN`, ... |
+| 47-62 (SXF user-defined) | `SXF_USER_17`-`SXF_USER_32` |
+| 11-15 (random lines), undefined numbers | `BYLAYER` |
+
+Pattern lengths are millimetres on paper, like the coordinates of a JWW
+drawing, so the DXF needs no linetype scale. A line type whose pattern the user
+turned solid has an empty pattern. Jw_cad does not print construction lines
+(line type 9); they are converted like any other line, on the linetype
+`JWW_CONSTRUCTION`, so that a reader can leave them out.
+
+```python
+import ezjww
+
+document = ezjww.read_dxf_document("drawing.jww")
+for line_type in document["line_types"]:
+    print(line_type["name"], line_type["description"], line_type["pattern"])
+```
+
+`pattern` uses the DXF convention: positive is a dash, negative a gap. JWC
+drawings keep the fixed linetypes of that format.
+
 Use `text_em_scale` when a target renderer draws a larger em box per unit of DXF
 text height. It must be positive and finite; the default is `1.0`. This divides
 the exported text height (group 40). A value such as `1.364` is an example that

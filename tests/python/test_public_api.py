@@ -93,6 +93,39 @@ class PublicApiTests(unittest.TestCase):
         document = ezjww.read_document(str(sample_path()))
         self.assertEqual(document["header"]["line_types"], line_types)
 
+    def test_dxf_document_defines_the_line_types_it_uses(self):
+        document = ezjww.read_dxf_document(str(sample_path()))
+
+        defined = {line_type["name"]: line_type for line_type in document["line_types"]}
+        self.assertEqual(list(defined), sorted(defined))
+        for line_type in defined.values():
+            self.assertTrue(line_type["description"])
+            # DXF convention: positive is a dash, negative a gap.
+            self.assertTrue(all(value != 0 for value in line_type["pattern"]))
+            self.assertEqual(
+                [value > 0 for value in line_type["pattern"]],
+                [index % 2 == 0 for index in range(len(line_type["pattern"]))],
+            )
+
+        def line_types_of(entities):
+            for entity in entities:
+                if "line_type" in entity:
+                    yield entity["line_type"]
+
+        used = set(line_types_of(document["entities"]))
+        for block in document["blocks"]:
+            used.update(line_types_of(block["entities"]))
+        self.assertTrue(used)
+        # Every named linetype in use is defined, and nothing else is.
+        self.assertEqual(used - {"CONTINUOUS", "BYLAYER", "BYBLOCK"}, set(defined))
+
+        # The LTYPE table of the written DXF holds the same definitions.
+        text = ezjww.to_dxf_string(str(sample_path()))
+        table = text[text.index("  2\nLTYPE\n") : text.index("  2\nLAYER\n")]
+        for name, line_type in defined.items():
+            self.assertIn(f"  2\n{name}\n 70\n0\n", table)
+            self.assertIn(f" 73\n{len(line_type['pattern'])}\n", table)
+
     def test_internal_settings_are_exposed_but_not_converted_to_dxf_text(self):
         path = ROOT / "jww_samples" / "block_regressions" / "non_block.jww"
 

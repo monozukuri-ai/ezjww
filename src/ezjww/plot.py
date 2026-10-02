@@ -471,6 +471,13 @@ def plot_dxf_document(
         else set()
     )
     widths = iter(dxf_document.get("text_width_factors", []))
+    # Dash patterns in output millimeters: the JWC rendering policy, and the
+    # linetypes the document defines (the line type settings of a JWW file).
+    patterns_mm: dict[str, tuple[float, ...]] = dict(_JWC_PATTERNS_MM) if is_jwc else {}
+    for definition in dxf_document.get("line_types", []):
+        pattern = tuple(abs(float(value)) for value in definition.get("pattern", []))
+        if len(pattern) >= 2:
+            patterns_mm[str(definition.get("name", ""))] = pattern
     patterned_artists: list[tuple[Any, tuple[float, ...], float]] = []
 
     for entity in dxf_document.get("entities", []):
@@ -659,8 +666,8 @@ def plot_dxf_document(
                         **text_kwargs,
                     )
 
-        if is_jwc and line_type in _JWC_PATTERNS_MM:
-            pattern = _JWC_PATTERNS_MM[line_type]
+        pattern = patterns_mm.get(line_type)
+        if pattern is not None:
             for artist in list(ax.lines)[line_start:] + list(ax.patches)[patch_start:]:
                 patterned_artists.append((artist, pattern, entity_linewidth))
 

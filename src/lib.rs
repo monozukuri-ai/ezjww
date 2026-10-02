@@ -592,6 +592,16 @@ fn dxf_document_to_pydict<'py>(
     }
     out.set_item("layers", layers)?;
 
+    let line_types = PyList::empty_bound(py);
+    for line_type in &dxf_document.line_types {
+        let item = PyDict::new_bound(py);
+        item.set_item("name", &line_type.name)?;
+        item.set_item("description", &line_type.description)?;
+        item.set_item("pattern", &line_type.pattern)?;
+        line_types.append(item)?;
+    }
+    out.set_item("line_types", line_types)?;
+
     let entities = PyList::empty_bound(py);
     for entity in &dxf_document.entities {
         entities.append(dxf_entity_to_pydict(py, entity)?)?;

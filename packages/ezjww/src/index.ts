@@ -258,8 +258,16 @@ export interface DxfBlock {
   entities: DxfEntity[];
 }
 
+/** A linetype of the DXF LTYPE table: positive = dash, negative = gap, in millimetres on paper. */
+export interface DxfLineType {
+  name: string;
+  description: string;
+  pattern: number[];
+}
+
 export interface DxfDocument {
   layers: DxfLayer[];
+  line_types: DxfLineType[];
   entities: DxfEntity[];
   blocks: DxfBlock[];
   unsupported_entities: string[];
