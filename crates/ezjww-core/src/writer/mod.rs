@@ -1,7 +1,7 @@
 //! New version-700 JWW drawings. This is not a lossless editor for parsed documents.
 //!
-//! The first stage supports empty drawings and ordinary lines using the default
-//! pen on layer 0 of group 0. Other entities and attributes are rejected.
+//! Supports lines, circles, circular arcs, ordinary points and plain text, with
+//! layer settings and basic pen attributes. Unsupported inputs are rejected.
 
 mod archive;
 mod entities;
@@ -11,16 +11,23 @@ mod validate;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::model::{Coord2D, Entity, EntityBase, Line};
+use crate::header::{LayerGroupHeader, LayerHeader};
+use crate::model::{Arc, Coord2D, Entity, EntityBase, Line, Point, Text};
 
-/// Settings supported by the initial writer. Other header settings use the
-/// embedded native template; all sixteen layer-group scales are 1.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Settings for a new drawing. Other header settings use the embedded template.
+/// Layer names are stored verbatim; readers give empty names a display fallback.
+#[derive(Debug, Clone, PartialEq)]
 pub struct JwwWriteOptions {
     pub version: u32,
     pub memo: String,
     /// 0..=4: A0..A4; 8..=14: enlarged paper sizes from jwdatafmt.txt.
     pub paper_size: u32,
+    pub write_layer_group: u32,
+    /// Group/layer states: 0 hidden, 1 visible, 2 editable, 3 current.
+    /// Each group's `write_layer` must be its sole state-3 layer, and
+    /// `write_layer_group` must be the sole state-3 group. Scale is a positive
+    /// denominator (50 means 1:50); changing it never rescales entity values.
+    pub layer_groups: [LayerGroupHeader; 16],
 }
 
 impl Default for JwwWriteOptions {
@@ -29,11 +36,30 @@ impl Default for JwwWriteOptions {
             version: 700,
             memo: String::new(),
             paper_size: 3,
+            write_layer_group: 0,
+            layer_groups: std::array::from_fn(|g| LayerGroupHeader {
+                state: if g == 0 { 3 } else { 2 },
+                write_layer: 0,
+                scale: 1.0,
+                protect: 0,
+                name: String::new(),
+                layers: std::array::from_fn(|l| LayerHeader {
+                    state: if l == 0 { 3 } else { 2 },
+                    protect: 0,
+                    // Preserve the original native template defaults.
+                    name: match (g, l) {
+                        (0, 0) => "0".into(),
+                        (0, 1) => "Defpoints".into(),
+                        _ => String::new(),
+                    },
+                }),
+            }),
         }
     }
 }
 
-/// Input for new drawings. Coordinates are paper millimeters, +Y up.
+/// Input for new drawings. Coordinates are paper millimeters, origin at the
+/// paper center, +Y up. Builders use degrees; raw `Arc` fields use radians.
 /// Use this separate type instead of assuming a parsed `JwwDocument` retains
 /// every original setting, archive record and embedded image.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -43,20 +69,108 @@ pub struct JwwWriteDocument {
 }
 
 impl JwwWriteDocument {
-    /// Add a solid, default-pen line on layer 0 in group 0.
+    /// Add a line on layer 0 in group 0. Edit the returned entity for attributes.
     /// Coordinates and attributes are validated by `to_jww_bytes`.
-    pub fn add_line(&mut self, start: Coord2D, end: Coord2D) {
+    pub fn add_line(&mut self, start: Coord2D, end: Coord2D) -> &mut Line {
         self.entities.push(Entity::Line(Line {
-            base: EntityBase {
-                pen_style: 1,
-                pen_color: 1,
-                ..EntityBase::default()
-            },
+            base: default_base(),
             start_x: start.x,
             start_y: start.y,
             end_x: end.x,
             end_y: end.y,
         }));
+        let Some(Entity::Line(line)) = self.entities.last_mut() else {
+            unreachable!()
+        };
+        line
+    }
+
+    /// Add a circle. Edit the returned entity to set layer/pen attributes.
+    pub fn add_circle(&mut self, center: Coord2D, radius: f64) -> &mut Arc {
+        let arc = self.add_arc(center, radius, 0.0, 360.0);
+        arc.is_full_circle = true;
+        arc
+    }
+
+    /// Add a counterclockwise circular arc. Angles are degrees: start in
+    /// [0, 360), sweep in (0, 360). Use `add_circle` for a full circle.
+    /// Values are validated at serialization, without silent normalization.
+    pub fn add_arc(
+        &mut self,
+        center: Coord2D,
+        radius: f64,
+        start_degrees: f64,
+        sweep_degrees: f64,
+    ) -> &mut Arc {
+        self.entities.push(Entity::Arc(Arc {
+            base: default_base(),
+            center_x: center.x,
+            center_y: center.y,
+            radius,
+            start_angle: start_degrees.to_radians(),
+            arc_angle: sweep_degrees.to_radians(),
+            tilt_angle: 0.0,
+            flatness: 1.0,
+            is_full_circle: false,
+        }));
+        let Some(Entity::Arc(arc)) = self.entities.last_mut() else {
+            unreachable!()
+        };
+        arc
+    }
+
+    /// Add an ordinary permanent point (no marker code or temporary flag).
+    pub fn add_point(&mut self, position: Coord2D) -> &mut Point {
+        self.entities.push(Entity::Point(Point {
+            base: default_base(),
+            x: position.x,
+            y: position.y,
+            is_temporary: false,
+            code: 0,
+            angle: 0.0,
+            scale: 0.0,
+        }));
+        let Some(Entity::Point(point)) = self.entities.last_mut() else {
+            unreachable!()
+        };
+        point
+    }
+
+    /// Add plain text with explicit baseline endpoints, 3 mm width/height,
+    /// zero spacing/rotation and MS Gothic. No font measurement is performed.
+    /// Edit the returned `Text` to set sizes, font and angle (degrees).
+    pub fn add_text(
+        &mut self,
+        start: Coord2D,
+        end: Coord2D,
+        content: impl Into<String>,
+    ) -> &mut Text {
+        self.entities.push(Entity::Text(Text {
+            base: default_base(),
+            start_x: start.x,
+            start_y: start.y,
+            end_x: end.x,
+            end_y: end.y,
+            text_type: 0,
+            size_x: 3.0,
+            size_y: 3.0,
+            spacing: 0.0,
+            angle: 0.0,
+            font_name: "ＭＳ ゴシック".into(),
+            content: content.into(),
+        }));
+        let Some(Entity::Text(text)) = self.entities.last_mut() else {
+            unreachable!()
+        };
+        text
+    }
+}
+
+fn default_base() -> EntityBase {
+    EntityBase {
+        pen_style: 1,
+        pen_color: 1,
+        ..EntityBase::default()
     }
 }
 

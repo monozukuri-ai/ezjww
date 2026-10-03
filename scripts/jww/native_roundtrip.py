@@ -12,6 +12,9 @@ import subprocess
 import time
 from pathlib import Path
 
+from contextlib import contextmanager
+import winreg
+
 import ctypes as C
 from ctypes import wintypes as W
 
@@ -98,7 +101,10 @@ class NativeSession:
         return next((w['h'] for w in self.visible() if w['title'] == title and w['cls'] == '#32770'), None)
 
     def main(self):
-        return next(w['h'] for w in self.visible() if w['cls'].startswith('Afx:') and 'jw_win' in w['title'])
+        main = next((w['h'] for w in self.visible() if w['cls'].startswith('Afx:') and 'jw_win' in w['title']), None)
+        if main is None:
+            raise RuntimeError(f'Native main window disappeared; process exit: {self.process.poll()}')
+        return main
 
     @staticmethod
     def command(handle, command_id):
@@ -163,18 +169,55 @@ def digest(path):
     return dict(size=len(data), sha256=hashlib.sha256(data).hexdigest())
 
 
+@contextmanager
+def output_folders(runtime):
+    # JWW and DXF remember separate folders, even after opening an absolute path.
+    # Use only a disposable desktop/prefix and restore these preferences on exit.
+    if any(w['cls'].startswith('Afx:') and 'jw_win' in w['title'] for w in windows()):
+        raise RuntimeError('Close other Jw_cad processes before native validation')
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r'Software\Jw_cad\jw_win\Folder') as key:
+        previous = {}
+        try:
+            for name in ('File', 'FileC'):
+                try:
+                    previous[name] = winreg.QueryValueEx(key, name)
+                except FileNotFoundError:
+                    previous[name] = None
+                winreg.SetValueEx(key, name, 0, winreg.REG_SZ, str(runtime))
+            yield
+        finally:
+            for name, old in previous.items():
+                if old is None:
+                    try:
+                        winreg.DeleteValue(key, name)
+                    except FileNotFoundError:
+                        pass
+                else:
+                    value, kind = old
+                    winreg.SetValueEx(key, name, 0, kind, value)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runtime', required=True, type=Path)
     parser.add_argument('--log', required=True, type=Path)
+    parser.add_argument('--cases', nargs='+', default=['empty', 'line'])
+    parser.add_argument('--jww-only', nargs='*', default=[], help='Cases to reopen/save without native DXF export')
     args = parser.parse_args()
+    if len(set(args.cases)) != len(args.cases) or any(
+        not name or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_' for c in name)
+        for name in args.cases
+    ):
+        raise ValueError('Case IDs must be unique lowercase ASCII basenames')
+    if not set(args.jww_only).issubset(args.cases):
+        raise ValueError('--jww-only must name selected cases')
     runtime = args.runtime.resolve()
     if digest(runtime / 'Jw_win.exe')['sha256'] != EXE_SHA256:
         raise ValueError('Unverified Jw_cad executable version')
     # Check every destination before launching the first application process.
     if args.log.exists():
         raise FileExistsError(args.log)
-    for name in ('empty', 'line'):
+    for name in args.cases:
         if not (runtime / (name + '.jww')).is_file():
             raise FileNotFoundError(name + '.jww')
         for suffix in ('_saved.jww', '_reopened.jww', '_reopened.dxf'):
@@ -182,29 +225,34 @@ def main():
                 raise FileExistsError(name + suffix)
     session = NativeSession(runtime)
     events = []
-    try:
-        for name in ('empty', 'line'):
-            source = runtime / (name + '.jww')
-            before = digest(source)
-            session.launch(source)
-            session.save(name + '_saved', 'jww')
-            session.close()
-            session.launch(runtime / (name + '_saved.jww'))
-            session.save(name + '_reopened', 'jww')
-            session.save(name + '_reopened', 'dxf')
-            session.close()
-            if digest(source) != before:
-                raise RuntimeError('Input changed: ' + name)
-            paths = [source] + [runtime / (name + suffix) for suffix in
-                               ('_saved.jww', '_reopened.jww', '_reopened.dxf')]
-            events.append(dict(id=name, status='save_reopen_save_export',
-                               exit_codes=[0, 0], files={p.name: digest(p) for p in paths}))
-            print('verified native reopen: ' + name, flush=True)
-    finally:
-        # A failure must not leave our own CAD process running.
-        if session.process is not None and session.process.poll() is None:
-            session.process.terminate()
-            session.process.wait(timeout=15)
+    with output_folders(runtime):
+        try:
+            for name in args.cases:
+                source = runtime / (name + '.jww')
+                before = digest(source)
+                session.launch(source)
+                session.save(name + '_saved', 'jww')
+                session.close()
+                session.launch(runtime / (name + '_saved.jww'))
+                session.save(name + '_reopened', 'jww')
+                if name not in args.jww_only:
+                    session.save(name + '_reopened', 'dxf')
+                session.close()
+                if digest(source) != before:
+                    raise RuntimeError('Input changed: ' + name)
+                suffixes = ['_saved.jww', '_reopened.jww']
+                if name not in args.jww_only:
+                    suffixes.append('_reopened.dxf')
+                paths = [source] + [runtime / (name + suffix) for suffix in suffixes]
+                status = 'save_reopen_save' if name in args.jww_only else 'save_reopen_save_export'
+                events.append(dict(id=name, status=status,
+                                   exit_codes=[0, 0], files={p.name: digest(p) for p in paths}))
+                print('verified native reopen: ' + name, flush=True)
+        finally:
+            # A failure must not leave our own CAD process running.
+            if session.process is not None and session.process.poll() is None:
+                session.process.terminate()
+                session.process.wait(timeout=15)
     with args.log.open('x', encoding='utf-8') as output:
         json.dump(dict(executable_sha256=EXE_SHA256, cases=events), output, indent=2)
         output.write('\n')

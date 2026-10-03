@@ -25,6 +25,27 @@ describe("ezjww wasm wrapper", () => {
     expect(rawWasm.readDocument(new Uint8Array(input)).entities).toEqual([]);
   });
 
+  it("reads Rust writer geometry, settings and Unicode in raw and wrapped WASM", () => {
+    const input = (name: string) => readFileSync(resolve(__dirname, `../../../jww_samples/writer/basic/${name}.jww`));
+    for (const name of ["basic", "settings", "unicode"]) {
+      const bytes = input(name);
+      const document = readDocument(bytes);
+      expect(document.diagnostics).toEqual([]);
+      expect(rawWasm.readDocument(new Uint8Array(bytes))).toEqual(document);
+    }
+    const basic = readDocument(input("basic"));
+    expect(basic.entity_counts).toEqual({ LINE: 1, CIRCLE: 1, ARC: 1, POINT: 1, TEXT: 2 });
+    expect(basic.entities[4].content).toBe("日本語 ABC");
+    expect(readDxfDocument(input("basic")).entities).toHaveLength(6);
+    const settings = readDocument(input("settings"));
+    expect(settings.header.write_layer_group).toBe(2);
+    expect(settings.header.layer_groups[2].scale).toBe(50);
+    expect(settings.header.layer_groups[2].layers[5].name).toBe("層2-5");
+    const unicode = readDocument(input("unicode"));
+    expect(unicode.entities[1].content).toBe("日本語𠮷ｶﾅ ABC");
+    expect(unicode.entities[3].content?.length).toBe(1024);
+  });
+
   it("detects and reads a JWW header", () => {
     expect(isJwwFile(sample)).toBe(true);
     expect(isJwwFile(new TextEncoder().encode("JwwData."))).toBe(true);

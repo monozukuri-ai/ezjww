@@ -34,6 +34,22 @@ class PublicApiTests(unittest.TestCase):
             self.assertEqual(len(drawing.modelspace()), 0)
             self.assertIsNone(drawing.bbox())
 
+    def test_rust_writer_geometry_settings_and_unicode_through_public_readers(self):
+        root = ROOT / "jww_samples" / "writer" / "basic"
+        basic = ezjww.read_document(str(root / "basic.jww"))
+        self.assertEqual(basic["diagnostics"], [])
+        self.assertEqual(basic["entity_counts"], {"LINE": 1, "CIRCLE": 1, "ARC": 1, "POINT": 1, "TEXT": 2})
+        self.assertEqual(basic["entities"][4]["content"], "日本語 ABC")
+        self.assertEqual(len(ezjww.readfile(root / "basic.jww").modelspace()), 6)
+        settings = ezjww.read_document(str(root / "settings.jww"))
+        self.assertEqual(settings["header"]["write_layer_group"], 2)
+        self.assertEqual(settings["header"]["layer_groups"][2]["scale"], 50.0)
+        self.assertEqual(settings["header"]["layer_groups"][2]["layers"][5]["name"], "層2-5")
+        unicode = ezjww.read_document(str(root / "unicode.jww"))
+        self.assertEqual(unicode["diagnostics"], [])
+        self.assertEqual(unicode["entities"][1]["content"], "日本語𠮷ｶﾅ ABC")
+        self.assertEqual(len(unicode["entities"][3]["content"]), 1024)
+
     def test_is_jww_file_uses_signature_not_extension(self):
         with tempfile.TemporaryDirectory(prefix="ezjww_signature_") as tmp_dir:
             tmp = Path(tmp_dir)
