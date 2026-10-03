@@ -4,6 +4,7 @@
 available through Python and TypeScript/WebAssembly.
 
 - Read JWW files and a [limited binary JWC profile](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_FORMAT.md).
+- Create new version-700 JWW drawings with basic geometry and text (Python/Rust).
 - Inspect source records, headers, layers, and parsing diagnostics.
 - Query converted geometry, calculate bounds, and audit drawings.
 - Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.
@@ -55,7 +56,7 @@ health = drawing.audit()
 for diagnostic in health["diagnostics"]:
     print(diagnostic["code"], diagnostic["details"])
 
-drawing.saveas("drawing.dxf", target_version="AC1024")
+drawing.save_dxf("drawing.dxf", target_version="AC1024")
 ```
 
 Use `read_cad_document` when you need the original records. Its return value
@@ -71,7 +72,7 @@ print(cad["format"], source["entity_counts"])
 # JWC DXF geometry defaults to paper millimeters. Select model millimeters
 # to apply each entity's layer-group scale.
 model = ezjww.readfile("drawing.jwc", jwc_coordinates="model_millimeters")
-model.saveas("drawing-model.dxf")
+model.save_dxf("drawing-model.dxf")
 print(model.report()["jwc_conversion_report"]["notices"])
 ```
 
@@ -79,6 +80,37 @@ The JWW-specific `read_document` and `read_header` keep their original meanings.
 Use `read_jwc_document` and `read_jwc_header` for JWC-specific reads.
 See the [API reference](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_API.md) for format detection, coordinate options,
 errors, and conversion metadata.
+
+### Create a JWW drawing (unreleased)
+
+Build this revision from source to use the creation API:
+
+```python
+import ezjww
+
+drawing = ezjww.new(paper_size=3, memo="平面図\r\n")  # A3, version 700
+msp = drawing.modelspace()
+msp.add_line((0, 0), (100, 0), jwwattribs={"pen_color": 3})
+msp.add_circle((20, 20), 5)
+msp.add_arc((40, 20), 5, start_angle=350, sweep_angle=30)  # degrees, CCW
+msp.add_point((60, 20))
+msp.add_text("日本語", (0, -10), (9, -10))  # explicit baseline endpoints
+
+drawing.options["layer_groups"][0]["name"] = "平面図"
+drawing.saveas("created.jww")
+drawing.save_dxf("created.dxf", target_version="AC1024")
+```
+
+Coordinates are paper millimeters, with the origin at the paper center and +Y up.
+Edit `drawing.options` and the native entity dictionaries returned by `add_*`.
+See [JWW writing](docs/JWW_WRITE.md) for supported attributes, validation and native
+application limits.
+
+**API migration:** `new()` / `Drawing.new()` now create writable JWW drawings.
+The former empty DXF view is available as `new_dxf()` / `Drawing.new_dxf()`.
+Replace `drawing.saveas("out.dxf", ...)` with `drawing.save_dxf("out.dxf", ...)`.
+`saveas()` writes JWW for new drawings; existing-file editing is outside this
+release's scope. `readfile(...).save_dxf(...)` remains the DXF conversion workflow.
 
 ### Queries and previews
 

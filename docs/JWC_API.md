@@ -81,7 +81,7 @@ source = drawing.source_document
 print(drawing.source_format, drawing.header)
 lines = drawing.modelspace().query("LINE")
 
-drawing.saveas("drawing.dxf", target_version="AC1024")
+drawing.save_dxf("drawing.dxf", target_version="AC1024")
 conversion = drawing.report()["jwc_conversion_report"]
 for notice in conversion["notices"]:
     print(notice)
@@ -100,7 +100,10 @@ does not change JWW conversion.
 
 `source_document` and `header` expose the original format's data. The existing
 `jww_document` property returns that source document for JWW and `None` for JWC.
-An empty drawing from `ezjww.new()` has no source format, source document, or header.
+An empty DXF view from `ezjww.new_dxf()` has no source format, source document,
+or header. `ezjww.new()` now creates a writable native JWW; see [JWW writing](JWW_WRITE.md).
+Use `save_dxf()` to export file-backed drawings. Native JWW `saveas()` is available
+for new drawings; existing-file rewriting is not supported.
 When constructing a Drawing manually, supply `source_document` and `source_format`
 together; they cannot be combined with `jww_document`.
 
@@ -142,7 +145,7 @@ report. The existing JWW report fields retain their meanings.
 
 DXF text/file output supports AC1015 (default) and AC1024. The JWC writers preserve
 TEXT width factors (group 41) and millimeter units (`$INSUNITS=4`) in both coordinate
-modes. `write_dxf`, `write_dxf_with_report`, and `Drawing.saveas` use this behavior.
+modes. `write_dxf`, `write_dxf_with_report`, and `Drawing.save_dxf` use this behavior.
 
 `explode_inserts` / `explodeInserts` expands JWW block references. The supported
 JWC profile contains no block definitions, so expansion leaves its geometry

@@ -10,7 +10,7 @@ drawings and converting them to DXF.
 | [JWC support and limits](JWC_FORMAT.md) | Check supported geometry, coordinate systems, and rendering defaults |
 | [Diagnostics](DIAGNOSTICS.md) | Handle stable issue codes and decoding warnings |
 | [JWW signature](JWW_SIGNATURE.md) | Detect the JWW binary prefix |
-| [JWW writing (Rust)](JWW_WRITE.md) | Generate version-700 drawings with basic geometry, text and layer settings |
+| [JWW writing (Python/Rust)](JWW_WRITE.md) | Generate version-700 drawings with basic geometry, text and layer settings |
 | [TypeScript package](../packages/ezjww/README.md) | Read and convert byte buffers in Node.js |
 | [Browser example](../packages/ezjww/examples/browser/README.md) | Preview and convert local files with WebAssembly |
 

@@ -44,6 +44,26 @@ def probe(work):
     empty = ezjww.readfile(work / "empty.jww")
     assert empty.header["version"] == 700
     assert len(empty.modelspace()) == 0 and empty.bbox() is None
+    # New native creation must work with only the installed wheel and no template path.
+    created = ezjww.new()
+    assert created.to_jww_bytes() == (work / "empty.jww").read_bytes()
+    msp = created.modelspace()
+    msp.add_line((0, 0), (100, 0), jwwattribs={"pen_color": 3})
+    msp.add_circle((20, 20), 5)
+    msp.add_arc((40, 20), 5, 350, 30)
+    msp.add_point((60, 20))
+    msp.add_text("日本語𠮷", (0, -10), (12, -10))
+    created.options["layer_groups"][0]["name"] = "平面図"
+    generated = work / "created.jww"
+    created.saveas(generated)
+    assert generated.read_bytes().startswith(b"JwwData.")
+    assert ezjww.read_document(str(generated)) == created.source_document
+    created.save_dxf(work / "created.dxf", target_version="AC1024")
+    assert (work / "created.dxf").read_text(encoding="utf-8") == created.to_dxf_string(
+        target_version="AC1024"
+    )
+    assert created.stats()["entity_count"] == 5
+    assert ezjww.new_dxf().header is None
     paper = ezjww.readfile(work / "q054.jwc")
     model = ezjww.readfile(work / "q054.jwc", jwc_coordinates="model_millimeters")
     assert abs(model.bbox()["width"] / paper.bbox()["width"] - 50) < 1e-10
@@ -90,9 +110,15 @@ def probe(work):
     assert diagnostic["code"] == "JWC_ATTRIBUTE_UNVERIFIED"
     assert diagnostic["severity"] == "warning" and diagnostic["action"] == "retained"
     assert diagnostic["details"] == {
-        "field": "line.flags", "byte_offset": 2441, "count": 1, "values": ["0x0002"]
+        "field": "line.flags",
+        "byte_offset": 2441,
+        "count": 1,
+        "values": ["0x0002"],
     }
-    assert ezjww.read_cad_document(flagged_path) == {"format": "jwc", "document": flagged}
+    assert ezjww.read_cad_document(flagged_path) == {
+        "format": "jwc",
+        "document": flagged,
+    }
     flagged_dxf = ezjww.read_dxf_document(flagged_path)
     assert len(flagged_dxf["entities"]) == 1
     assert flagged_dxf["entities"][0]["type"] == "LINE"
@@ -104,7 +130,9 @@ def probe(work):
     assert flagged_audit["diagnostics"] == flagged["diagnostics"]
     flagged_output = work / "r011.dxf"
     run(*base, "to-dxf", flagged_path, "-o", str(flagged_output), capture_output=True)
-    assert flagged_output.read_text(encoding="utf-8") == ezjww.read_dxf_string(flagged_path)
+    assert flagged_output.read_text(encoding="utf-8") == ezjww.read_dxf_string(
+        flagged_path
+    )
 
     for name, offset in [("r080", 2483)]:
         path = str(work / f"{name}.jwc")
@@ -165,6 +193,7 @@ def probe(work):
         "checked": [
             "JWW",
             "empty version-700 JWW",
+            "native JWW creation/save/readback and explicit DXF export",
             "Japanese JWC",
             "both coordinate spaces",
             "ellipse",
