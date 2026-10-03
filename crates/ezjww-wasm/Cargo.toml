@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 ezjww-core = { path = "../ezjww-core" }
+js-sys = "0.3"
 serde = "1.0"
 serde-wasm-bindgen = "0.6"
 wasm-bindgen = "0.2"

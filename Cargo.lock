@@ -53,6 +53,7 @@ name = "ezjww-wasm"
 version = "0.2.10"
 dependencies = [
  "ezjww-core",
+ "js-sys",
  "serde",
  "serde-wasm-bindgen",
  "wasm-bindgen",

@@ -3,6 +3,8 @@ import initWasm, {
   readCadDocument,
   readDxfDocument,
   readDxfString,
+  newJwwDocument,
+  toJwwBytes,
 } from "./wasm/ezjww_wasm.js";
 import type {
   DxfDocument,
@@ -10,6 +12,7 @@ import type {
   CadDocument,
   JwcCoordinateSpace,
   JwwEntity,
+  JwwWriteDocument,
 } from "../../../src/index";
 import "./styles.css";
 
@@ -23,12 +26,14 @@ interface ParsedState {
   dxfText: string;
   elapsedMs: number;
   explodeInserts: boolean;
+  generatedJww?: Uint8Array;
 }
 
 interface CurrentInput {
   name: string;
   size: number;
   bytes: Uint8Array;
+  generated?: boolean;
 }
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -59,6 +64,8 @@ app.innerHTML = `
       </label>
       <button id="download-button" class="tool-button" type="button" disabled>DXF保存</button>
       <button id="sample-button" class="tool-button" type="button">サンプル読込</button>
+      <button id="create-button" class="tool-button" type="button">JWW作成例</button>
+      <button id="download-jww-button" class="tool-button" type="button" disabled>生成JWW保存</button>
       <label class="file-button">
         <input id="file-input" type="file" accept=".jww,.jwc,application/octet-stream" />
         ファイル選択
@@ -104,6 +111,20 @@ const sampleButton = document.querySelector<HTMLButtonElement>("#sample-button")
 const canvas = document.querySelector<HTMLCanvasElement>("#preview-canvas")!;
 const coordinateSelect = document.querySelector<HTMLSelectElement>("#coordinate-select")!;
 const downloadButton = document.querySelector<HTMLButtonElement>("#download-button")!;
+const createButton = document.querySelector<HTMLButtonElement>("#create-button")!;
+const downloadJwwButton = document.querySelector<HTMLButtonElement>("#download-jww-button")!;
+createButton.addEventListener("click", () => { void createDrawing(); });
+downloadJwwButton.addEventListener("click", () => {
+  if (!parsedState?.generatedJww) return;
+  const url = URL.createObjectURL(new Blob([Uint8Array.from(parsedState.generatedJww)], {
+    type: "application/octet-stream",
+  }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "created.jww";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 coordinateSelect.addEventListener("change", () => {
   jwcCoordinates = coordinateSelect.value as JwcCoordinateSpace;
   void reparseCurrentInput();
@@ -206,6 +227,46 @@ async function loadSample(): Promise<void> {
   }
 }
 
+async function createDrawing(): Promise<void> {
+  statusLine.textContent = "JWW作成中";
+  try {
+    await ensureWasm();
+    const drawing = newJwwDocument() as JwwWriteDocument;
+    drawing.options.memo = "ブラウザーで作成\r\n";
+    drawing.options.layer_groups[0].name = "作成例";
+    const base = {
+      group: 0, pen_style: 1, pen_color: 1, pen_width: 0, layer: 0, layer_group: 0, flag: 0,
+    };
+    drawing.entities.push(
+      { type: "LINE", base: { ...base }, start_x: -50, start_y: -20, end_x: 50, end_y: -20 },
+      {
+        type: "CIRCLE", base: { ...base, pen_color: 2 }, center_x: -30, center_y: 10,
+        radius: 10, start_angle: 0, arc_angle: 2 * Math.PI, tilt_angle: 0,
+        flatness: 1, is_full_circle: true,
+      },
+      {
+        type: "ARC", base: { ...base, pen_color: 3 }, center_x: 0, center_y: 10,
+        radius: 10, start_angle: 350 * (Math.PI / 180), arc_angle: 30 * (Math.PI / 180),
+        tilt_angle: 0, flatness: 1, is_full_circle: false,
+      },
+      {
+        type: "POINT", base: { ...base, pen_color: 4 }, x: 30, y: 10,
+        is_temporary: false, code: 0, angle: 0, scale: 0,
+      },
+      {
+        type: "TEXT", base: { ...base }, start_x: -50, start_y: -35, end_x: -20, end_y: -35,
+        text_type: 0, size_x: 3, size_y: 3, spacing: 0, angle: 0,
+        font_name: "ＭＳ ゴシック", content: "日本語 ABC",
+      },
+    );
+    const bytes = toJwwBytes(drawing);
+    currentInput = { name: "created.jww", size: bytes.byteLength, bytes, generated: true };
+    await parseBytes(currentInput);
+  } catch (error) {
+    statusLine.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
 async function parseBytes(input: CurrentInput): Promise<void> {
   statusLine.textContent = "読込中";
   try {
@@ -227,6 +288,7 @@ async function parseBytes(input: CurrentInput): Promise<void> {
       dxfText,
       elapsedMs: performance.now() - started,
       explodeInserts,
+      generatedJww: input.generated ? input.bytes : undefined,
     };
     statusLine.textContent = `${input.name} / ${formatBytes(input.size)}`;
     render();
@@ -249,6 +311,7 @@ function render(): void {
   renderCounts(parsedState);
   renderLayers(parsedState?.cad ?? null);
   downloadButton.disabled = !parsedState;
+  downloadJwwButton.disabled = !parsedState?.generatedJww;
   coordinateSelect.disabled = parsedState?.cad.format === "jww";
   renderPreview(parsedState);
   renderDetail(parsedState);
