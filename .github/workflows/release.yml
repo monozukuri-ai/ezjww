@@ -232,6 +232,9 @@ jobs:
           package_path="$(node -p "require('./dist/npm-verification.json').workdir + '/node_modules/ezjww'")"
           node scripts/check-python-ts-parity.mjs --package "${package_path}"
 
+      - name: Verify npm publish command
+        run: npm publish ./dist/*.tgz --ignore-scripts --provenance --access public --dry-run
+
       - name: Upload qualified npm archive
         uses: actions/upload-artifact@v5
         with:
@@ -316,4 +319,4 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python scripts/check-release.py --tag "${RELEASE_TAG}" --artifacts dist
       - name: Publish verified npm archive
-        run: npm publish dist/*.tgz --ignore-scripts --provenance --access public
+        run: npm publish ./dist/*.tgz --ignore-scripts --provenance --access public
