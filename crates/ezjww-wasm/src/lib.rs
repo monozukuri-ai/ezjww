@@ -1,6 +1,8 @@
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
+mod writer;
+
 use ezjww_core::{
     convert_document_with_options, document_to_string_with_version, is_jww_signature,
     jww_document_to_dto_with_diagnostics, parse_document, parse_document_with_diagnostics,

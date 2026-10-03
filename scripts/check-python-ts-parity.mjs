@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { parseArgs } from "node:util";
 import { checkJwcParity } from "./jwc/check-parity.mjs";
+import { checkWriterParity } from "./jww/check-writer-parity.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
@@ -39,11 +40,12 @@ const actual = Object.fromEntries(
 
 assert.deepEqual(actual, expected);
 const jwc = checkJwcParity({ root, api: ezjww, python });
+const writer = checkWriterParity({ root, api: ezjww, python });
 if (values.report) writeFileSync(values.report, JSON.stringify({
   python, package: packagePath,
-  jww: { inputs: samplePaths.length, cases: actual }, jwc,
+  jww: { inputs: samplePaths.length, cases: actual }, jwc, writer,
 }, null, 2) + "\n");
-console.log(`python/ts parity ok: ${samplePaths.length} JWW, ${jwc.accepted}/${jwc.inputs} JWC accepted, ${jwc.dxf_hashes} P4 DXF hashes`);
+console.log(`python/ts parity ok: ${samplePaths.length} JWW, ${jwc.accepted}/${jwc.inputs} JWC accepted, ${jwc.dxf_hashes} P4 DXF hashes, ${writer.inputs} writer inputs`);
 
 function pythonSummary(paths) {
   const code = String.raw`

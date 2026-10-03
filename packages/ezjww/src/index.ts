@@ -208,6 +208,76 @@ export interface JwwDocument {
   diagnostics: DecodeDiagnostic[];
 }
 
+/** Settings for a new version-700 JWW. Each group contains exactly 16 layers. */
+export interface JwwWriteOptions {
+  version: number;
+  memo: string;
+  paper_size: number;
+  write_layer_group: number;
+  layer_groups: LayerGroupHeader[];
+}
+
+export interface JwwWriteLine extends LinePayload {
+  type: "LINE";
+  base: EntityBase;
+}
+
+/** Native arc angles are radians; only circular geometry is supported. */
+export interface JwwWriteArcGeometry {
+  base: EntityBase;
+  center_x: number;
+  center_y: number;
+  radius: number;
+  start_angle: number;
+  arc_angle: number;
+  tilt_angle: number;
+  flatness: number;
+}
+
+export interface JwwWriteCircle extends JwwWriteArcGeometry {
+  type: "CIRCLE";
+  is_full_circle: true;
+}
+
+export interface JwwWriteArc extends JwwWriteArcGeometry {
+  type: "ARC";
+  is_full_circle: false;
+}
+
+export interface JwwWritePoint extends PointPayload {
+  type: "POINT";
+  base: EntityBase;
+}
+
+/** Explicit baseline endpoints; text angle is in degrees. */
+export interface JwwWriteText extends TextPayload {
+  type: "TEXT";
+  base: EntityBase;
+}
+
+export type JwwWriteEntity =
+  | JwwWriteLine
+  | JwwWriteCircle
+  | JwwWriteArc
+  | JwwWritePoint
+  | JwwWriteText;
+
+/** Editable new-document input, distinct from a parsed JwwDocument. */
+export interface JwwWriteDocument {
+  options: JwwWriteOptions;
+  entities: JwwWriteEntity[];
+}
+
+/** Return independent, mutable Rust writer defaults (A3, version 700). */
+export function newJwwDocument(): JwwWriteDocument {
+  return wasm.newJwwDocument() as JwwWriteDocument;
+}
+
+/** Validate and serialize without filesystem I/O. Returned bytes are owned. */
+export function toJwwBytes(document: JwwWriteDocument): Uint8Array {
+  return wasm.toJwwBytes(document);
+}
+
 export interface DxfLayer {
   name: string;
   color: number;

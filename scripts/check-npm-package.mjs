@@ -41,6 +41,24 @@ const empty = fs.readFileSync('empty.jww');
 assert.equal(ez.readDocument(empty).header.version, 700);
 assert.deepEqual(ez.readDocument(empty).entities, []);
 assert.deepEqual(ez.readDxfDocument(empty).entities, []);
+const created = ez.newJwwDocument();
+assert.deepEqual(Buffer.from(ez.toJwwBytes(created)), empty);
+created.options.memo = '新規図面𠮷';
+created.entities.push({
+  type: 'LINE',
+  base: {group:0, pen_style:1, pen_color:3, pen_width:25, layer:2, layer_group:0, flag:0},
+  start_x:0, start_y:0, end_x:100, end_y:10,
+});
+const createdBytes = ez.toJwwBytes(created);
+assert.ok(createdBytes instanceof Uint8Array);
+fs.writeFileSync('created.jww', createdBytes);
+const reopened = ez.readDocument(fs.readFileSync('created.jww'));
+assert.equal(reopened.header.memo, created.options.memo);
+assert.deepEqual(reopened.entities, created.entities);
+assert.ok(ez.readDxfString(createdBytes).includes('\nLINE\n'));
+created.entities[0].base.layer = 65536;
+assert.throws(() => ez.toJwwBytes(created), e => String(e).includes('base.layer'));
+assert.throws(() => ez.toJwwBytes(reopened), e => String(e).includes('document'));
 const scaled = fs.readFileSync('q054.jwc');
 const paper = ez.readDxfDocument(scaled).entities[0];
 const model = ez.readDxfDocument(scaled, {jwcCoordinates:'model_millimeters'}).entities[0];
@@ -84,7 +102,10 @@ writeFileSync(script, probe);
 const result = JSON.parse(execFileSync(process.execPath, [script], { cwd: workdir, encoding: "utf8" }));
 const typeProbe = join(workdir, "probe.ts");
 writeFileSync(typeProbe, `
-import { readCadDocument, readDocument, readDxfDocument, readDxfString } from "ezjww";
+import {
+  readCadDocument, readDocument, readDxfDocument, readDxfString,
+  newJwwDocument, toJwwBytes, type JwwWriteDocument, type JwwWriteEntity,
+} from "ezjww";
 const input = new Uint8Array();
 const cad = readCadDocument(input);
 if (cad.format === "jwc") {
@@ -96,6 +117,22 @@ const version: number = readDocument(input).header.version;
 const dxf = readDxfDocument(input, { jwcCoordinates: "model_millimeters" });
 const factors: number[] | undefined = dxf.text_width_factors;
 const output: string = readDxfString(input, { targetVersion: "AC1024" });
+const created: JwwWriteDocument = newJwwDocument();
+const entity: JwwWriteEntity = {
+  type: "LINE",
+  base: {group:0, pen_style:1, pen_color:1, pen_width:0, layer:0, layer_group:0, flag:0},
+  start_x:0, start_y:0, end_x:100, end_y:0,
+};
+created.entities.push(entity);
+const bytes: Uint8Array = toJwwBytes(created);
+for (const e of created.entities) {
+  if (e.type === "TEXT") { const content: string = e.content; }
+  if (e.type === "ARC") { const full: false = e.is_full_circle; }
+}
+// @ts-expect-error A parsed document is not a writer input.
+toJwwBytes(readDocument(input));
+// @ts-expect-error Writer line geometry is required.
+const incomplete: JwwWriteEntity = { type: "LINE", base: entity.base };
 `);
 execFileSync(process.execPath, [
   join(root, "packages/ezjww/node_modules/typescript/bin/tsc"), "--strict", "--noEmit",
@@ -105,7 +142,7 @@ const sha = p => createHash("sha256").update(readFileSync(p)).digest("hex");
 const report = {
   ...result, workdir, archive, archive_sha256: sha(archive),
   jwc_dxf_sha256: sha(join(workdir, "q032.dxf")),
-  checked: ["JWW", "empty version-700 JWW", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
+  checked: ["JWW", "empty version-700 JWW", "new JWW generation and readback", "strict writer validation", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
 };
 mkdirSync(dirname(resolve(values.report)), { recursive: true });
 writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");

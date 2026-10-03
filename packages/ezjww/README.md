@@ -1,6 +1,6 @@
 # ezjww for TypeScript
 
-Read JWW and supported JWC drawings, inspect source records, and export DXF
+Read JWW and supported JWC drawings, create new JWW drawings, and export DXF
 with a Rust parser compiled to WebAssembly.
 
 ## Installation
@@ -47,11 +47,46 @@ A matching signature does not validate the complete file.
 | Read JWW only | `isJwwFile`, `readHeader`, `readDocument` |
 | Read JWC only | `isJwcFile`, `readJwcHeader`, `readJwcDocument` |
 | Convert either format | `readDxfDocument`, `readDxfString` (`toDxfString` alias) |
+| Create a new JWW | `newJwwDocument`, `toJwwBytes` (unreleased) |
 
 `DxfOptions` accepts `targetVersion` (`"AC1015"` by default or `"AC1024"`) for
 string output, `explodeInserts` (default `false`), `maxBlockNesting` (default `32`,
 minimum `1`), and `jwcCoordinates` (`"paper_millimeters"` by default or
 `"model_millimeters"`). The JWC coordinate option does not change JWW conversion.
+
+## Create a JWW drawing (unreleased)
+
+Build this revision from source with `pnpm install --frozen-lockfile` and
+`pnpm run build` in `packages/ezjww` to use the writer API:
+
+```typescript
+import { writeFileSync } from "node:fs";
+import { newJwwDocument, toJwwBytes } from "ezjww";
+
+const drawing = newJwwDocument();
+drawing.options.memo = "平面図\r\n";
+drawing.entities.push({
+  type: "LINE",
+  base: {
+    group: 0, pen_style: 1, pen_color: 1, pen_width: 0,
+    layer: 0, layer_group: 0, flag: 0,
+  },
+  start_x: 0, start_y: 0, end_x: 100, end_y: 0,
+});
+writeFileSync("created.jww", toJwwBytes(drawing));
+```
+
+The editable `JwwWriteDocument` has `options` and `entities`; parsed
+`JwwDocument` objects cannot be passed to the writer. Output is version 700,
+supporting lines, circles, circular arcs, ordinary points, plain text and basic
+layer/pen settings. Coordinates are paper mm. Native arc fields use radians;
+text angles use degrees. Each write validates current values and returns an
+independent `Uint8Array` without filesystem I/O. Unknown/missing fields, invalid
+numbers and unsupported features throw errors, including through raw WASM.
+
+See the [writer API and limits](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWW_WRITE.md)
+for all required fields, settings and the browser API. These APIs share the
+Python/Rust writer input contract and deterministic output.
 
 ## JWC support
 
@@ -94,7 +129,9 @@ pnpm run example:browser:dev
 ```
 
 The app displays layers, source JSON, diagnostics, and previews, and can download
-converted DXF. For JWC, it offers paper/model coordinates and conversion notices.
+converted DXF. “JWW作成例” creates a drawing with all five supported entity types;
+“生成JWW保存” downloads that new drawing. For JWC, it offers paper/model coordinates
+and conversion notices.
 Invisible JWC layers are hidden; fonts are substituted.
 See the [browser guide](https://github.com/monozukuri-ai/ezjww/blob/main/packages/ezjww/examples/browser/README.md).
 
