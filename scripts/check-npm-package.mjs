@@ -2,25 +2,44 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const { values } = parseArgs({ options: { archive: { type: "string" }, report: { type: "string" } } });
+const { values } = parseArgs({ options: { archive: { type: "string" }, report: { type: "string" }, "expected-version": { type: "string" } } });
 assert.ok(values.archive && values.report, "--archive and --report are required");
 const archive = resolve(values.archive);
 const workdir = mkdtempSync(join(tmpdir(), "ezjww-npm-"));
 execFileSync("npm", ["install", "--offline", "--ignore-scripts", "--no-audit", "--no-fund", archive], {
   cwd: workdir, env: { ...process.env, npm_config_cache: join(workdir, "npm-cache") }, stdio: "inherit",
 });
+const packageRoot = join(workdir, "node_modules/ezjww");
+const metadata = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+const expectedVersion = values["expected-version"] ?? JSON.parse(readFileSync(join(root, "packages/ezjww/package.json"), "utf8")).version;
+assert.equal(metadata.version, expectedVersion);
+assert.equal(metadata.license, "MIT");
+assert.deepEqual(metadata.dependencies ?? {}, {});
+function payloadFiles(directory, prefix = "") {
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    assert.ok(entry.isDirectory() || entry.isFile(), "unexpected package link");
+    const name = prefix + entry.name;
+    return entry.isDirectory() ? payloadFiles(join(directory, entry.name), name + "/") : [name];
+  });
+}
+const files = payloadFiles(packageRoot);
+assert.ok(files.every(name => /^(dist\/|wasm\/|package\.json$|README\.md$|LICENSE$)/.test(name)), "unexpected npm payload");
+for (const required of ["dist/index.js", "dist/index.d.ts", "wasm/ezjww_wasm_bg.wasm", "LICENSE", "README.md"]) {
+  assert.ok(files.includes(required), "missing npm file: " + required);
+}
 for (const name of ["q032", "q054", "r013", "r011", "r080"]) {
   copyFileSync(join(root, "jwc_samples/generated", `${name}.jwc`), join(workdir, `${name}.jwc`));
 }
 copyFileSync(join(root, "jww_samples/Test1.jww"), join(workdir, "Test1.jww"));
 copyFileSync(join(root, "jww_samples/writer/empty.jww"), join(workdir, "empty.jww"));
+copyFileSync(join(root, "jww_samples/writer/basic/basic.jww"), join(workdir, "basic.jww"));
 const probe = String.raw`
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -59,6 +78,23 @@ assert.ok(ez.readDxfString(createdBytes).includes('\nLINE\n'));
 created.entities[0].base.layer = 65536;
 assert.throws(() => ez.toJwwBytes(created), e => String(e).includes('base.layer'));
 assert.throws(() => ez.toJwwBytes(reopened), e => String(e).includes('document'));
+const basic = ez.newJwwDocument();
+const base = () => ({group:0, pen_style:1, pen_color:1, pen_width:0, layer:0, layer_group:0, flag:0});
+const circle = (x, y, radius) => ({type:'CIRCLE', base:base(), center_x:x, center_y:y, radius, start_angle:0, arc_angle:2*Math.PI, tilt_angle:0, flatness:1, is_full_circle:true});
+const text = (content, x1, y1, x2, y2) => ({type:'TEXT', base:base(), start_x:x1, start_y:y1, end_x:x2, end_y:y2, text_type:0, size_x:3, size_y:3, spacing:0, angle:0, font_name:'ＭＳ ゴシック', content});
+const c = circle(-30,20,10); c.base.pen_color = 2;
+const t = text('日本語 ABC',-50,-40,-20,-40); t.spacing = 0.5; t.base.pen_color = 5;
+const rotated = text('縦方向',30,-40,30,-20); rotated.angle = 90; rotated.size_y = 5;
+basic.entities.push(
+  {type:'LINE',base:{...base(),pen_style:3,pen_color:3,pen_width:25,layer:2},start_x:-50,start_y:-20,end_x:50,end_y:-20},
+  c, {...circle(0,20,10),type:'ARC',is_full_circle:false,start_angle:350*(Math.PI/180),arc_angle:30*(Math.PI/180)},
+  {type:'POINT',base:{...base(),pen_color:4},x:30,y:20,is_temporary:false,code:0,angle:0,scale:0}, t, rotated,
+);
+const basicBytes = ez.toJwwBytes(basic);
+assert.ok(Buffer.from(basicBytes).equals(fs.readFileSync('basic.jww')));
+fs.writeFileSync('native-qualified.jww', basicBytes);
+assert.deepEqual(ez.readDocument(fs.readFileSync('native-qualified.jww')).entities, basic.entities);
+assert.equal(ez.readDxfDocument(basicBytes).entities.length, 6);
 const scaled = fs.readFileSync('q054.jwc');
 const paper = ez.readDxfDocument(scaled).entities[0];
 const model = ez.readDxfDocument(scaled, {jwcCoordinates:'model_millimeters'}).entities[0];
@@ -140,9 +176,10 @@ execFileSync(process.execPath, [
 ], { cwd: workdir, stdio: "inherit" });
 const sha = p => createHash("sha256").update(readFileSync(p)).digest("hex");
 const report = {
-  ...result, workdir, archive, archive_sha256: sha(archive),
+  ...result, version: metadata.version, files, workdir, archive, archive_sha256: sha(archive),
+  writer_fixture_sha256: sha(join(workdir, "native-qualified.jww")),
   jwc_dxf_sha256: sha(join(workdir, "q032.dxf")),
-  checked: ["JWW", "empty version-700 JWW", "new JWW generation and readback", "strict writer validation", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
+  checked: ["JWW", "empty version-700 JWW", "new JWW generation and readback", "exact native-qualified mixed geometry bytes", "strict writer validation", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
 };
 mkdirSync(dirname(resolve(values.report)), { recursive: true });
 writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");

@@ -1,6 +1,6 @@
 # ezjww
 
-`ezjww` reads Jw_cad drawings and converts them to DXF. Its Rust core is
+`ezjww` reads Jw_cad drawings, creates JWW files and converts drawings to DXF. Its Rust core is
 available through Python and TypeScript/WebAssembly.
 
 - Read JWW files and a [limited binary JWC profile](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_FORMAT.md).
@@ -9,6 +9,10 @@ available through Python and TypeScript/WebAssembly.
 - Query converted geometry, calculate bounds, and audit drawings.
 - Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.
 - Convert individual files or directories from the command line.
+
+This checkout prepares **0.4.0**. The writer and Python API changes below are
+unreleased; build from source until that version is published. See the
+[0.4 migration guide](https://github.com/monozukuri-ai/ezjww/blob/main/docs/MIGRATING_0_4.md).
 
 ## Installation
 
@@ -103,7 +107,7 @@ drawing.save_dxf("created.dxf", target_version="AC1024")
 
 Coordinates are paper millimeters, with the origin at the paper center and +Y up.
 Edit `drawing.options` and the native entity dictionaries returned by `add_*`.
-See [JWW writing](docs/JWW_WRITE.md) for supported attributes, validation and native
+See [JWW writing](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWW_WRITE.md) for supported attributes, validation and native
 application limits.
 
 **API migration:** `new()` / `Drawing.new()` now create writable JWW drawings.

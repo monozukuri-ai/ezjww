@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   PYTHONUTF8: "1"
@@ -26,10 +25,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Check release versions and tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: python scripts/check-release.py --tag "${RELEASE_TAG}"
+      - name: Rust and native fixture checks
+        run: |
+          cargo fmt --all --check
+          cargo test --workspace --locked --quiet
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+          python scripts/jww/check_fixtures.py
+          cargo run -p ezjww-core --example jww_compatibility --locked -- "${RUNNER_TEMP}/writer-inputs"
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip
@@ -50,6 +62,7 @@ jobs:
           "${VENV_PY}" -m ezjww info jww_samples/Test1.jww
           "${VENV_PY}" -m ezjww report jww_samples/Test1.jww --json --explode-inserts
           "${VENV_PY}" -m pytest -q tests/python
+          "${VENV_PY}" scripts/jww/check_compatibility.py --generated "${RUNNER_TEMP}/writer-inputs"
           "${VENV_PY}" scripts/check-wheel.py --wheel-dir dist --report "${RUNNER_TEMP}/jwc-wheel.json"
 
   build-wheels:
@@ -88,15 +101,17 @@ jobs:
           ARCHFLAGS: ${{ matrix.archflags }}
         with:
           command: build
-          args: --release --out dist --compatibility pypi
+          args: --release --locked --out dist --compatibility pypi
           manylinux: ${{ matrix.manylinux }}
       - name: Verify actual wheel outside source tree
-        run: python scripts/check-wheel.py --wheel-dir dist --report "${{ runner.temp }}/jwc-wheel.json"
+        run: python scripts/check-wheel.py --wheel-dir dist --report "dist/${{ matrix.artifact }}-verification.json"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v5
         with:
           name: distributions-${{ matrix.artifact }}
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/*-verification.json
           if-no-files-found: error
 
   build-sdist:
@@ -105,38 +120,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install build backend
+        run: python -m pip install maturin
       - name: Build source distribution
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
+      - name: Build and verify from the source distribution
+        run: python scripts/check-sdist.py --archive dist/*.tar.gz --report dist/sdist-verification.json
       - name: Upload source distribution artifact
         uses: actions/upload-artifact@v5
         with:
           name: distributions-sdist
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*-verification.json
           if-no-files-found: error
 
-  publish-python:
-    name: Publish Python distributions
-    needs: [build-wheels, build-sdist]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download distributions
-        uses: actions/download-artifact@v6
-        with:
-          pattern: distributions-*
-          path: dist
-          merge-multiple: true
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-      - name: Publish to PyPI
-        run: uv publish --check-url https://pypi.org/simple 'dist/*'
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-
-  publish-npm:
-    name: Publish npm package
+  build-npm:
+    name: Build and verify npm package
     needs: verify-python
     runs-on: ubuntu-latest
 
@@ -175,17 +184,20 @@ jobs:
       - name: Verify required original JWC fixtures
         run: python scripts/jwc/check_corpus.py
 
+      - name: Verify JWW writer fixtures
+        run: python scripts/jww/check_fixtures.py
+
       - name: Install TypeScript dependencies
         run: pnpm install --frozen-lockfile
         working-directory: packages/ezjww
 
       - name: Check wasm target
         run: |
-          cargo build -p ezjww-wasm --target wasm32-unknown-unknown
-          cargo clippy -p ezjww-wasm --target wasm32-unknown-unknown -- -D warnings
+          cargo build -p ezjww-wasm --target wasm32-unknown-unknown --locked
+          cargo clippy -p ezjww-wasm --target wasm32-unknown-unknown --locked -- -D warnings
 
       - name: Build Python extension
-        run: uv run maturin develop
+        run: uv run maturin develop --locked
 
       - name: Test TypeScript package
         run: pnpm run test
@@ -199,6 +211,9 @@ jobs:
         run: pnpm run example:browser:build
         working-directory: packages/ezjww
 
+      - name: Check web-target WASM writer
+        run: node scripts/jww/check-web-writer.mjs
+
       - name: Check Python/TypeScript parity
         run: pnpm run test:parity
         working-directory: packages/ezjww
@@ -206,31 +221,99 @@ jobs:
       - name: Pack npm package
         id: pack-npm
         run: |
-          pack_file="$(pnpm pack --pack-destination /tmp | tail -n 1)"
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
+          pack_file="$(pnpm pack --pack-destination "${GITHUB_WORKSPACE}/dist" | tail -n 1)"
           echo "pack-file=${pack_file}" >> "${GITHUB_OUTPUT}"
         working-directory: packages/ezjww
 
       - name: Smoke packed npm package
         run: |
-          node scripts/check-npm-package.mjs --archive "${{ steps.pack-npm.outputs.pack-file }}" --report "${RUNNER_TEMP}/jwc-npm.json"
-          package_path="$(node -p "require(process.env.RUNNER_TEMP + '/jwc-npm.json').workdir + '/node_modules/ezjww'")"
+          node scripts/check-npm-package.mjs --archive "${{ steps.pack-npm.outputs.pack-file }}" --report dist/npm-verification.json
+          package_path="$(node -p "require('./dist/npm-verification.json').workdir + '/node_modules/ezjww'")"
           node scripts/check-python-ts-parity.mjs --package "${package_path}"
 
-      - name: Check npm version
-        id: npm-version
-        run: |
-          name="$(node -p "require('./package.json').name")"
-          version="$(node -p "require('./package.json').version")"
-          if npm view "${name}@${version}" version >/dev/null 2>&1; then
-            echo "published=true" >> "${GITHUB_OUTPUT}"
-            echo "${name}@${version} is already published"
-          else
-            echo "published=false" >> "${GITHUB_OUTPUT}"
-            echo "${name}@${version} is not published yet"
-          fi
-        working-directory: packages/ezjww
+      - name: Upload qualified npm archive
+        uses: actions/upload-artifact@v5
+        with:
+          name: distributions-npm
+          path: |
+            dist/*.tgz
+            dist/*-verification.json
+          if-no-files-found: error
 
-      - name: Publish npm package
-        if: steps.npm-version.outputs.published != 'true'
-        run: npm publish
-        working-directory: packages/ezjww
+  verify-distributions:
+    name: Verify complete release bundle
+    needs: [build-wheels, build-sdist, build-npm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: distributions-*
+          path: dist
+          merge-multiple: true
+      - name: Verify every qualified artifact
+        run: python scripts/check-release.py --artifacts dist
+
+  publish-python:
+    name: Publish Python distributions
+    needs: verify-distributions
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: distributions-*
+          path: dist
+          merge-multiple: true
+      - name: Verify qualified artifact hashes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/check-release.py --tag "${RELEASE_TAG}" --artifacts dist
+      - uses: astral-sh/setup-uv@v7
+      - name: Publish verified Python archives
+        run: uv publish --check-url https://pypi.org/simple dist/*.whl dist/*.tar.gz
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+
+  publish-npm:
+    name: Publish npm archive
+    needs: verify-distributions
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Install npm with trusted publishing support
+        run: npm install -g npm@^11.5.1
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: distributions-*
+          path: dist
+          merge-multiple: true
+      - name: Verify qualified artifact hashes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/check-release.py --tag "${RELEASE_TAG}" --artifacts dist
+      - name: Publish verified npm archive
+        run: npm publish dist/*.tgz --ignore-scripts --provenance --access public

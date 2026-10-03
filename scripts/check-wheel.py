@@ -9,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,10 +24,41 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, encoding="utf-8", **kwargs)
 
 
+def inspect_wheel(wheel, expected_version=None):
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+        metadata_files = [n for n in names if n.endswith(".dist-info/METADATA")]
+        assert len(metadata_files) == 1, "expected one wheel METADATA"
+        metadata = BytesParser().parsebytes(archive.read(metadata_files[0]))
+        assert metadata["Name"] == "ezjww"
+        assert metadata["Requires-Python"] == ">=3.9"
+        if expected_version:
+            assert metadata["Version"] == expected_version, "wheel version mismatch"
+        for filename in ("ezjww/py.typed", "ezjww/_core.pyi", "ezjww/__init__.py"):
+            assert filename in names, "missing wheel API file: " + filename
+        license_files = [n for n in names if n.endswith("/LICENSE")]
+        assert license_files, "wheel must include LICENSE"
+        assert any(
+            archive.read(n) == (ROOT / "LICENSE").read_bytes() for n in license_files
+        )
+        assert all(n.startswith(("ezjww/", "ezjww-")) for n in names), (
+            "unexpected wheel payload"
+        )
+        assert not any(
+            ".internal" in Path(n).parts or "header_700.bin" in n for n in names
+        )
+    return {
+        "version": metadata["Version"],
+        "requires_python": metadata["Requires-Python"],
+        "files": names,
+    }
+
+
 def probe(work):
     # This function runs from a copied script, using only the installed wheel.
     import ezjww
     from ezjww import _core
+    from importlib.metadata import version
 
     prefix = Path(sys.prefix).resolve()
     for module in (ezjww, _core):
@@ -64,6 +97,31 @@ def probe(work):
     )
     assert created.stats()["entity_count"] == 5
     assert ezjww.new_dxf().header is None
+    # Independently reconstruct the six-entity native-qualified acceptance case.
+    basic = ezjww.new()
+    modelspace = basic.modelspace()
+    modelspace.add_line(
+        (-50, -20),
+        (50, -20),
+        jwwattribs={"pen_style": 3, "pen_color": 3, "pen_width": 25, "layer": 2},
+    )
+    modelspace.add_circle((-30, 20), 10, jwwattribs={"pen_color": 2})
+    modelspace.add_arc((0, 20), 10, 350, 30)
+    modelspace.add_point((30, 20), jwwattribs={"pen_color": 4})
+    modelspace.add_text(
+        "日本語 ABC", (-50, -40), (-20, -40), spacing=0.5, jwwattribs={"pen_color": 5}
+    )
+    modelspace.add_text("縦方向", (30, -40), (30, -20), angle=90, size_y=5)
+    assert basic.to_jww_bytes() == (work / "basic.jww").read_bytes()
+    protected = work / "protected.dxf"
+    protected.write_bytes(b"keep")
+    try:
+        basic.saveas(protected)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("legacy DXF saveas unexpectedly accepted")
+    assert protected.read_bytes() == b"keep"
     paper = ezjww.readfile(work / "q054.jwc")
     model = ezjww.readfile(work / "q054.jwc", jwc_coordinates="model_millimeters")
     assert abs(model.bbox()["width"] / paper.bbox()["width"] - 50) < 1e-10
@@ -182,6 +240,7 @@ def probe(work):
     result = run(str(console), "info", source, "--json", capture_output=True)
     assert json.loads(result.stdout)["source_format"] == "jwc"
     return {
+        "version": version("ezjww"),
         "python": sys.version,
         "python_executable": sys.executable,
         "python_module": ezjww.__file__,
@@ -189,11 +248,13 @@ def probe(work):
         "extension_sha256": sha(Path(_core.__file__)),
         "console_script": str(console),
         "jwc_dxf_sha256": sha(cli_dxf),
+        "writer_fixture_sha256": hashlib.sha256(basic.to_jww_bytes()).hexdigest(),
         "source_tree_imported": False,
         "checked": [
             "JWW",
             "empty version-700 JWW",
             "native JWW creation/save/readback and explicit DXF export",
+            "exact native-qualified mixed geometry bytes and saveas migration",
             "Japanese JWC",
             "both coordinate spaces",
             "ellipse",
@@ -216,6 +277,7 @@ def main():
     wheels.add_argument("--wheel", type=Path)
     wheels.add_argument("--wheel-dir", type=Path)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--expected-version")
     parser.add_argument("--probe", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.probe:
@@ -230,6 +292,7 @@ def main():
         if args.wheel is None:
             parser.error("--wheel or --wheel-dir is required")
         wheel = args.wheel.resolve(strict=True)
+        payload = inspect_wheel(wheel, args.expected_version)
         work = Path(tempfile.mkdtemp(prefix="ezjww-wheel-"))
         assert ROOT not in work.parents, (
             "wheel verification must run outside the source tree"
@@ -263,6 +326,7 @@ def main():
             )
         shutil.copyfile(ROOT / "jww_samples/Test1.jww", work / "Test1.jww")
         shutil.copyfile(ROOT / "jww_samples/writer/empty.jww", work / "empty.jww")
+        shutil.copyfile(ROOT / "jww_samples/writer/basic/basic.jww", work / "basic.jww")
         script = work / "probe.py"
         shutil.copyfile(__file__, script)
         local_report = work / "validation.json"
@@ -280,7 +344,13 @@ def main():
             env=env,
         )
         result = json.loads(local_report.read_text(encoding="utf-8"))
-        result.update(wheel=str(wheel), wheel_sha256=sha(wheel), workdir=str(work))
+        assert result["version"] == payload["version"], "installed version mismatch"
+        result.update(
+            wheel=str(wheel),
+            wheel_sha256=sha(wheel),
+            workdir=str(work),
+            payload=payload,
+        )
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

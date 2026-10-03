@@ -1,0 +1,37 @@
+# Changelog
+
+## 0.4.0 — unreleased
+
+### Added
+
+- Create new version-700 JWW drawings through Python, Rust and TypeScript/WASM:
+  lines, circles, circular arcs, ordinary points, plain text, paper settings,
+  layer/group settings and basic pen attributes.
+- Strict validation, deterministic JWW bytes, Python file saving and in-memory
+  DXF export, analysis and preview. The native header template is embedded.
+- A 21-case native compatibility corpus for Jw_cad 10.02.1 on Wine 9.0,
+  including large counts, extended class references and long strings.
+- Verification of installed wheels and npm archives against a native-qualified
+  mixed drawing; an external sdist build followed by clean wheel installation.
+
+### Fixed
+
+- Preserve the complete Cargo workspace in the sdist so builds can use its
+  bundled `Cargo.lock` with `--locked`.
+
+### Breaking Python changes
+
+- `new()` / `Drawing.new()` create writable JWW drawings. Use `new_dxf()` /
+  `Drawing.new_dxf()` for the previous empty DXF view.
+- `saveas()` saves new JWW drawings. Replace DXF calls with `save_dxf()`.
+  Existing-file JWW rewriting is unsupported and raises an error.
+
+See the [0.4 migration guide](docs/MIGRATING_0_4.md).
+
+### Compatibility limits
+
+Native saving may truncate/reflow memo text, remove empty TEXT and recalculate
+text endpoints. Native DXF rotation follows the text baseline. Wine Direct2D
+display has known failures; Windows desktop and printing have not been qualified.
+See [the recorded evidence](docs/JWW_COMPATIBILITY.md). Existing JWW/JWC reading
+and DXF conversion remain covered by the regression and package checks.

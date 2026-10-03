@@ -5,8 +5,11 @@ resolver = "2"
 
 [package]
 name = "ezjww"
-version = "0.3.4"
+version = "0.4.0"
 edition = "2021"
+description = "Python bindings for JWW/JWC reading, JWW writing and DXF conversion"
+license = "MIT"
+repository = "https://github.com/monozukuri-ai/ezjww"
 
 [lib]
 name = "_core"

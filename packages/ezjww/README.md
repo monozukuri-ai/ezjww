@@ -3,6 +3,9 @@
 Read JWW and supported JWC drawings, create new JWW drawings, and export DXF
 with a Rust parser compiled to WebAssembly.
 
+This checkout prepares **0.4.0** with the writer API. Build from source until
+that release is published. Existing reader APIs remain unchanged.
+
 ## Installation
 
 Node.js 18 or later:
