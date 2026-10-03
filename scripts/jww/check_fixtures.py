@@ -6,6 +6,8 @@ import json
 import math
 from pathlib import Path
 
+from check_compatibility import check_integrity
+
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE_SHA256 = "7d66238bef9a66e3030a39a58936ba6aedc2189a3ebe46d582c908bf43622572"
 
@@ -96,6 +98,8 @@ def check():
     fixtures = ROOT / "jww_samples/writer"
     count = check_native(fixtures, ["empty", "line"])
     count += check_native(fixtures / "basic", ["basic", "settings", "unicode"])
+    matrix = check_integrity(fixtures / "compatibility")
+    count += len(matrix["artifacts"])
     print(f"Writer template and {count} native validation files verified.")
     return header
 
