@@ -530,3 +530,29 @@ def write_dxf_with_report(
     *,
     jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
 ) -> DxfWriteReport | JwcDxfWriteReport: ...
+
+
+class JwwWriteOptions(TypedDict):
+    version: int
+    memo: str
+    paper_size: int
+    write_layer_group: int
+    layer_groups: list[LayerGroupHeader]
+
+class JwwWriteDocument(TypedDict):
+    options: JwwWriteOptions
+    entities: list[JwwEntity]
+
+# Only the bounded new-document input is accepted, not parsed JwwDocument values.
+def new_jww_document() -> JwwWriteDocument: ...
+def to_jww_bytes(document: JwwWriteDocument) -> bytes: ...
+def jww_write_document_to_document(document: JwwWriteDocument) -> JwwDocument: ...
+def jww_write_document_to_dxf(
+    document: JwwWriteDocument, explode_inserts: bool = False,
+    max_block_nesting: int = 32, text_em_scale: float = 1.0,
+) -> DxfDocument: ...
+def jww_write_document_to_dxf_string(
+    document: JwwWriteDocument, explode_inserts: bool = False,
+    max_block_nesting: int = 32, target_version: str = "AC1015",
+    text_em_scale: float = 1.0,
+) -> str: ...

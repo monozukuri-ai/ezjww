@@ -2,6 +2,7 @@
 #![allow(clippy::useless_conversion)]
 
 mod jwc_bindings;
+mod jww_bindings;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -50,7 +51,14 @@ fn read_header(py: Python<'_>, path: &str) -> PyResult<PyObject> {
 #[pyfunction]
 fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
     let parsed = read_document_from_file_with_diagnostics(path).map_err(to_py_err)?;
-    let document = &parsed.document;
+    document_to_pyobject(py, &parsed.document, &parsed.diagnostics)
+}
+
+fn document_to_pyobject(
+    py: Python<'_>,
+    document: &JwwDocument,
+    decode_diagnostics: &[DecodeDiagnostic],
+) -> PyResult<PyObject> {
     let out = PyDict::new_bound(py);
     let header = header_to_pydict(py, &document.header)?;
     out.set_item("header", header)?;
@@ -88,7 +96,7 @@ fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
     )?;
 
     let diagnostics = PyList::empty_bound(py);
-    for diagnostic in &parsed.diagnostics {
+    for diagnostic in decode_diagnostics {
         diagnostics.append(decode_diagnostic_to_pydict(py, diagnostic)?)?;
     }
     out.set_item("diagnostics", diagnostics)?;
@@ -969,6 +977,7 @@ fn block_reference_validation_to_pydict<'py>(
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     jwc_bindings::register(m)?;
+    jww_bindings::register(m)?;
     m.add_function(wrap_pyfunction!(hello_from_bin, m)?)?;
     m.add_function(wrap_pyfunction!(is_jww_file, m)?)?;
     m.add_function(wrap_pyfunction!(read_header, m)?)?;

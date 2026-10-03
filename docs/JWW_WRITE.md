@@ -1,4 +1,4 @@
-# JWW writing in Rust
+# JWW writing in Python and Rust
 
 The Rust core creates new version-700 JWW drawings containing lines, circles,
 circular arcs, ordinary permanent points and plain text. It also writes paper
@@ -6,10 +6,100 @@ size, memo, layer/group names, states, protection and scale denominators.
 Coordinates are paper millimeters, with the origin at the paper center and +Y up.
 Changing a group's scale does not multiply or divide entity coordinates.
 
-Python `new()`, `new_dxf()` and native `saveas()` changes belong to the later
-binding stage. This API is currently Rust only. Existing-file editing, ellipses,
-solids, blocks, dimensions, images, marker/temporary points and older output
-versions remain outside the writer's scope.
+Python exposes the writer through `new()` and `JwwDrawing` in the current,
+unreleased source. TypeScript/WASM writer bindings are planned separately.
+Existing-file editing, ellipses, solids, blocks, dimensions, images,
+marker/temporary points and older output versions remain outside the writer's scope.
+
+## Python API
+
+```python
+import ezjww
+
+drawing = ezjww.new(version=700, paper_size=3, memo="図面の説明\r\n")
+msp = drawing.modelspace()
+line = msp.add_line((0, 0), (100, 0), jwwattribs={"layer": 2, "pen_color": 3})
+line["end_y"] = 10  # the returned dict is the editable native entity
+msp.add_circle((20, 20), 5)
+msp.add_arc((40, 20), 5, start_angle=350, sweep_angle=30)
+msp.add_point((60, 20))
+msp.add_text("日本語 ABC", (0, -10), (24, -10), spacing=0.5)
+drawing.options["layer_groups"][0]["name"] = "平面図"
+drawing.options["layer_groups"][0]["scale"] = 50.0
+
+data = drawing.to_jww_bytes()
+drawing.saveas("created.jww")
+drawing.save_dxf("created.dxf", target_version="AC1024")
+print(drawing.stats(), drawing.bbox())
+# drawing.plot(save_path="created.png")  # requires ezjww[plot]
+```
+
+`new()` and `Drawing.new()` return a `JwwDrawing`, which is a subclass of `Drawing`.
+Constructor arguments are keyword-only: `version=700`, `paper_size=3`, `memo=""`.
+A new drawing has `source_format == "jww"` and `source_path is None`.
+
+`modelspace()` returns a persistent `JwwModelspace`. Its `entities` list and the
+dictionaries returned by the five `add_*` methods are mutable. Entity geometry
+uses the native field names in the reader's `JwwEntity` schema. Each `jwwattribs`
+mapping sets fields in the entity's `base`: `pen_style`, `pen_color`, `pen_width`,
+`layer`, `layer_group`, `group`, `flag`. The support limits in the table below
+apply. Unrecognized attribute names are rejected.
+
+Python `add_arc(center, radius, start_angle, sweep_angle)` takes degrees and
+stores radians. `add_text(content, start, end, ...)` uses explicit baseline
+endpoints, with optional `size_x`, `size_y`, `spacing`, `angle` (degrees),
+`font_name`, `text_type`, and `jwwattribs`. Defaults match the Rust builders.
+No font measurement is performed.
+
+Writer options use the fields in the table below. For example, select group 2
+and its layer 5 by setting all related current-state fields together:
+
+```python
+drawing.options["layer_groups"][0]["state"] = 2
+drawing.options["write_layer_group"] = 2
+group = drawing.options["layer_groups"][2]
+group["state"] = 3
+group["layers"][group["write_layer"]]["state"] = 2
+group["write_layer"] = 5
+group["layers"][5]["state"] = 3
+```
+
+Builders default to layer/group 0; use `jwwattribs` to place entities elsewhere.
+`header`, `source_document`, `jww_document`, `to_dxf()` and `to_dxf_string()` are
+fresh derived snapshots. Change the editable `options` / entity dictionaries
+to update the drawing. Conversion, analysis and plotting reflect current edits.
+Conversion options belong to `to_dxf()`; the editable modelspace holds native
+JWW values. Its `query()` filters native pen numbers and hexadecimal group-layer
+IDs such as `msp.query('LINE[layer=="0-2", color==3]')`. Existing `readfile()`
+modelspaces continue to expose converted DXF entities and DXF layer/color values.
+
+Rust validates all input on serialization/conversion/analysis, including manual
+list/dict edits. Unknown fields, missing fields and unsupported types fail with
+field-specific `ValueError`s. Low-level `_core` entrypoints take a
+`JwwWriteDocument` dictionary with `options` and `entities`; a parsed `JwwDocument`
+is rejected. Defaults come from `_core.new_jww_document()`.
+
+`saveas()` requires a `.jww` extension; `save_dxf()` requires `.dxf` (case
+insensitive). Neither method infers a format from an arbitrary extension. Both
+serialize fully before creating a temporary file in the destination directory,
+then use atomic replacement. Existing targets survive validation and replacement
+failures; temporary files are cleaned up. I/O failures propagate as `OSError`.
+The parent directory must already exist. Existing targets are replaced on success.
+
+### Migration from the previous Python API
+
+| Previous call | Current call |
+| --- | --- |
+| `new()` / `Drawing.new()` for an empty DXF view | `new_dxf()` / `Drawing.new_dxf()` |
+| `readfile(...).saveas("out.dxf", ...)` | `readfile(...).save_dxf("out.dxf", ...)` |
+| New native JWW creation | `new()` → `modelspace().add_*()` → `saveas("out.jww")` |
+
+This is an intentional API change. Update existing DXF `saveas()` call sites.
+The legacy empty DXF view retains query/analysis behavior; exporting it still
+requires a source-backed drawing. Native `saveas()` on `readfile()` results is
+rejected because the parser does not retain all data needed to rewrite that file.
+The CLI's `to-dxf` / batch conversion commands continue to produce DXF and use
+`save_dxf()` internally.
 
 ## Rust API
 
@@ -103,7 +193,8 @@ not stored for ordinary points.
 
 `JwwWriteDocument` is a new-document input type. A parsed `JwwDocument` does not
 retain every original setting or image and cannot serve as a lossless editable
-source. Public Python and TypeScript bindings and stubs are unchanged.
+source. Python bindings and `_core.pyi` expose the new-document contract. TypeScript
+reader APIs are unchanged.
 
 ## Reproduce acceptance cases
 
@@ -169,3 +260,10 @@ Tests cover class reuse across mixed entities, new classes after PID 32,766,
 65,534/65,535/65,536 entities, CString boundaries, invalid input, unchanged
 palettes after long layer names, and readback through Python and raw/wrapped WASM.
 Normal CI uses the saved native artifacts and does not launch Jw_cad.
+
+The Python writer tests reproduce the five native-qualified Rust input fixtures
+byte for byte, including UTF-16 text and all exposed settings. They also exercise
+mutation visibility, DXF export, plotting, strict binding validation and atomic
+save failures. This reuses the recorded native evidence; it is not a new Windows
+or Wine application run. Clean installed-wheel checks create and reopen a JWW
+without accessing a source-tree template.

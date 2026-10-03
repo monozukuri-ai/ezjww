@@ -404,8 +404,8 @@ class PublicApiTests(unittest.TestCase):
         self.assertIn("ENTITIES", text)
         self.assertTrue(text.endswith("  0\nEOF\n"))
 
-    def test_drawing_to_dxf_string_rejects_new_drawing(self):
-        drawing = ezjww.new()
+    def test_drawing_to_dxf_string_rejects_legacy_empty_dxf_view(self):
+        drawing = ezjww.new_dxf()
         with self.assertRaises(ValueError):
             drawing.to_dxf_string()
 

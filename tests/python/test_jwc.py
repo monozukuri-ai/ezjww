@@ -47,7 +47,7 @@ def test_source_document_contract_and_legacy_drawing_constructor():
     drawing = ezjww.Drawing(source_path=None, jww_document=legacy)
     assert drawing.source_format == "jww"
     assert drawing.source_document is drawing.jww_document is legacy
-    empty = ezjww.new()
+    empty = ezjww.new_dxf()
     assert empty.source_format is empty.source_document is empty.jww_document is None
 
 
@@ -116,7 +116,7 @@ def test_coordinate_space_reaches_drawing_stats_bbox_and_writers(tmp_path):
         == "model_millimeters"
     )
     output = tmp_path / "scaled.dxf"
-    model.saveas(output, target_version="AC1024")
+    model.save_dxf(output, target_version="AC1024")
     assert output.read_text() == model.to_dxf_string(target_version="AC1024")
     assert output.read_text() == ezjww.to_dxf_string(
         path, target_version="AC1024", jwc_coordinates="model_millimeters"

@@ -3,13 +3,17 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
+import tempfile
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from ezjww import _core
 from ezjww._core import (
     detect_file_format,
     hello_from_bin,
@@ -40,6 +44,8 @@ from ezjww.plot import plot_dxf_document, plot_jww
 __all__ = [
     "ALL_ISSUE_CODES",
     "Drawing",
+    "JwwDrawing",
+    "JwwModelspace",
     "ENTITY_LIST_TRUNCATED",
     "ISSUE_CODES",
     "IssueCode",
@@ -55,6 +61,7 @@ __all__ = [
     "is_jww_file",
     "issue_code_details",
     "new",
+    "new_dxf",
     "readfile",
     "read_header",
     "read_document",
@@ -167,8 +174,19 @@ class Drawing:
         )
 
     @classmethod
-    def new(cls) -> "Drawing":
-        return cls(
+    def new(
+        cls,
+        *,
+        version: int = 700,
+        paper_size: int = 3,
+        memo: str = "",
+    ) -> "JwwDrawing":
+        return JwwDrawing(version=version, paper_size=paper_size, memo=memo)
+
+    @classmethod
+    def new_dxf(cls) -> "Drawing":
+        """The previous empty DXF-view constructor (no source or native writer)."""
+        return Drawing(
             source_path=None,
             jww_document=None,
             dxf_document={
@@ -185,9 +203,8 @@ class Drawing:
 
     @property
     def header(self) -> dict[str, Any] | None:
-        if self._source_document is None:
-            return None
-        return self._source_document.get("header")
+        document = self.source_document
+        return document.get("header") if document is not None else None
 
     @property
     def jww_document(self) -> dict[str, Any] | None:
@@ -264,12 +281,13 @@ class Drawing:
         total_refs = 0
         resolved_refs = 0
         parser_diagnostics: list[dict[str, Any]] = []
-        if self._source_document is not None:
-            validation = self._source_document.get("validation", {})
+        source_document = self.source_document
+        if source_document is not None:
+            validation = source_document.get("validation", {})
             unresolved = list(validation.get("unresolved_def_numbers", []))
             total_refs = int(validation.get("total_references", 0))
             resolved_refs = int(validation.get("resolved_references", 0))
-            for value in self._source_document.get("diagnostics", []):
+            for value in source_document.get("diagnostics", []):
                 if isinstance(value, dict):
                     parser_diagnostics.append(dict(value))
 
@@ -426,7 +444,13 @@ class Drawing:
             jwc_coordinates=self._jwc_coordinates,
         )
 
-    def saveas(
+    def saveas(self, output_path: str | Path) -> None:
+        raise ValueError(
+            "Native JWW saveas() requires a drawing created by new(); "
+            "use save_dxf() for DXF export. Existing-file editing is not supported."
+        )
+
+    def save_dxf(
         self,
         output_path: str | Path,
         *,
@@ -435,21 +459,14 @@ class Drawing:
         target_version: str = "AC1015",
         text_em_scale: float = 1.0,
     ) -> None:
-        if self._source_path is None:
-            raise ValueError(
-                "saveas() requires a source-backed drawing. use readfile(path)."
-            )
-        nesting = _normalize_max_block_nesting(max_block_nesting)
-        scale = _normalize_text_em_scale(text_em_scale)
-        write_dxf(
-            self._source_path,
-            str(output_path),
-            explode_inserts,
-            nesting,
-            target_version,
-            scale,
-            jwc_coordinates=self._jwc_coordinates,
+        path = _output_path(output_path, ".dxf")
+        content = self.to_dxf_string(
+            explode_inserts=explode_inserts,
+            max_block_nesting=max_block_nesting,
+            target_version=target_version,
+            text_em_scale=text_em_scale,
         )
+        _atomic_write(path, content.encode("utf-8"))
 
     def plot(
         self,
@@ -471,14 +488,316 @@ class Drawing:
         )
 
 
+class JwwModelspace(Modelspace):
+    """Editable native entities for a new JWW; angles in raw ARC dicts are radians."""
+
+    def __init__(self, options: dict[str, Any]) -> None:
+        super().__init__([])
+        self._options = options
+
+    def _input(self) -> dict[str, Any]:
+        return {"options": self._options, "entities": self.entities}
+
+    @staticmethod
+    def _base(jwwattribs: Mapping[str, int] | None) -> dict[str, int]:
+        base = {
+            "group": 0,
+            "pen_style": 1,
+            "pen_color": 1,
+            "pen_width": 0,
+            "layer": 0,
+            "layer_group": 0,
+            "flag": 0,
+        }
+        if jwwattribs is not None:
+            unknown = set(jwwattribs) - base.keys()
+            if unknown:
+                raise ValueError(f"unsupported JWW attributes: {sorted(unknown)}")
+            base.update(jwwattribs)
+        return base
+
+    def _append(self, entity: dict[str, Any]) -> dict[str, Any]:
+        self.entities.append(entity)
+        return entity
+
+    def add_line(
+        self,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        *,
+        jwwattribs: Mapping[str, int] | None = None,
+    ) -> dict[str, Any]:
+        x1, y1 = start
+        x2, y2 = end
+        return self._append(
+            {
+                "type": "LINE",
+                "base": self._base(jwwattribs),
+                "start_x": x1,
+                "start_y": y1,
+                "end_x": x2,
+                "end_y": y2,
+            }
+        )
+
+    def add_arc(
+        self,
+        center: tuple[float, float],
+        radius: float,
+        start_angle: float,
+        sweep_angle: float,
+        *,
+        jwwattribs: Mapping[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Angles are degrees: start [0, 360), CCW sweep (0, 360)."""
+        if isinstance(start_angle, bool) or isinstance(sweep_angle, bool):
+            raise ValueError("Arc angles must be numbers, not bool.")
+        x, y = center
+        return self._append(
+            {
+                "type": "ARC",
+                "base": self._base(jwwattribs),
+                "center_x": x,
+                "center_y": y,
+                "radius": radius,
+                "start_angle": math.radians(start_angle),
+                "arc_angle": math.radians(sweep_angle),
+                "tilt_angle": 0.0,
+                "flatness": 1.0,
+                "is_full_circle": False,
+            }
+        )
+
+    def add_circle(
+        self,
+        center: tuple[float, float],
+        radius: float,
+        *,
+        jwwattribs: Mapping[str, int] | None = None,
+    ) -> dict[str, Any]:
+        circle = self.add_arc(center, radius, 0.0, 360.0, jwwattribs=jwwattribs)
+        circle.update(type="CIRCLE", is_full_circle=True)
+        return circle
+
+    def add_point(
+        self,
+        position: tuple[float, float],
+        *,
+        jwwattribs: Mapping[str, int] | None = None,
+    ) -> dict[str, Any]:
+        x, y = position
+        return self._append(
+            {
+                "type": "POINT",
+                "base": self._base(jwwattribs),
+                "x": x,
+                "y": y,
+                "is_temporary": False,
+                "code": 0,
+                "angle": 0.0,
+                "scale": 0.0,
+            }
+        )
+
+    def add_text(
+        self,
+        content: str,
+        start: tuple[float, float],
+        end: tuple[float, float],
+        *,
+        size_x: float = 3.0,
+        size_y: float = 3.0,
+        spacing: float = 0.0,
+        angle: float = 0.0,
+        font_name: str = "ＭＳ ゴシック",
+        text_type: int = 0,
+        jwwattribs: Mapping[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Explicit baseline endpoints; character sizes are mm, angle is degrees."""
+        x1, y1 = start
+        x2, y2 = end
+        return self._append(
+            {
+                "type": "TEXT",
+                "base": self._base(jwwattribs),
+                "content": content,
+                "start_x": x1,
+                "start_y": y1,
+                "end_x": x2,
+                "end_y": y2,
+                "size_x": size_x,
+                "size_y": size_y,
+                "spacing": spacing,
+                "angle": angle,
+                "font_name": font_name,
+                "text_type": text_type,
+            }
+        )
+
+    def query(
+        self,
+        entity_type: str | None = None,
+        *,
+        layer: str | None = None,
+        color: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Query native pen colors and hexadecimal group-layer IDs (e.g. '2-F')."""
+        types, query_layer, query_color = _parse_query_selector(entity_type)
+        layer = query_layer if layer is None else layer
+        color = query_color if color is None else color
+        return [
+            e
+            for e in self.entities
+            if (types is None or e["type"] in types)
+            and (
+                layer is None
+                or f"{e['base']['layer_group']:X}-{e['base']['layer']:X}"
+                == layer.upper()
+            )
+            and (color is None or e["base"]["pen_color"] == color)
+        ]
+
+    def bbox(self) -> dict[str, float | int] | None:
+        return _dxf_bbox(_core.jww_write_document_to_dxf(self._input()))
+
+    def stats(self) -> dict[str, Any]:
+        return _dxf_stats(_core.jww_write_document_to_dxf(self._input()))
+
+
+class JwwDrawing(Drawing):
+    """A new writable version-700 JWW, with paper-mm coordinates and +Y up.
+
+    Edit `options` and `modelspace().entities`; derived documents are snapshots.
+    Rust validates every field on serialization, conversion or analysis.
+    """
+
+    def __init__(
+        self,
+        *,
+        version: int = 700,
+        paper_size: int = 3,
+        memo: str = "",
+    ) -> None:
+        super().__init__(source_path=None, source_document={}, source_format="jww")
+        document = _core.new_jww_document()
+        self._options = document["options"]
+        self._options.update(version=version, paper_size=paper_size, memo=memo)
+        self._modelspace = JwwModelspace(self._options)
+        self.to_jww_bytes()  # Constructor options must be valid immediately.
+
+    @classmethod
+    def from_file(
+        cls,
+        path: str | Path,
+        *,
+        jwc_coordinates: JwcCoordinateSpace = "paper_millimeters",
+    ) -> "Drawing":
+        raise ValueError("Existing-file editing is not supported; use readfile(path).")
+
+    @property
+    def options(self) -> dict[str, Any]:
+        """Mutable writer settings; see JWW_WRITE.md for supported fields."""
+        return self._options
+
+    @property
+    def source_document(self) -> dict[str, Any]:
+        return _core.jww_write_document_to_document(self._modelspace._input())
+
+    @property
+    def jww_document(self) -> dict[str, Any]:
+        return self.source_document
+
+    def modelspace(
+        self,
+        *,
+        explode_inserts: bool = False,
+        max_block_nesting: int = 32,
+        text_em_scale: float = 1.0,
+    ) -> JwwModelspace:
+        if explode_inserts or max_block_nesting != 32 or text_em_scale != 1.0:
+            raise ValueError(
+                "Use to_dxf() for conversion options; modelspace() edits native JWW values."
+            )
+        return self._modelspace
+
+    def to_jww_bytes(self) -> bytes:
+        return _core.to_jww_bytes(self._modelspace._input())
+
+    def saveas(self, output_path: str | Path) -> None:
+        """Validate and atomically save a native JWW to a .jww path."""
+        path = _output_path(output_path, ".jww")
+        _atomic_write(path, self.to_jww_bytes())
+
+    def to_dxf(
+        self,
+        *,
+        explode_inserts: bool = False,
+        max_block_nesting: int = 32,
+        text_em_scale: float = 1.0,
+    ) -> dict[str, Any]:
+        # Edits can happen through nested dictionaries/lists; don't reuse a cache.
+        return _core.jww_write_document_to_dxf(
+            self._modelspace._input(),
+            bool(explode_inserts),
+            _normalize_max_block_nesting(max_block_nesting),
+            _normalize_text_em_scale(text_em_scale),
+        )
+
+    def to_dxf_string(
+        self,
+        *,
+        explode_inserts: bool = False,
+        max_block_nesting: int = 32,
+        target_version: str = "AC1015",
+        text_em_scale: float = 1.0,
+    ) -> str:
+        return _core.jww_write_document_to_dxf_string(
+            self._modelspace._input(),
+            bool(explode_inserts),
+            _normalize_max_block_nesting(max_block_nesting),
+            target_version,
+            _normalize_text_em_scale(text_em_scale),
+        )
+
+
+def _output_path(output_path: str | Path, suffix: str) -> Path:
+    path = Path(output_path)
+    if path.suffix.lower() != suffix:
+        raise ValueError(
+            f"Expected a {suffix} path; use saveas() for JWW or save_dxf() for DXF."
+        )
+    return path
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    # Serialize before this call. A failed write/replace keeps an existing target.
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
 def readfile(
     path: str | Path, *, jwc_coordinates: JwcCoordinateSpace = "paper_millimeters"
 ) -> Drawing:
     return Drawing.from_file(path, jwc_coordinates=jwc_coordinates)
 
 
-def new() -> Drawing:
-    return Drawing.new()
+def new(*, version: int = 700, paper_size: int = 3, memo: str = "") -> JwwDrawing:
+    """Create a new native JWW drawing. Use new_dxf() for the old empty DXF view."""
+    return Drawing.new(version=version, paper_size=paper_size, memo=memo)
+
+
+def new_dxf() -> Drawing:
+    """Create the legacy empty DXF view; no source-backed export is available."""
+    return Drawing.new_dxf()
 
 
 def _make_audit_diagnostic(
@@ -1351,7 +1670,7 @@ def _run(argv: list[str] | None = None) -> int:
         error: str | None = None
         try:
             drawing = readfile(str(input_path), jwc_coordinates=args.jwc_coordinates)
-            drawing.saveas(
+            drawing.save_dxf(
                 output,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
@@ -1482,7 +1801,7 @@ def _run(argv: list[str] | None = None) -> int:
 
         try:
             drawing = readfile(str(src), jwc_coordinates=args.jwc_coordinates)
-            drawing.saveas(
+            drawing.save_dxf(
                 dst,
                 explode_inserts=args.explode_inserts,
                 max_block_nesting=max_block_nesting,
