@@ -6,7 +6,7 @@ size, memo, layer/group names, states, protection and scale denominators.
 Coordinates are paper millimeters, with the origin at the paper center and +Y up.
 Changing a group's scale does not multiply or divide entity coordinates.
 
-The current, unreleased source exposes the writer through Python's `new()` /
+The upcoming **0.4.0** release exposes the writer through Python's `new()` /
 `JwwDrawing` and TypeScript/WASM's `newJwwDocument()` / `toJwwBytes()`.
 Existing-file editing, ellipses, solids, blocks, dimensions, images,
 marker/temporary points and older output versions remain outside the writer's scope.
@@ -94,6 +94,7 @@ The parent directory must already exist. Existing targets are replaced on succes
 | `readfile(...).saveas("out.dxf", ...)` | `readfile(...).save_dxf("out.dxf", ...)` |
 | New native JWW creation | `new()` → `modelspace().add_*()` → `saveas("out.jww")` |
 
+See the [0.4 migration guide](MIGRATING_0_4.md) for complete examples.
 This is an intentional API change. Update existing DXF `saveas()` call sites.
 The legacy empty DXF view retains query/analysis behavior; exporting it still
 requires a source-backed drawing. Native `saveas()` on `readfile()` results is

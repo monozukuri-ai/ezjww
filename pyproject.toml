@@ -1,7 +1,8 @@
 [project]
 name = "ezjww"
-version = "0.3.4"
-description = "JWW/JWC parser and DXF converter powered by Rust"
+version = "0.4.0"
+description = "JWW/JWC reader, JWW writer and DXF converter powered by Rust"
+license = { file = "LICENSE" }
 readme = "README.md"
 authors = [
     { name = "neka-nat", email = "nekanat.stock@gmail.com" }
@@ -20,6 +21,9 @@ module-name = "ezjww._core"
 python-packages = ["ezjww"]
 python-source = "src"
 exclude = [".internal/**"]
+# Keep every workspace manifest with the shared lockfile. The cargo generator
+# prunes the WASM member while retaining its lock entries, breaking --locked.
+sdist-generator = "git"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]

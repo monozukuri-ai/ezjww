@@ -107,6 +107,14 @@ jobs:
         shell: bash
         run: '"${VENV_PY}" scripts/check-wheel.py --wheel-dir dist --report "${RUNNER_TEMP}/jwc-wheel.json"'
 
+      - name: Verify release metadata and source distribution
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          "${VENV_PY}" scripts/check-release.py
+          "${VENV_PY}" -m maturin sdist --out sdist
+          "${VENV_PY}" scripts/check-sdist.py --archive sdist/*.tar.gz --report "${RUNNER_TEMP}/sdist-verification.json"
+
   typescript-parity:
     name: TypeScript package parity
     runs-on: ubuntu-latest
