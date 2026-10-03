@@ -25,12 +25,24 @@ pub fn parse_document(data: &[u8]) -> Result<JwwDocument, JwwError> {
 
 pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument, JwwError> {
     let (header, mut diagnostics) = parse_header_with_diagnostics(data)?;
-    let entity_list_offset =
-        find_entity_list_offset(data, header.version).ok_or(JwwError::EntityListNotFound)?;
+    let entity_list_offset = if header.version == 700 {
+        crate::header_layout::header_end_v700(data)?
+    } else {
+        find_entity_list_offset(data, header.version).ok_or(JwwError::EntityListNotFound)?
+    };
     let mut reader = Reader::with_base_offset(&data[entity_list_offset..], entity_list_offset);
     let mut table = ArchiveTable::new();
     let outcome = parse_entity_list_lenient(&mut reader, header.version, &mut table);
     let stop_offset = entity_list_offset + reader.bytes_read();
+    // Empty version-700 drawings still contain a block-list count and an image
+    // count. A truncated header/count is not a valid empty drawing.
+    if header.version == 700
+        && outcome.entities.is_empty()
+        && outcome.truncation.is_none()
+        && data.len().saturating_sub(stop_offset) < 6
+    {
+        return Err(JwwError::UnexpectedEof("empty drawing trailer"));
+    }
     let entity_diagnostics = reader.into_decode_diagnostics();
     diagnostics.extend(entity_diagnostics);
 
@@ -1183,23 +1195,9 @@ mod tests {
     fn unicode_strings_and_word_block_count_as_written_by_jw_cad_8() {
         // JWW version 700 written by a Unicode build: memo, text and block names use
         // the FF FE FF marker; the block definition list count is a WORD.
-        let mut data = Vec::<u8>::new();
-        data.extend_from_slice(b"JwwData.");
-        data.extend_from_slice(&700u32.to_le_bytes());
-        data.extend_from_slice(&[0xFF, 0xFE, 0xFF, 2]); // memo "\r\n" as UTF-16LE
-        data.extend_from_slice(&[0x0D, 0x00, 0x0A, 0x00]);
-        data.extend_from_slice(&0u32.to_le_bytes()); // paper size
-        data.extend_from_slice(&0u32.to_le_bytes()); // write layer group
-        for _ in 0..16 {
-            data.extend_from_slice(&0u32.to_le_bytes());
-            data.extend_from_slice(&0u32.to_le_bytes());
-            data.extend_from_slice(&1.0f64.to_le_bytes());
-            data.extend_from_slice(&0u32.to_le_bytes());
-            for _ in 0..16 {
-                data.extend_from_slice(&0u32.to_le_bytes());
-                data.extend_from_slice(&0u32.to_le_bytes());
-            }
-        }
+        // Full native header: version-700 parsing now walks the header instead
+        // of finding a class name inside an abbreviated synthetic header.
+        let mut data = include_bytes!("writer/templates/header_700.bin").to_vec();
         // entity list: 1 text + 1 block reference
         data.extend_from_slice(&2u16.to_le_bytes());
         append_new_class(&mut data, b"CDataMoji");

@@ -15,6 +15,16 @@ import {
 const sample = readFileSync(resolve(__dirname, "../../../jww_samples/Test1.jww"));
 
 describe("ezjww wasm wrapper", () => {
+  it("reads an empty version-700 JWW without an entity class tag", () => {
+    const input = readFileSync(resolve(__dirname, "../../../jww_samples/writer/empty.jww"));
+    const document = readDocument(input);
+    expect(document.header.version).toBe(700);
+    expect(document.entities).toEqual([]);
+    expect(document.diagnostics).toEqual([]);
+    expect(readDxfDocument(input).entities).toEqual([]);
+    expect(rawWasm.readDocument(new Uint8Array(input)).entities).toEqual([]);
+  });
+
   it("detects and reads a JWW header", () => {
     expect(isJwwFile(sample)).toBe(true);
     expect(isJwwFile(new TextEncoder().encode("JwwData."))).toBe(true);

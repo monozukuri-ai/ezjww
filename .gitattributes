@@ -2,6 +2,9 @@
 jwc_samples/** -text
 # Preserve native DXF byte fixtures, including their CRLF and legacy encoding.
 jwc_samples/generated/*.dxf -diff
+jww_samples/writer/** -text
+jww_samples/writer/*.dxf -diff
+crates/ezjww-core/src/writer/templates/*.bin -text -diff
 scripts/jwc/inspect_fixture.py -text
 scripts/jwc/verify_fixtures.py -text
 scripts/jwc/verify_followup.py -text

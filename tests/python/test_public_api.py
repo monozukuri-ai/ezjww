@@ -23,6 +23,17 @@ def sample_path() -> Path:
 
 
 class PublicApiTests(unittest.TestCase):
+    def test_version_700_empty_drawings_through_public_readers(self):
+        for name in ("q000", "q063", "q064"):
+            path = ROOT / "jwc_samples" / "inputs" / f"{name}.jww"
+            document = ezjww.read_document(str(path))
+            self.assertEqual(document["entities"], [])
+            self.assertEqual(document["diagnostics"], [])
+            drawing = ezjww.readfile(path)
+            self.assertEqual(drawing.source_format, "jww")
+            self.assertEqual(len(drawing.modelspace()), 0)
+            self.assertIsNone(drawing.bbox())
+
     def test_is_jww_file_uses_signature_not_extension(self):
         with tempfile.TemporaryDirectory(prefix="ezjww_signature_") as tmp_dir:
             tmp = Path(tmp_dir)
