@@ -9,3 +9,4 @@ scripts/jwc/inspect_fixture.py -text
 scripts/jwc/verify_fixtures.py -text
 scripts/jwc/verify_followup.py -text
 scripts/jwc/make_inputs.py -text
+jww_samples/writer/**/*.dxf -diff

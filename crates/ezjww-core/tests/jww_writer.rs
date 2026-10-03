@@ -1,6 +1,6 @@
 use ezjww_core::{
     parse_document_with_diagnostics, to_jww_bytes, Coord2D, Entity, EntityBase, JwwWriteDocument,
-    JwwWriteError, JwwWriteOptions, Point,
+    JwwWriteError, JwwWriteOptions, Solid,
 };
 
 fn line_document() -> JwwWriteDocument {
@@ -228,14 +228,17 @@ fn invalid_coordinates_and_unsupported_attributes_are_rejected() {
 #[test]
 fn unsupported_entity_is_not_silently_dropped() {
     let mut doc = line_document();
-    doc.entities.push(Entity::Point(Point {
+    doc.entities.push(Entity::Solid(Solid {
         base: EntityBase::default(),
-        x: 0.0,
-        y: 0.0,
-        is_temporary: false,
-        code: 0,
-        angle: 0.0,
-        scale: 1.0,
+        point1_x: 0.0,
+        point1_y: 0.0,
+        point2_x: 0.0,
+        point2_y: 0.0,
+        point3_x: 0.0,
+        point3_y: 0.0,
+        point4_x: 0.0,
+        point4_y: 0.0,
+        color: None,
     }));
     assert!(to_jww_bytes(&doc)
         .unwrap_err()

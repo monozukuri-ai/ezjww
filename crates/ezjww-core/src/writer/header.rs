@@ -2,7 +2,12 @@ use super::{archive::ArchiveWriter, JwwWriteError, JwwWriteOptions};
 
 // See templates/README.md for provenance and reproducible extraction.
 const TEMPLATE: &[u8] = include_bytes!("templates/header_700.bin");
+#[cfg(test)]
 const TEMPLATE_MEMO_END: usize = 20; // pinned UTF-16LE CRLF after signature/version
+const TABLE_END: usize = 28 + 16 * 148;
+const NAMES_START: usize = TABLE_END + 84 + 72;
+// 272 Unicode CStrings: all empty except "0" and "Defpoints".
+const NAMES_END: usize = NAMES_START + 272 * 4 + 2 * (1 + 9);
 
 pub(super) fn write(
     archive: &mut ArchiveWriter,
@@ -12,8 +17,30 @@ pub(super) fn write(
     archive.u32(options.version);
     archive.cstring(&options.memo, "options.memo")?;
     archive.u32(options.paper_size);
-    // Copy settings after the paper field. A new memo can have any encoded length.
-    archive.bytes(&TEMPLATE[TEMPLATE_MEMO_END + 4..]);
+    archive.u32(options.write_layer_group);
+    for group in &options.layer_groups {
+        archive.u32(group.state);
+        archive.u32(group.write_layer);
+        archive.f64(group.scale);
+        archive.u32(group.protect);
+        for layer in &group.layers {
+            archive.u32(layer.state);
+            archive.u32(layer.protect);
+        }
+    }
+    archive.bytes(&TEMPLATE[TABLE_END..NAMES_START]);
+    for (g, group) in options.layer_groups.iter().enumerate() {
+        for (l, layer) in group.layers.iter().enumerate() {
+            archive.cstring(
+                &layer.name,
+                &format!("options.layer_groups[{g}].layers[{l}].name"),
+            )?;
+        }
+    }
+    for (g, group) in options.layer_groups.iter().enumerate() {
+        archive.cstring(&group.name, &format!("options.layer_groups[{g}].name"))?;
+    }
+    archive.bytes(&TEMPLATE[NAMES_END..]);
     Ok(())
 }
 
@@ -36,5 +63,18 @@ mod tests {
         assert_eq!(header.version, 700);
         assert_eq!(header.memo, "\r\n");
         assert!(header.layer_groups.iter().all(|group| group.scale == 1.0));
+        let mut reader = crate::reader::Reader::new(TEMPLATE);
+        reader.skip(NAMES_START).unwrap();
+        for i in 0..272 {
+            assert_eq!(
+                reader.read_cstring().unwrap(),
+                match i {
+                    0 => "0",
+                    1 => "Defpoints",
+                    _ => "",
+                }
+            );
+        }
+        assert_eq!(reader.bytes_read(), NAMES_END);
     }
 }
