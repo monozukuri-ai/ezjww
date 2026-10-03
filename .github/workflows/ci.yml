@@ -90,6 +90,12 @@ jobs:
           "${VENV_PY}" -m ezjww plot jwc_samples/generated/q032.jwc -o "${RUNNER_TEMP}/jwc-preview.png"
           "${VENV_PY}" -m pytest -q tests/python
 
+      - name: Reproduce native writer matrix
+        shell: bash
+        run: |
+          cargo run -p ezjww-core --example jww_compatibility --locked -- "${RUNNER_TEMP}/writer-inputs"
+          "${VENV_PY}" scripts/jww/check_compatibility.py --generated "${RUNNER_TEMP}/writer-inputs"
+
       - name: Build wheel
         shell: bash
         run: |

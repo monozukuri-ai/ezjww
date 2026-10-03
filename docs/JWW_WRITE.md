@@ -287,6 +287,12 @@ core crate. The writer follows the official
 
 ## Native Jw_cad validation
 
+The expanded [native compatibility report](JWW_COMPATIBILITY.md) records 21 cases
+on Jw_cad 10.02.1 / Wine 9.0, including extended counts/classes, CString boundaries,
+pen attributes and rotated text. It documents memo loss on native save, the
+baseline rule for native DXF rotation and a Direct2D display problem under Wine.
+Windows desktop validation remains unrun.
+
 Fixtures under `jww_samples/writer/` record application/environment information,
 hashes and source/output files. `basic/` adds mixed geometry, nondefault layer
 settings and Unicode cases. These drawings are original work under the repository
@@ -325,6 +331,7 @@ hardware behavior or font rendering on another system.
 
 ```sh
 python scripts/jww/check_fixtures.py
+python scripts/jww/check_compatibility.py
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo fmt --all --check

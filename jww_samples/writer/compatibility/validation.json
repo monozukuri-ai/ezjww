@@ -1,0 +1,581 @@
+{
+  "application_version": "10.02.1",
+  "runtime": "wine-9.0",
+  "windows_validation": "not_run",
+  "cases": [
+    {
+      "id": "empty",
+      "_saved.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 0
+    },
+    {
+      "id": "line",
+      "_saved.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 1
+    },
+    {
+      "id": "circle",
+      "_saved.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 1
+    },
+    {
+      "id": "arc",
+      "_saved.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 1
+    },
+    {
+      "id": "point",
+      "_saved.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 1
+    },
+    {
+      "id": "text",
+      "_saved.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 1
+    },
+    {
+      "id": "basic",
+      "_saved.jww": {
+        "entities": 6,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 6,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 6
+    },
+    {
+      "id": "settings",
+      "_saved.jww": {
+        "entities": 2,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": true,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 9,
+        "changed_header_fields": [
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 2,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": true,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 9,
+        "changed_header_fields": [
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 2
+    },
+    {
+      "id": "unicode",
+      "_saved.jww": {
+        "entities": 3,
+        "internal_settings": 6,
+        "empty_text_removed": 1,
+        "memo_preserved": true,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 7,
+        "changed_header_fields": [
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 3,
+        "internal_settings": 6,
+        "empty_text_removed": 1,
+        "memo_preserved": true,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 7,
+        "changed_header_fields": [
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "attributes",
+      "_saved.jww": {
+        "entities": 72,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 72,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 72
+    },
+    {
+      "id": "text_styles",
+      "_saved.jww": {
+        "entities": 6,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 6,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 6
+    },
+    {
+      "id": "text_rotations",
+      "_saved.jww": {
+        "entities": 6,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 6,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "native_dxf_entities": 6
+    },
+    {
+      "id": "count65534",
+      "_saved.jww": {
+        "entities": 65534,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 65534,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "count65535",
+      "_saved.jww": {
+        "entities": 65535,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 65535,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "count65536",
+      "_saved.jww": {
+        "entities": 65536,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 65536,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "late_classes",
+      "_saved.jww": {
+        "entities": 32772,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 32772,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 2,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "cstring_boundaries",
+      "_saved.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 64,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 1,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 64,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "memo_ascii64",
+      "_saved.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 66,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": true,
+        "memo_utf16_units": 66,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "memo_ascii65",
+      "_saved.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 66,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 66,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "memo_utf16_64",
+      "_saved.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 64,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 64,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    },
+    {
+      "id": "memo_utf16_65",
+      "_saved.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 64,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      },
+      "_reopened.jww": {
+        "entities": 0,
+        "internal_settings": 6,
+        "empty_text_removed": 0,
+        "memo_preserved": false,
+        "memo_text_preserved": false,
+        "memo_utf16_units": 64,
+        "changed_header_fields": [
+          "memo",
+          "line_types"
+        ]
+      }
+    }
+  ]
+}

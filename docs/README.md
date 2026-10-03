@@ -11,6 +11,7 @@ drawings, creating new JWW drawings, and converting them to DXF.
 | [Diagnostics](DIAGNOSTICS.md) | Handle stable issue codes and decoding warnings |
 | [JWW signature](JWW_SIGNATURE.md) | Detect the JWW binary prefix |
 | [JWW writing (Python/TypeScript/Rust)](JWW_WRITE.md) | Generate version-700 drawings with basic geometry, text and layer settings |
+| [JWW native compatibility](JWW_COMPATIBILITY.md) | Check the recorded native matrix, memo/text changes, display evidence and Windows verification limits |
 | [TypeScript package](../packages/ezjww/README.md) | Read, create and convert byte buffers in Node.js |
 | [Browser example](../packages/ezjww/examples/browser/README.md) | Preview and convert local files, or generate a JWW example with WebAssembly |
 

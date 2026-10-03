@@ -8,8 +8,12 @@ replaced. No third-party application or drawing is distributed with this tool.
 import argparse
 import hashlib
 import json
+import platform
+import struct
 import subprocess
+import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from contextlib import contextmanager
@@ -162,11 +166,87 @@ class NativeSession:
         if code:
             raise RuntimeError(f'Native process exited with {code}')
         self.process = None
+        return code
+
+    def screenshot(self, path):
+        """Capture this process's visible client area as an uncompressed BMP."""
+        if path.exists():
+            raise FileExistsError(path)
+        handle = self.main()
+        gdi = C.WinDLL('gdi32', use_last_error=True)
+        signatures = [
+            (u, 'GetClientRect', [W.HWND, C.POINTER(W.RECT)], W.BOOL),
+            (u, 'GetDC', [W.HWND], W.HDC),
+            (u, 'ReleaseDC', [W.HWND, W.HDC], C.c_int),
+            (u, 'MoveWindow', [W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.BOOL], W.BOOL),
+            (u, 'RedrawWindow', [W.HWND, C.c_void_p, W.HANDLE, W.UINT], W.BOOL),
+            (gdi, 'CreateCompatibleDC', [W.HDC], W.HDC),
+            (gdi, 'DeleteDC', [W.HDC], W.BOOL),
+            (gdi, 'CreateCompatibleBitmap', [W.HDC, C.c_int, C.c_int], W.HBITMAP),
+            (gdi, 'SelectObject', [W.HDC, W.HANDLE], W.HANDLE),
+            (gdi, 'DeleteObject', [W.HANDLE], W.BOOL),
+            (gdi, 'BitBlt', [W.HDC, C.c_int, C.c_int, C.c_int, C.c_int,
+                             W.HDC, C.c_int, C.c_int, W.DWORD], W.BOOL),
+            (gdi, 'GetDIBits', [W.HDC, W.HBITMAP, W.UINT, W.UINT,
+                               C.c_void_p, C.c_void_p, W.UINT], C.c_int),
+        ]
+        for library, name, arguments, result in signatures:
+            function = getattr(library, name)
+            function.argtypes, function.restype = arguments, result
+        # Fix the viewport and force a repaint before measuring the client.
+        # Without a window manager Wine can report a resized client while the
+        # application's old-size drawing surface is still visible.
+        if not u.MoveWindow(handle, 0, 0, 1260, 860, True):
+            raise C.WinError(C.get_last_error())
+        u.RedrawWindow(handle, None, None, 0x0001 | 0x0004 | 0x0080 | 0x0100)
+        time.sleep(.5)
+        rect = W.RECT()
+        if not u.GetClientRect(handle, C.byref(rect)):
+            raise C.WinError(C.get_last_error())
+        width, height = rect.right, rect.bottom
+        dc = u.GetDC(handle)
+        memory = gdi.CreateCompatibleDC(dc)
+        bitmap = gdi.CreateCompatibleBitmap(dc, width, height)
+        if not dc or not memory or not bitmap:
+            raise RuntimeError('Could not allocate screenshot bitmap')
+        old = gdi.SelectObject(memory, bitmap)
+        try:
+            time.sleep(.5)  # Let Jw_cad finish repainting after load/save.
+            if not gdi.BitBlt(memory, 0, 0, width, height, dc, 0, 0, 0x00CC0020):
+                raise C.WinError(C.get_last_error())
+            gdi.SelectObject(memory, old)
+            pixels = C.create_string_buffer(width * height * 4)
+            header = struct.pack('<IiiHHIIiiII', 40, width, height, 1, 32, 0, len(pixels), 0, 0, 0, 0)
+            bmi = C.create_string_buffer(header)
+            if gdi.GetDIBits(dc, bitmap, 0, height, pixels, bmi, 0) != height:
+                raise RuntimeError('Incomplete screenshot capture')
+            with path.open('xb') as output:
+                output.write(struct.pack('<2sIHHI', b'BM', 54 + len(pixels), 0, 0, 54))
+                output.write(header)
+                output.write(pixels.raw)
+        finally:
+            gdi.SelectObject(memory, old)
+            gdi.DeleteObject(bitmap)
+            gdi.DeleteDC(memory)
+            u.ReleaseDC(handle, dc)
 
 
 def digest(path):
     data = path.read_bytes()
     return dict(size=len(data), sha256=hashlib.sha256(data).hexdigest())
+
+
+def environment():
+    runtime = dict(kind='windows', windows_version=platform.platform(),
+                   python_version=sys.version, ansi_code_page=C.windll.kernel32.GetACP())
+    try:
+        version = C.CDLL('ntdll').wine_get_version
+    except AttributeError:
+        pass
+    else:
+        version.restype = C.c_char_p
+        runtime.update(kind='wine', wine_version=version().decode('ascii'))
+    return runtime
 
 
 @contextmanager
@@ -203,6 +283,7 @@ def main():
     parser.add_argument('--log', required=True, type=Path)
     parser.add_argument('--cases', nargs='+', default=['empty', 'line'])
     parser.add_argument('--jww-only', nargs='*', default=[], help='Cases to reopen/save without native DXF export')
+    parser.add_argument('--screenshots', nargs='*', default=[], help='Capture client BMP before and after native save')
     args = parser.parse_args()
     if len(set(args.cases)) != len(args.cases) or any(
         not name or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_' for c in name)
@@ -211,6 +292,8 @@ def main():
         raise ValueError('Case IDs must be unique lowercase ASCII basenames')
     if not set(args.jww_only).issubset(args.cases):
         raise ValueError('--jww-only must name selected cases')
+    if not set(args.screenshots).issubset(args.cases):
+        raise ValueError('--screenshots must name selected cases')
     runtime = args.runtime.resolve()
     if digest(runtime / 'Jw_win.exe')['sha256'] != EXE_SHA256:
         raise ValueError('Unverified Jw_cad executable version')
@@ -220,42 +303,65 @@ def main():
     for name in args.cases:
         if not (runtime / (name + '.jww')).is_file():
             raise FileNotFoundError(name + '.jww')
-        for suffix in ('_saved.jww', '_reopened.jww', '_reopened.dxf'):
+        for suffix in ('_saved.jww', '_reopened.jww', '_reopened.dxf', '_opened.bmp', '_reopened.bmp'):
             if (runtime / (name + suffix)).exists():
                 raise FileExistsError(name + suffix)
     session = NativeSession(runtime)
     events = []
-    with output_folders(runtime):
-        try:
+    report = dict(executable_sha256=EXE_SHA256, environment=environment(),
+                  script_sha256=digest(Path(__file__))["sha256"],
+                  started_at_utc=datetime.now(timezone.utc).isoformat(), cases=events)
+    try:
+        with output_folders(runtime):
             for name in args.cases:
                 source = runtime / (name + '.jww')
                 before = digest(source)
-                session.launch(source)
-                session.save(name + '_saved', 'jww')
-                session.close()
-                session.launch(runtime / (name + '_saved.jww'))
-                session.save(name + '_reopened', 'jww')
-                if name not in args.jww_only:
-                    session.save(name + '_reopened', 'dxf')
-                session.close()
-                if digest(source) != before:
-                    raise RuntimeError('Input changed: ' + name)
-                suffixes = ['_saved.jww', '_reopened.jww']
-                if name not in args.jww_only:
-                    suffixes.append('_reopened.dxf')
-                paths = [source] + [runtime / (name + suffix) for suffix in suffixes]
-                status = 'save_reopen_save' if name in args.jww_only else 'save_reopen_save_export'
-                events.append(dict(id=name, status=status,
-                                   exit_codes=[0, 0], files={p.name: digest(p) for p in paths}))
+                event = dict(id=name, status='in_progress', stages=[], exit_codes=[], files={})
+                events.append(event)
+                try:
+                    session.launch(source)
+                    event['stages'].append('opened')
+                    if name in args.screenshots:
+                        session.screenshot(runtime / (name + '_opened.bmp'))
+                    session.save(name + '_saved', 'jww')
+                    event['stages'].append('saved')
+                    event['exit_codes'].append(session.close())
+                    session.launch(runtime / (name + '_saved.jww'))
+                    event['stages'].append('reopened')
+                    if name in args.screenshots:
+                        session.screenshot(runtime / (name + '_reopened.bmp'))
+                    session.save(name + '_reopened', 'jww')
+                    event['stages'].append('resaved')
+                    if name not in args.jww_only:
+                        session.save(name + '_reopened', 'dxf')
+                        event['stages'].append('dxf_exported')
+                    event['exit_codes'].append(session.close())
+                    if digest(source) != before:
+                        raise RuntimeError('Input changed: ' + name)
+                    event['status'] = 'save_reopen_save' if name in args.jww_only else 'save_reopen_save_export'
+                except Exception as error:
+                    event.update(status='failed', error=str(error))
+                    if session.process is not None:
+                        event['process_exit_code'] = session.process.poll()
+                    raise
+                finally:
+                    event['input_unchanged'] = digest(source) == before
+                    paths = [source] + [runtime / (name + suffix) for suffix in
+                                       ('_saved.jww', '_reopened.jww', '_reopened.dxf',
+                                        '_opened.bmp', '_reopened.bmp')]
+                    event['files'] = {p.name: digest(p) for p in paths if p.is_file()}
                 print('verified native reopen: ' + name, flush=True)
-        finally:
-            # A failure must not leave our own CAD process running.
+    finally:
+        # Retain partial evidence even when a later native operation fails.
+        try:
             if session.process is not None and session.process.poll() is None:
                 session.process.terminate()
                 session.process.wait(timeout=15)
-    with args.log.open('x', encoding='utf-8') as output:
-        json.dump(dict(executable_sha256=EXE_SHA256, cases=events), output, indent=2)
-        output.write('\n')
+        finally:
+            report['finished_at_utc'] = datetime.now(timezone.utc).isoformat()
+            with args.log.open('x', encoding='utf-8') as output:
+                json.dump(report, output, indent=2)
+                output.write('\n')
 
 
 if __name__ == '__main__':
