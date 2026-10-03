@@ -20,6 +20,7 @@ for (const name of ["q032", "q054", "r013", "r011", "r080"]) {
   copyFileSync(join(root, "jwc_samples/generated", `${name}.jwc`), join(workdir, `${name}.jwc`));
 }
 copyFileSync(join(root, "jww_samples/Test1.jww"), join(workdir, "Test1.jww"));
+copyFileSync(join(root, "jww_samples/writer/empty.jww"), join(workdir, "empty.jww"));
 const probe = String.raw`
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -36,6 +37,10 @@ assert.equal(cad.document.header.source_version, null);
 assert.equal(cad.document.entities[0].content, '日本語');
 assert.equal(ez.readDocument(fs.readFileSync('Test1.jww')).header.version, 600);
 assert.ok(ez.toDxfString(fs.readFileSync('Test1.jww')).includes('SECTION'));
+const empty = fs.readFileSync('empty.jww');
+assert.equal(ez.readDocument(empty).header.version, 700);
+assert.deepEqual(ez.readDocument(empty).entities, []);
+assert.deepEqual(ez.readDxfDocument(empty).entities, []);
 const scaled = fs.readFileSync('q054.jwc');
 const paper = ez.readDxfDocument(scaled).entities[0];
 const model = ez.readDxfDocument(scaled, {jwcCoordinates:'model_millimeters'}).entities[0];
@@ -100,7 +105,7 @@ const sha = p => createHash("sha256").update(readFileSync(p)).digest("hex");
 const report = {
   ...result, workdir, archive, archive_sha256: sha(archive),
   jwc_dxf_sha256: sha(join(workdir, "q032.dxf")),
-  checked: ["JWW", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
+  checked: ["JWW", "empty version-700 JWW", "Japanese JWC", "both coordinate spaces", "ellipse", "DXF AC1024", "width factors", "unverified line flags and diagnostics", "structural rejection", "bundled WASM and LICENSE", "compiled consumer of installed declarations"],
 };
 mkdirSync(dirname(resolve(values.report)), { recursive: true });
 writeFileSync(values.report, JSON.stringify(report, null, 2) + "\n");

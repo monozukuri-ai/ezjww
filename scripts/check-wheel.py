@@ -41,6 +41,9 @@ def probe(work):
     assert ezjww.read_document(jww)["header"]["version"] == 600
     assert ezjww.read_cad_document(jww)["format"] == "jww"
     assert ezjww.read_dxf_string(jww).lstrip().startswith("0\nSECTION\n")
+    empty = ezjww.readfile(work / "empty.jww")
+    assert empty.header["version"] == 700
+    assert len(empty.modelspace()) == 0 and empty.bbox() is None
     paper = ezjww.readfile(work / "q054.jwc")
     model = ezjww.readfile(work / "q054.jwc", jwc_coordinates="model_millimeters")
     assert abs(model.bbox()["width"] / paper.bbox()["width"] - 50) < 1e-10
@@ -161,6 +164,7 @@ def probe(work):
         "source_tree_imported": False,
         "checked": [
             "JWW",
+            "empty version-700 JWW",
             "Japanese JWC",
             "both coordinate spaces",
             "ellipse",
@@ -229,6 +233,7 @@ def main():
                 ROOT / "jwc_samples/generated" / f"{name}.jwc", work / f"{name}.jwc"
             )
         shutil.copyfile(ROOT / "jww_samples/Test1.jww", work / "Test1.jww")
+        shutil.copyfile(ROOT / "jww_samples/writer/empty.jww", work / "empty.jww")
         script = work / "probe.py"
         shutil.copyfile(__file__, script)
         local_report = work / "validation.json"

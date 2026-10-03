@@ -65,6 +65,10 @@ jobs:
         shell: bash
         run: '"${VENV_PY}" scripts/jwc/check_corpus.py'
 
+      - name: Verify JWW writer fixtures
+        shell: bash
+        run: '"${VENV_PY}" scripts/jww/check_fixtures.py'
+
       - name: Rust checks
         run: |
           cargo fmt --all --check
@@ -134,6 +138,9 @@ jobs:
 
       - name: Verify required original JWC fixtures
         run: python scripts/jwc/check_corpus.py
+
+      - name: Verify JWW writer fixtures
+        run: python scripts/jww/check_fixtures.py
 
       - name: Install TypeScript dependencies
         run: pnpm install --frozen-lockfile

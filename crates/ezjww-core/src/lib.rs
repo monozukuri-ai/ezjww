@@ -3,11 +3,15 @@ pub mod dxf;
 pub mod error;
 pub mod format;
 pub mod header;
+mod header_layout;
 pub mod jwc;
 pub mod model;
 pub mod parser;
 pub mod reader;
 pub mod schema;
+pub mod writer;
+
+pub use writer::{to_jww_bytes, JwwWriteDocument, JwwWriteError, JwwWriteOptions};
 
 pub use cad::{detect_file_format, parse_cad_document, read_cad_document_from_file, CadDocument};
 pub use diagnostics::{
