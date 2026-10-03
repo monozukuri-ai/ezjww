@@ -118,6 +118,10 @@ def main():
     )
     for key in ("PYTHONPATH", "PYTHONHOME", "PYO3_PYTHON", "VIRTUAL_ENV"):
         env.pop(key, None)
+    # Calling .venv/bin/python does not activate that venv. Maturin's PEP 517
+    # backend invokes its executable by name, so expose this interpreter's
+    # scripts directory without relying on a global maturin installation.
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
     wheels = work / "wheels"
     subprocess.run(
         [
