@@ -103,7 +103,9 @@ class Session:
             if association:
                 # A new prefix asks about file association. Cancel it; do not
                 # install shell integration. Any other modal fails the title gate.
-                self.xdo("windowfocus", association, "key", "Escape")
+                # The dialog can disappear between search and windowfocus.
+                # Continue polling for the drawing even if this action fails.
+                self.xdo("windowfocus", association, "key", "Escape", check=False)
             return self.window(path.name + " - jw_win")
 
         self.main = self.wait(ready)

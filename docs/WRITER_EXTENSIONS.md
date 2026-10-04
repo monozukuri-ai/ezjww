@@ -198,6 +198,12 @@ normal process exits and unchanged original bytes. Logs survive failures. The
 New button coordinate is tied to this pinned version at Wine's default 96 DPI;
 a changed dialog layout fails the title gate rather than proceeding silently.
 
+The source harness also addresses follow-up request R9: if the file-association
+dialog disappears between `xdotool search` and `windowfocus`, its dismissal may
+fail without aborting the run. The harness still waits for the expected drawing
+title; timeout, main-window commands and save failures remain errors. This applies
+to every launch, including the derived GDI diagnostic copy.
+
 The run folder includes both native JWW saves, DXF exports, direct screenshots,
 and GDI copies when a single `View_Direct2d = 1` setting can be changed. These
 copies are diagnostics; they do not add a writer setting or alter original inputs.
