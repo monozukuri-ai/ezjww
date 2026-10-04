@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
 import re
 import sys
 import tempfile
+import unicodedata
+import warnings
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from ezjww import _core
+
+if TYPE_CHECKING:
+    from ezjww._core import JwwDocument, JwwWriteConversion, JwwWriteDocument
 from ezjww._core import (
     detect_file_format,
     hello_from_bin,
@@ -46,6 +52,9 @@ __all__ = [
     "Drawing",
     "JwwDrawing",
     "JwwModelspace",
+    "to_jww_bytes",
+    "to_write_document",
+    "new_jww_document",
     "ENTITY_LIST_TRUNCATED",
     "ISSUE_CODES",
     "IssueCode",
@@ -491,32 +500,75 @@ class Drawing:
 class JwwModelspace(Modelspace):
     """Editable native entities for a new JWW; angles in raw ARC dicts are radians."""
 
-    def __init__(self, options: dict[str, Any]) -> None:
+    def __init__(
+        self, options: dict[str, Any], block_defs: list[dict[str, Any]] | None = None
+    ) -> None:
         super().__init__([])
         self._options = options
+        self._block_defs = block_defs if block_defs is not None else []
+        self.font_width_factors: dict[str, float] = {}
 
     def _input(self) -> dict[str, Any]:
-        return {"options": self._options, "entities": self.entities}
+        references = {
+            entity["def_number"]
+            for entities in [self.entities, *(b["entities"] for b in self._block_defs)]
+            for entity in entities
+            if entity.get("type") == "BLOCK"
+        }
+        definitions = [
+            dict(b, is_referenced=b["number"] in references) for b in self._block_defs
+        ]
+        return {
+            "options": self._options,
+            "entities": self.entities,
+            "block_defs": definitions,
+        }
 
-    @staticmethod
-    def _base(jwwattribs: Mapping[str, int] | None) -> dict[str, int]:
+    def _base(
+        self, jwwattribs: Mapping[str, int | str] | None, kind: str = "LINE"
+    ) -> dict[str, int]:
+        group = self._options["write_layer_group"]
         base = {
             "group": 0,
             "pen_style": 1,
             "pen_color": 1,
             "pen_width": 0,
-            "layer": 0,
-            "layer_group": 0,
+            "layer": self._options["layer_groups"][group]["write_layer"],
+            "layer_group": group,
             "flag": 0,
         }
         if jwwattribs is not None:
+            jwwattribs = dict(jwwattribs)
+            dimension = jwwattribs.pop("dimension", None)
+            if dimension is not None:
+                expected = {
+                    "value_text": ("TEXT", 0x4010),
+                    "line": ("LINE", 0x2000),
+                    "aux": (kind, 0x40 if kind == "POINT" else 0x2000),
+                }
+                if (
+                    dimension not in expected
+                    or expected[dimension][0] != kind
+                    or kind not in {"LINE", "POINT", "TEXT"}
+                ):
+                    raise ValueError("dimension role does not match entity type")
+                if (
+                    "flag" in jwwattribs
+                    and jwwattribs["flag"] != expected[dimension][1]
+                ):
+                    raise ValueError("dimension role conflicts with flag")
+                base["flag"] = expected[dimension][1]
             unknown = set(jwwattribs) - base.keys()
             if unknown:
                 raise ValueError(f"unsupported JWW attributes: {sorted(unknown)}")
             base.update(jwwattribs)
         return base
 
-    def _append(self, entity: dict[str, Any]) -> dict[str, Any]:
+    def _append(
+        self, entity: dict[str, Any], color: int | None = None
+    ) -> dict[str, Any]:
+        if color is not None:
+            entity["color"] = color
         self.entities.append(entity)
         return entity
 
@@ -525,7 +577,8 @@ class JwwModelspace(Modelspace):
         start: tuple[float, float],
         end: tuple[float, float],
         *,
-        jwwattribs: Mapping[str, int] | None = None,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
         x1, y1 = start
         x2, y2 = end
@@ -537,7 +590,8 @@ class JwwModelspace(Modelspace):
                 "start_y": y1,
                 "end_x": x2,
                 "end_y": y2,
-            }
+            },
+            color,
         )
 
     def add_arc(
@@ -547,10 +601,13 @@ class JwwModelspace(Modelspace):
         start_angle: float,
         sweep_angle: float,
         *,
-        jwwattribs: Mapping[str, int] | None = None,
+        flatness: float = 1.0,
+        tilt_angle: float = 0.0,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
         """Angles are degrees: start [0, 360), CCW sweep (0, 360)."""
-        if isinstance(start_angle, bool) or isinstance(sweep_angle, bool):
+        if any(isinstance(v, bool) for v in (start_angle, sweep_angle, tilt_angle)):
             raise ValueError("Arc angles must be numbers, not bool.")
         x, y = center
         return self._append(
@@ -562,10 +619,11 @@ class JwwModelspace(Modelspace):
                 "radius": radius,
                 "start_angle": math.radians(start_angle),
                 "arc_angle": math.radians(sweep_angle),
-                "tilt_angle": 0.0,
-                "flatness": 1.0,
+                "tilt_angle": math.radians(tilt_angle),
+                "flatness": flatness,
                 "is_full_circle": False,
-            }
+            },
+            color,
         )
 
     def add_circle(
@@ -573,9 +631,12 @@ class JwwModelspace(Modelspace):
         center: tuple[float, float],
         radius: float,
         *,
-        jwwattribs: Mapping[str, int] | None = None,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
-        circle = self.add_arc(center, radius, 0.0, 360.0, jwwattribs=jwwattribs)
+        circle = self.add_arc(
+            center, radius, 0.0, 360.0, color=color, jwwattribs=jwwattribs
+        )
         circle.update(type="CIRCLE", is_full_circle=True)
         return circle
 
@@ -583,43 +644,80 @@ class JwwModelspace(Modelspace):
         self,
         position: tuple[float, float],
         *,
-        jwwattribs: Mapping[str, int] | None = None,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
         x, y = position
         return self._append(
             {
                 "type": "POINT",
-                "base": self._base(jwwattribs),
+                "base": self._base(jwwattribs, "POINT"),
                 "x": x,
                 "y": y,
                 "is_temporary": False,
                 "code": 0,
                 "angle": 0.0,
                 "scale": 0.0,
-            }
+            },
+            color,
         )
 
     def add_text(
         self,
         content: str,
         start: tuple[float, float],
-        end: tuple[float, float],
+        end: tuple[float, float] | None = None,
         *,
-        size_x: float = 3.0,
-        size_y: float = 3.0,
-        spacing: float = 0.0,
+        size_x: float | None = None,
+        size_y: float | None = None,
+        spacing: float | None = None,
         angle: float = 0.0,
         font_name: str = "ＭＳ ゴシック",
         text_type: int = 0,
-        jwwattribs: Mapping[str, int] | None = None,
+        font_width_factor: float | None = None,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
-        """Explicit baseline endpoints; character sizes are mm, angle is degrees."""
+        """Paper-mm sizes and baseline; omitted end uses half/full-width estimates."""
+        if isinstance(text_type, bool) or not isinstance(text_type, int):
+            raise ValueError("text_type must be an integer")
+        preset_number = text_type % 10000
+        presets = self._options.get("text_presets")
+        preset = (
+            presets[preset_number - 1] if presets and 1 <= preset_number <= 10 else {}
+        )
+        size_x = preset.get("size_x", 3.0) if size_x is None else size_x
+        size_y = preset.get("size_y", 3.0) if size_y is None else size_y
+        spacing = preset.get("spacing", 0.0) if spacing is None else spacing
+        attributes = dict(jwwattribs or {})
+        if preset and "pen_color" not in attributes:
+            attributes["pen_color"] = preset["pen_color"]
+        if font_width_factor is None:
+            font_width_factor = self.font_width_factors.get(font_name, 1.0)
+        if (
+            isinstance(font_width_factor, bool)
+            or not math.isfinite(font_width_factor)
+            or font_width_factor <= 0
+        ):
+            raise ValueError("font_width_factor must be finite and positive")
         x1, y1 = start
+        if end is None:
+            units = sum(
+                1.0 if unicodedata.east_asian_width(c) in {"W", "F"} else 0.5
+                for c in content
+            )
+            length = (
+                units * size_x * font_width_factor + max(0, len(content) - 1) * spacing
+            )
+            end = (
+                x1 + length * math.cos(math.radians(angle)),
+                y1 + length * math.sin(math.radians(angle)),
+            )
         x2, y2 = end
         return self._append(
             {
                 "type": "TEXT",
-                "base": self._base(jwwattribs),
+                "base": self._base(attributes, "TEXT"),
                 "content": content,
                 "start_x": x1,
                 "start_y": y1,
@@ -631,8 +729,254 @@ class JwwModelspace(Modelspace):
                 "angle": angle,
                 "font_name": font_name,
                 "text_type": text_type,
+            },
+            color,
+        )
+
+    def extend(self, entities: list[dict[str, Any]]) -> None:
+        """Add raw writer dictionaries in one call; serialize to validate them."""
+        if not isinstance(entities, list) or any(
+            not isinstance(e, dict) for e in entities
+        ):
+            raise ValueError("entities must be a list of dictionaries")
+        self.entities.extend(entities)
+
+    def add_ellipse(
+        self,
+        center: tuple[float, float],
+        radius: float,
+        flatness: float,
+        *,
+        tilt_angle: float = 0.0,
+        start_angle: float = 0.0,
+        sweep_angle: float = 360.0,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
+    ) -> dict[str, Any]:
+        """Angles are degrees in the rotated major/minor-axis coordinate system."""
+        arc = self.add_arc(
+            center,
+            radius,
+            start_angle,
+            sweep_angle,
+            flatness=flatness,
+            tilt_angle=tilt_angle,
+            color=color,
+            jwwattribs=jwwattribs,
+        )
+        if sweep_angle == 360.0:
+            arc.update(type="CIRCLE", is_full_circle=True)
+        return arc
+
+    def add_solid(
+        self,
+        p1: tuple[float, float],
+        p2: tuple[float, float],
+        p3: tuple[float, float],
+        p4: tuple[float, float] | None = None,
+        *,
+        color: int | None = None,
+        degenerate: Literal["reject", "warn_skip"] = "reject",
+        jwwattribs: Mapping[str, int | str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Boundary vertices; zero area is rejected on write or explicitly warned/skipped."""
+        if degenerate not in {"reject", "warn_skip"}:
+            raise ValueError("degenerate must be 'reject' or 'warn_skip'")
+        points = (p1, p2, p3, p4 if p4 is not None else p3)
+        if degenerate == "warn_skip":
+            area = sum(
+                points[i][0] * points[(i + 1) % 4][1]
+                - points[i][1] * points[(i + 1) % 4][0]
+                for i in range(4)
+            )
+            if area == 0:
+                warnings.warn("Skipped zero-area SOLID", UserWarning, stacklevel=2)
+                return None
+        base = self._base(jwwattribs)
+        if color is not None:
+            base["pen_color"] = 10
+        entity = {"type": "SOLID", "base": base, "color": color}
+        for i, (x, y) in zip((1, 4, 2, 3), points):
+            entity.update({f"point{i}_x": x, f"point{i}_y": y})
+        return self._append(entity)
+
+    def add_circle_solid(
+        self,
+        center: tuple[float, float],
+        radius: float,
+        *,
+        start_angle: float = 0.0,
+        sweep_angle: float = 360.0,
+        inner_radius: float = 0.0,
+        flatness: float = 1.0,
+        tilt_angle: float = 0.0,
+        ring_style: int = 105,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
+    ) -> dict[str, Any]:
+        """Filled disk/sector or ring; style 106 keeps the ellipse ring width constant."""
+        if any(isinstance(v, bool) for v in (start_angle, sweep_angle, tilt_angle)):
+            raise ValueError("Circle solid angles must be numbers, not bool.")
+        if (
+            isinstance(inner_radius, bool)
+            or not math.isfinite(inner_radius)
+            or inner_radius < 0
+        ):
+            raise ValueError("inner_radius must be finite and nonnegative")
+        if ring_style not in (105, 106):
+            raise ValueError("ring_style must be 105 or 106")
+        base = self._base(jwwattribs)
+        base["pen_style"] = ring_style if inner_radius else 101
+        if color is not None:
+            base["pen_color"] = 10
+        return self._append(
+            {
+                "type": "CIRCLE_SOLID",
+                "base": base,
+                "center_x": center[0],
+                "center_y": center[1],
+                "radius": radius,
+                "flatness": flatness,
+                "tilt_angle": math.radians(tilt_angle),
+                "start_angle": math.radians(start_angle),
+                "arc_angle": math.radians(sweep_angle),
+                "solid_mode": inner_radius
+                if inner_radius
+                else (100.0 if sweep_angle == 360 else 0.0),
+                "color": color,
             }
         )
+
+    def add_block_ref(
+        self,
+        reference: int | str,
+        position: tuple[float, float],
+        *,
+        scale_x: float = 1.0,
+        scale_y: float = 1.0,
+        rotation: float = 0.0,
+        jwwattribs: Mapping[str, int | str] | None = None,
+    ) -> dict[str, Any]:
+        """Insert a block by number or name; rotation is in degrees."""
+        if isinstance(rotation, bool):
+            raise ValueError("Block rotation must be a number, not bool.")
+        if isinstance(reference, str):
+            matches = [b["number"] for b in self._block_defs if b["name"] == reference]
+            if len(matches) != 1:
+                raise ValueError(f"unknown or ambiguous block name: {reference}")
+            reference = matches[0]
+        return self._append(
+            {
+                "type": "BLOCK",
+                "base": self._base(jwwattribs),
+                "ref_x": position[0],
+                "ref_y": position[1],
+                "scale_x": scale_x,
+                "scale_y": scale_y,
+                "rotation": math.radians(rotation),
+                "def_number": reference,
+            }
+        )
+
+    def add_dimension(
+        self,
+        line_start: tuple[float, float],
+        line_end: tuple[float, float],
+        text: str,
+        text_start: tuple[float, float],
+        text_end: tuple[float, float] | None = None,
+        *,
+        aux_lines: list[tuple[tuple[float, float], tuple[float, float]]] | None = None,
+        aux_points: list[tuple[float, float]] | None = None,
+        sxf_mode: int = 0,
+        text_options: Mapping[str, Any] | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a native dimension, with two auxiliary lines and four point slots."""
+        lines = list(aux_lines or [])
+        points = list(aux_points or [])
+        if len(lines) > 2 or len(points) > 4:
+            raise ValueError(
+                "dimensions have at most two auxiliary lines and four points"
+            )
+        if sxf_mode and (len(lines) != 2 or len(points) != 4):
+            raise ValueError("SXF dimensions require two lines and four points")
+        lines += [((0.0, 0.0), (0.0, 0.0))] * (2 - len(lines))
+        points += [(0.0, 0.0)] * (4 - len(points))
+        scratch = JwwModelspace(self._options)
+        attributes = dict(jwwattribs or {})
+
+        def member(entity: dict[str, Any]) -> dict[str, Any]:
+            return {k: v for k, v in entity.items() if k != "type"}
+
+        line = member(
+            scratch.add_line(
+                line_start, line_end, jwwattribs=dict(attributes, dimension="line")
+            )
+        )
+        text_settings = dict(text_options or {})
+        text_attributes = dict(attributes, **text_settings.pop("jwwattribs", {}))
+        text_attributes["dimension"] = "value_text"
+        value = member(
+            scratch.add_text(
+                text, text_start, text_end, jwwattribs=text_attributes, **text_settings
+            )
+        )
+        return self._append(
+            {
+                "type": "DIMENSION",
+                "base": self._base(dict(attributes, dimension="line")),
+                "line": line,
+                "text": value,
+                "sxf_mode": sxf_mode,
+                "aux_lines": [
+                    member(
+                        scratch.add_line(
+                            a, b, jwwattribs=dict(attributes, dimension="aux")
+                        )
+                    )
+                    for a, b in lines
+                ],
+                "aux_points": [
+                    member(
+                        scratch.add_point(
+                            p, jwwattribs=dict(attributes, dimension="aux")
+                        )
+                    )
+                    for p in points
+                ],
+            }
+        )
+
+    def add_multiline_text(
+        self,
+        content: str,
+        start: tuple[float, float],
+        *,
+        line_spacing: float,
+        angle: float = 0.0,
+        **text_options: Any,
+    ) -> list[dict[str, Any]]:
+        """Split lines with explicit baseline spacing in paper mm."""
+        if (
+            isinstance(line_spacing, bool)
+            or not math.isfinite(line_spacing)
+            or line_spacing <= 0
+        ):
+            raise ValueError("line_spacing must be finite and positive")
+        radians = math.radians(angle)
+        return [
+            self.add_text(
+                line,
+                (
+                    start[0] + i * line_spacing * math.sin(radians),
+                    start[1] - i * line_spacing * math.cos(radians),
+                ),
+                angle=angle,
+                **text_options,
+            )
+            for i, line in enumerate(content.splitlines())
+        ]
 
     def query(
         self,
@@ -682,7 +1026,8 @@ class JwwDrawing(Drawing):
         document = _core.new_jww_document()
         self._options = document["options"]
         self._options.update(version=version, paper_size=paper_size, memo=memo)
-        self._modelspace = JwwModelspace(self._options)
+        self.block_defs: list[dict[str, Any]] = []
+        self._modelspace = JwwModelspace(self._options, self.block_defs)
         self.to_jww_bytes()  # Constructor options must be valid immediately.
 
     @classmethod
@@ -719,6 +1064,50 @@ class JwwDrawing(Drawing):
                 "Use to_dxf() for conversion options; modelspace() edits native JWW values."
             )
         return self._modelspace
+
+    def select_layer(self, group: int, layer: int) -> None:
+        """Select the writable group/layer and demote previous current states to 2."""
+        if any(
+            isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 15
+            for v in (group, layer)
+        ):
+            raise ValueError("group and layer must be integers in 0..15")
+        for i, settings in enumerate(self._options["layer_groups"]):
+            if settings["state"] == 3:
+                settings["state"] = 2
+            if i == group:
+                settings["state"] = 3
+                settings["write_layer"] = layer
+                for j, entry in enumerate(settings["layers"]):
+                    if entry["state"] == 3:
+                        entry["state"] = 2
+                    if j == layer:
+                        entry["state"] = 3
+        self._options["write_layer_group"] = group
+
+    def add_block(self, name: str, entities: list[dict[str, Any]]) -> int:
+        """Add an independent copy of native writer entities, relative to (0, 0)."""
+        if (
+            not isinstance(name, str)
+            or not name
+            or any(b["name"] == name for b in self.block_defs)
+        ):
+            raise ValueError("block name must be nonempty and unique")
+        if not isinstance(entities, list) or any(
+            not isinstance(e, dict) for e in entities
+        ):
+            raise ValueError("block entities must be a list of dictionaries")
+        number = max((b["number"] for b in self.block_defs), default=-1) + 1
+        self.block_defs.append(
+            {
+                "base": self._modelspace._base(None),
+                "number": number,
+                "is_referenced": False,
+                "name": name,
+                "entities": copy.deepcopy(entities),
+            }
+        )
+        return number
 
     def to_jww_bytes(self) -> bytes:
         return _core.to_jww_bytes(self._modelspace._input())
@@ -1872,3 +2261,25 @@ def _run(argv: list[str] | None = None) -> int:
 
 def main() -> None:
     raise SystemExit(_run())
+
+
+def new_jww_document() -> JwwWriteDocument:
+    """Return the public low-level writer document with editable template defaults."""
+    return _core.new_jww_document()
+
+
+def to_jww_bytes(document: JwwWriteDocument) -> bytes:
+    """Validate and encode a low-level JWW writer document in one native call."""
+    return _core.to_jww_bytes(document)
+
+
+def to_write_document(
+    document: JwwDocument, *, skip_unsupported: bool = False
+) -> JwwWriteConversion:
+    """Return {document, diagnostics}; document is None when conversion is rejected.
+
+    Unsupported entities are listed individually. Explicit skip_unsupported=True
+    permits their omission. Unresolved/cyclic block references still reject output.
+    Unexposed header fields use template defaults and are always reported.
+    """
+    return _core.to_write_document(document, skip_unsupported)

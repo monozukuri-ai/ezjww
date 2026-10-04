@@ -97,6 +97,21 @@ def probe(work):
     )
     assert created.stats()["entity_count"] == 5
     assert ezjww.new_dxf().header is None
+    extended = ezjww.new()
+    em = extended.modelspace()
+    em.add_line((0, 0), (10, 0), color=0x1256AB, jwwattribs={"pen_style": 47})
+    em.add_ellipse((0, 0), 10, 0.5, tilt_angle=30)
+    em.add_solid((0, 0), (10, 0), (10, 10), (0, 10), color=0xA53212)
+    em.add_dimension((0, 0), (10, 0), "10", (2, 1))
+    extended.add_block("part", em.entities[:1])
+    em.add_block_ref("part", (20, 20), scale_x=0.01, scale_y=0.01)
+    extended.saveas(work / "extended.jww")
+    parsed = ezjww.read_document(str(work / "extended.jww"))
+    assert len(parsed["entities"]) == 5 and len(parsed["block_defs"]) == 1
+    converted = ezjww.to_write_document(parsed)
+    assert converted["document"] is not None
+    (work / "converted.jww").write_bytes(ezjww.to_jww_bytes(converted["document"]))
+    assert ezjww.read_document(str(work / "converted.jww"))["entities"] == parsed["entities"]
     # Independently reconstruct the six-entity native-qualified acceptance case.
     basic = ezjww.new()
     modelspace = basic.modelspace()
@@ -255,6 +270,7 @@ def probe(work):
             "empty version-700 JWW",
             "native JWW creation/save/readback and explicit DXF export",
             "exact native-qualified mixed geometry bytes and saveas migration",
+            "extended entities, COLORREF allocation and bounded reader conversion",
             "Japanese JWC",
             "both coordinate spaces",
             "ellipse",

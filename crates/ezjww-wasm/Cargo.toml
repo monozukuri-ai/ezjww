@@ -12,5 +12,6 @@ crate-type = ["cdylib", "rlib"]
 ezjww-core = { path = "../ezjww-core" }
 js-sys = "0.3"
 serde = "1.0"
+serde_json = "1.0"
 serde-wasm-bindgen = "0.6"
 wasm-bindgen = "0.2"

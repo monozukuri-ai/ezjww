@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::diagnostics::DecodeDiagnostic;
 use crate::error::JwwError;
@@ -9,14 +9,16 @@ use crate::reader::Reader;
 
 pub const JWW_SIGNATURE: &[u8; 8] = b"JwwData.";
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LayerHeader {
     pub state: u32,
     pub protect: u32,
     pub name: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LayerGroupHeader {
     pub state: u32,
     pub write_layer: u32,
@@ -27,7 +29,8 @@ pub struct LayerGroupHeader {
 }
 
 /// Screen colors recorded in the JWW header.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct JwwPalette {
     /// Screen color for pen color numbers 0..=9, normalized to `0x00BBGGRR`.
     ///
@@ -83,7 +86,8 @@ pub const SXF_USER_DEFINED_FIRST_INDEX: usize = 17;
 /// The lowest `unit_dots` bits of `pattern` are one repetition; a set bit draws
 /// and a clear bit is a gap. `pitch` scales the pattern on screen and
 /// `printer_pitch` on paper.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LineTypePattern {
     /// Line type number as stored in the entity pen style.
     pub number: u32,
@@ -144,7 +148,8 @@ impl LineTypePattern {
 }
 
 /// Settings of one random ("hand-drawn") line type, numbers 11..=15.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RandomLineType {
     /// Line type number as stored in the entity pen style.
     pub number: u32,
@@ -160,7 +165,7 @@ pub struct RandomLineType {
 /// One SXF-compatible line type, numbers 30..=62 (`30 + index`).
 ///
 /// Indices 1..=16 are the SXF predefined line types and 17..=32 are user-defined.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct SxfLineType {
     #[serde(flatten)]
     pub pattern: LineTypePattern,
@@ -171,7 +176,8 @@ pub struct SxfLineType {
 }
 
 /// Line type settings recorded in the JWW header.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct JwwLineTypes {
     /// Line types 2..=9: dashed 1-3, chain 1-2, double-dot chain 1-2 and the
     /// construction line type.
@@ -224,6 +230,16 @@ impl JwwLineTypes {
     }
 }
 
+/// Character size presets 1..=10, in paper millimetres.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextPreset {
+    pub size_x: f64,
+    pub size_y: f64,
+    pub spacing: f64,
+    pub pen_color: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwwHeader {
     pub version: u32,
@@ -235,6 +251,7 @@ pub struct JwwHeader {
     pub palette: Option<JwwPalette>,
     /// Only available when the layer name section was parsed successfully.
     pub line_types: Option<JwwLineTypes>,
+    pub text_presets: Option<Vec<TextPreset>>,
 }
 
 pub fn is_jww_signature(data: &[u8]) -> bool {
@@ -312,9 +329,30 @@ pub(crate) fn parse_header_with_diagnostics(
             layer_groups,
             palette,
             line_types,
+            text_presets: if (600..=700).contains(&version) {
+                parse_text_presets(data).ok()
+            } else {
+                None
+            },
         },
         reader.into_decode_diagnostics(),
     ))
+}
+
+fn parse_text_presets(data: &[u8]) -> Result<Vec<TextPreset>, JwwError> {
+    let end = crate::header_layout::header_end_v700(data)?;
+    let mut reader = Reader::new(data);
+    reader.skip(end - (10 * 28 + 32 + 16 + 4 + 48))?;
+    (0..10)
+        .map(|_| {
+            Ok(TextPreset {
+                size_x: reader.read_f64()?,
+                size_y: reader.read_f64()?,
+                spacing: reader.read_f64()?,
+                pen_color: reader.read_u32()?,
+            })
+        })
+        .collect()
 }
 
 /// Reads the screen color palette and the line type settings that follow the layer group names.

@@ -226,7 +226,7 @@ fn invalid_coordinates_and_unsupported_attributes_are_rejected() {
 }
 
 #[test]
-fn unsupported_entity_is_not_silently_dropped() {
+fn invalid_solid_is_not_silently_dropped() {
     let mut doc = line_document();
     doc.entities.push(Entity::Solid(Solid {
         base: EntityBase::default(),
@@ -243,5 +243,5 @@ fn unsupported_entity_is_not_silently_dropped() {
     assert!(to_jww_bytes(&doc)
         .unwrap_err()
         .to_string()
-        .starts_with("entities[1]:"));
+        .starts_with("entities[1].base.pen_color:"));
 }

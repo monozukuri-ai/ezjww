@@ -3,8 +3,9 @@
 Read JWW and supported JWC drawings, create new JWW drawings, and export DXF
 with a Rust parser compiled to WebAssembly.
 
-This checkout prepares **0.4.0** with the writer API. Build from source until
-that release is published. Existing reader APIs remain unchanged.
+The basic writer API is available in **0.4.0**. This checkout adds unreleased
+SXF color/line tables, solids, ellipses, dimensions, blocks and convenience APIs;
+build from source to use these extensions.
 
 ## Installation
 
@@ -50,14 +51,14 @@ A matching signature does not validate the complete file.
 | Read JWW only | `isJwwFile`, `readHeader`, `readDocument` |
 | Read JWC only | `isJwcFile`, `readJwcHeader`, `readJwcDocument` |
 | Convert either format | `readDxfDocument`, `readDxfString` (`toDxfString` alias) |
-| Create a new JWW | `newJwwDocument`, `toJwwBytes` (unreleased) |
+| Create a new JWW | `newJwwDocument`, `toJwwBytes` |
 
 `DxfOptions` accepts `targetVersion` (`"AC1015"` by default or `"AC1024"`) for
 string output, `explodeInserts` (default `false`), `maxBlockNesting` (default `32`,
 minimum `1`), and `jwcCoordinates` (`"paper_millimeters"` by default or
 `"model_millimeters"`). The JWC coordinate option does not change JWW conversion.
 
-## Create a JWW drawing (unreleased)
+## Create a JWW drawing
 
 Build this revision from source with `pnpm install --frozen-lockfile` and
 `pnpm run build` in `packages/ezjww` to use the writer API:
@@ -79,10 +80,12 @@ drawing.entities.push({
 writeFileSync("created.jww", toJwwBytes(drawing));
 ```
 
-The editable `JwwWriteDocument` has `options` and `entities`; parsed
+The editable `JwwWriteDocument` has `options`, `entities` and `block_defs`; parsed
 `JwwDocument` objects cannot be passed to the writer. Output is version 700,
-supporting lines, circles, circular arcs, ordinary points, plain text and basic
-layer/pen settings. Coordinates are paper mm. Native arc fields use radians;
+supporting lines, circles/ellipses, arcs, points, text, solids, dimensions and
+blocks, with editable palette/line/preset tables. `toWriteDocument()` explicitly
+converts a parsed document and reports unsupported values. Coordinates are paper
+mm. Native arc fields use radians;
 text angles use degrees. Each write validates current values and returns an
 independent `Uint8Array` without filesystem I/O. Unknown/missing fields, invalid
 numbers and unsupported features throw errors, including through raw WASM.

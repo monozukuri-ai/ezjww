@@ -1,22 +1,26 @@
 //! New version-700 JWW drawings. This is not a lossless editor for parsed documents.
 //!
-//! Supports lines, circles, circular arcs, ordinary points and plain text, with
-//! layer settings and basic pen attributes. Unsupported inputs are rejected.
+//! Supports native geometry, dimensions and blocks, with editable layer, palette,
+//! line type and text preset tables. Unsupported inputs are rejected.
 
 mod archive;
+mod convert;
+pub use convert::to_write_document;
 mod entities;
 mod header;
+pub mod input;
 mod validate;
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::header::{LayerGroupHeader, LayerHeader};
-use crate::model::{Arc, Coord2D, Entity, EntityBase, Line, Point, Text};
+use crate::header::{JwwLineTypes, JwwPalette, LayerGroupHeader, LayerHeader, TextPreset};
+use crate::model::{Arc, BlockDef, Coord2D, Entity, EntityBase, Line, Point, Text};
+use serde::Serialize;
 
 /// Settings for a new drawing. Other header settings use the embedded template.
 /// Layer names are stored verbatim; readers give empty names a display fallback.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JwwWriteOptions {
     pub version: u32,
     pub memo: String,
@@ -28,6 +32,9 @@ pub struct JwwWriteOptions {
     /// `write_layer_group` must be the sole state-3 group. Scale is a positive
     /// denominator (50 means 1:50); changing it never rescales entity values.
     pub layer_groups: [LayerGroupHeader; 16],
+    pub palette: Option<JwwPalette>,
+    pub line_types: Option<JwwLineTypes>,
+    pub text_presets: Option<Vec<TextPreset>>,
 }
 
 impl Default for JwwWriteOptions {
@@ -37,6 +44,9 @@ impl Default for JwwWriteOptions {
             memo: String::new(),
             paper_size: 3,
             write_layer_group: 0,
+            palette: None,
+            line_types: None,
+            text_presets: None,
             layer_groups: std::array::from_fn(|g| LayerGroupHeader {
                 state: if g == 0 { 3 } else { 2 },
                 write_layer: 0,
@@ -62,10 +72,11 @@ impl Default for JwwWriteOptions {
 /// paper center, +Y up. Builders use degrees; raw `Arc` fields use radians.
 /// Use this separate type instead of assuming a parsed `JwwDocument` retains
 /// every original setting, archive record and embedded image.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct JwwWriteDocument {
     pub options: JwwWriteOptions,
     pub entities: Vec<Entity>,
+    pub block_defs: Vec<BlockDef>,
 }
 
 impl JwwWriteDocument {
@@ -227,7 +238,10 @@ pub fn to_jww_bytes(document: &JwwWriteDocument) -> Result<Vec<u8>, JwwWriteErro
     for entity in &document.entities {
         entities::write(&mut archive, entity)?;
     }
-    archive.count(0, "block_defs")?;
+    archive.count(document.block_defs.len(), "block_defs")?;
+    for definition in &document.block_defs {
+        entities::block_definition(&mut archive, definition)?;
+    }
     archive.u32(0); // version-700 embedded image count
     Ok(archive.into_bytes())
 }

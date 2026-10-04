@@ -340,6 +340,11 @@ fn header_to_pydict<'py>(py: Python<'py>, header: &JwwHeader) -> PyResult<Bound<
         out.set_item("line_types", py.None())?;
     }
 
+    out.set_item(
+        "text_presets",
+        jwc_bindings::to_python(py, &header.text_presets)?,
+    )?;
+
     let layer_groups = PyList::empty_bound(py);
     for group in &header.layer_groups {
         let group_dict = PyDict::new_bound(py);
@@ -542,6 +547,7 @@ fn entity_to_pydict<'py>(
 
 fn line_to_pydict<'py>(py: Python<'py>, line: &Line) -> PyResult<Bound<'py, PyDict>> {
     let out = PyDict::new_bound(py);
+    out.set_item("base", jwc_bindings::to_python(py, &line.base)?)?;
     out.set_item("start_x", line.start_x)?;
     out.set_item("start_y", line.start_y)?;
     out.set_item("end_x", line.end_x)?;
@@ -551,6 +557,7 @@ fn line_to_pydict<'py>(py: Python<'py>, line: &Line) -> PyResult<Bound<'py, PyDi
 
 fn point_to_pydict<'py>(py: Python<'py>, point: &Point) -> PyResult<Bound<'py, PyDict>> {
     let out = PyDict::new_bound(py);
+    out.set_item("base", jwc_bindings::to_python(py, &point.base)?)?;
     out.set_item("x", point.x)?;
     out.set_item("y", point.y)?;
     out.set_item("is_temporary", point.is_temporary)?;
@@ -562,6 +569,7 @@ fn point_to_pydict<'py>(py: Python<'py>, point: &Point) -> PyResult<Bound<'py, P
 
 fn text_to_pydict<'py>(py: Python<'py>, text: &Text) -> PyResult<Bound<'py, PyDict>> {
     let out = PyDict::new_bound(py);
+    out.set_item("base", jwc_bindings::to_python(py, &text.base)?)?;
     out.set_item("start_x", text.start_x)?;
     out.set_item("start_y", text.start_y)?;
     out.set_item("end_x", text.end_x)?;

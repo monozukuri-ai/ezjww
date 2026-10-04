@@ -307,6 +307,7 @@ impl Serialize for Dimension {
 
 #[derive(Serialize)]
 struct LinePayload {
+    base: EntityBase,
     start_x: f64,
     start_y: f64,
     end_x: f64,
@@ -316,6 +317,7 @@ struct LinePayload {
 impl From<&Line> for LinePayload {
     fn from(value: &Line) -> Self {
         Self {
+            base: value.base,
             start_x: value.start_x,
             start_y: value.start_y,
             end_x: value.end_x,
@@ -326,6 +328,7 @@ impl From<&Line> for LinePayload {
 
 #[derive(Serialize)]
 struct PointPayload {
+    base: EntityBase,
     x: f64,
     y: f64,
     is_temporary: bool,
@@ -337,6 +340,7 @@ struct PointPayload {
 impl From<&Point> for PointPayload {
     fn from(value: &Point) -> Self {
         Self {
+            base: value.base,
             x: value.x,
             y: value.y,
             is_temporary: value.is_temporary,
@@ -349,6 +353,7 @@ impl From<&Point> for PointPayload {
 
 #[derive(Serialize)]
 struct TextPayload<'a> {
+    base: EntityBase,
     start_x: f64,
     start_y: f64,
     end_x: f64,
@@ -365,6 +370,7 @@ struct TextPayload<'a> {
 impl<'a> From<&'a Text> for TextPayload<'a> {
     fn from(value: &'a Text) -> Self {
         Self {
+            base: value.base,
             start_x: value.start_x,
             start_y: value.start_y,
             end_x: value.end_x,

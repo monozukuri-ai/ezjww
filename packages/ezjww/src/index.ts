@@ -49,6 +49,13 @@ export interface JwwLineTypes {
   sxf: SxfLineType[] | null;
 }
 
+export interface TextPreset {
+  size_x: number;
+  size_y: number;
+  spacing: number;
+  pen_color: number;
+}
+
 export interface JwwHeader {
   version: number;
   memo: string;
@@ -57,6 +64,7 @@ export interface JwwHeader {
   layer_groups: LayerGroupHeader[];
   palette: JwwPalette | null;
   line_types: JwwLineTypes | null;
+  text_presets: TextPreset[] | null;
 }
 
 export interface EntityBase {
@@ -70,6 +78,7 @@ export interface EntityBase {
 }
 
 export interface LinePayload {
+  base?: EntityBase;
   start_x: number;
   start_y: number;
   end_x: number;
@@ -77,6 +86,7 @@ export interface LinePayload {
 }
 
 export interface PointPayload {
+  base?: EntityBase;
   x: number;
   y: number;
   is_temporary: boolean;
@@ -86,6 +96,7 @@ export interface PointPayload {
 }
 
 export interface TextPayload {
+  base?: EntityBase;
   start_x: number;
   start_y: number;
   end_x: number;
@@ -215,15 +226,20 @@ export interface JwwWriteOptions {
   paper_size: number;
   write_layer_group: number;
   layer_groups: LayerGroupHeader[];
+  palette?: JwwPalette | null;
+  line_types?: JwwLineTypes | null;
+  text_presets?: TextPreset[] | null;
 }
 
 export interface JwwWriteLine extends LinePayload {
+  color?: number;
   type: "LINE";
   base: EntityBase;
 }
 
-/** Native arc angles are radians; only circular geometry is supported. */
+/** Native arc angles are radians; flatness is the minor/major radius ratio (0, 1]. */
 export interface JwwWriteArcGeometry {
+  color?: number;
   base: EntityBase;
   center_x: number;
   center_y: number;
@@ -245,14 +261,53 @@ export interface JwwWriteArc extends JwwWriteArcGeometry {
 }
 
 export interface JwwWritePoint extends PointPayload {
+  color?: number;
   type: "POINT";
   base: EntityBase;
 }
 
 /** Explicit baseline endpoints; text angle is in degrees. */
 export interface JwwWriteText extends TextPayload {
+  color?: number;
   type: "TEXT";
   base: EntityBase;
+}
+
+export interface JwwWriteSolid {
+  type: "SOLID";
+  base: EntityBase;
+  point1_x: number; point1_y: number;
+  point2_x: number; point2_y: number;
+  point3_x: number; point3_y: number;
+  point4_x: number; point4_y: number;
+  color?: number | null;
+}
+export interface JwwWriteCircleSolid {
+  type: "CIRCLE_SOLID";
+  base: EntityBase;
+  center_x: number; center_y: number;
+  radius: number; flatness: number; tilt_angle: number;
+  start_angle: number; arc_angle: number; solid_mode: number;
+  color?: number | null;
+}
+export interface JwwWriteBlock {
+  type: "BLOCK";
+  base: EntityBase;
+  ref_x: number; ref_y: number;
+  scale_x: number; scale_y: number; rotation: number;
+  def_number: number;
+}
+export interface JwwWriteDimension {
+  type: "DIMENSION";
+  base: EntityBase;
+  line: LinePayload;
+  text: TextPayload;
+  sxf_mode: number;
+  aux_lines: LinePayload[];
+  aux_points: PointPayload[];
+}
+export interface JwwWriteBlockDef extends Omit<BlockDef, "entities"> {
+  entities: JwwWriteEntity[];
 }
 
 export type JwwWriteEntity =
@@ -260,12 +315,17 @@ export type JwwWriteEntity =
   | JwwWriteCircle
   | JwwWriteArc
   | JwwWritePoint
-  | JwwWriteText;
+  | JwwWriteText
+  | JwwWriteSolid
+  | JwwWriteCircleSolid
+  | JwwWriteBlock
+  | JwwWriteDimension;
 
 /** Editable new-document input, distinct from a parsed JwwDocument. */
 export interface JwwWriteDocument {
   options: JwwWriteOptions;
   entities: JwwWriteEntity[];
+  block_defs?: JwwWriteBlockDef[];
 }
 
 /** Return independent, mutable Rust writer defaults (A3, version 700). */
@@ -656,3 +716,12 @@ export interface JwcCadDocument {
 }
 
 export type CadDocument = JwwCadDocument | JwcCadDocument;
+
+export interface JwwWriteConversion {
+  document: JwwWriteDocument | null;
+  diagnostics: {code: string; severity: "info" | "warning" | "error"; path: string; message: string; action: string}[];
+}
+/** Explicit bounded conversion; inspect diagnostics even when a document is returned. */
+export function toWriteDocument(document: JwwDocument, skipUnsupported = false): JwwWriteConversion {
+  return wasm.toWriteDocument(document, skipUnsupported) as JwwWriteConversion;
+}
