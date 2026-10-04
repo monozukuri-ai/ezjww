@@ -1,7 +1,7 @@
 # Writer extensions requested by zumen-gate
 
-These changes address the R1–R8 requests dated 2026-10-04. They are unreleased;
-use a source build. The public writer produces new version-700 documents.
+Version **0.5.0** addresses the R1–R8 requests dated 2026-10-04. It is currently
+unreleased; use a source build. The public writer produces new version-700 documents.
 Validation runs before bytes are returned or a destination file is replaced.
 
 ## Request coverage

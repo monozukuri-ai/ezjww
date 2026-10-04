@@ -7,8 +7,8 @@ Coordinates are paper millimeters, with the origin at the paper center and +Y up
 Changing a group's scale does not rescale entity coordinates.
 
 The basic Python/Rust/TypeScript writer shipped in 0.4.0. The extended entities,
-tables and helpers documented here are **unreleased**; build this revision to use
-them. Existing-file lossless editing, embedded images, marker/temporary points,
+tables and helpers documented here are part of **0.5.0**, currently unreleased;
+build this revision to use them. Existing-file lossless editing, embedded images, marker/temporary points,
 curve-group semantics and older output versions remain outside the writer's scope.
 See [the extension guide](WRITER_EXTENSIONS.md) for the R1–R8 request mapping,
 examples, native evidence and remaining qualification limits.
@@ -104,7 +104,7 @@ The CLI's `to-dxf` / batch conversion commands continue to produce DXF and use
 ## TypeScript / WASM API
 
 Build this revision from source (`pnpm install --frozen-lockfile` then
-`pnpm run build` in `packages/ezjww`) to use the unreleased extensions.
+`pnpm run build` in `packages/ezjww`) to use the unreleased 0.5.0 extensions.
 
 ```typescript
 import { writeFileSync } from "node:fs";

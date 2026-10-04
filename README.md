@@ -10,9 +10,9 @@ available through Python and TypeScript/WebAssembly.
 - Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.
 - Convert individual files or directories from the command line.
 
-The basic writer API is available in **0.4.0**. This checkout adds unreleased
-SXF color/line tables, solids, ellipses, dimensions, blocks and convenience APIs;
-build from source to use these extensions.
+This checkout prepares **0.5.0**, adding SXF color/line tables, solids, ellipses,
+dimensions, blocks and convenience APIs to the writer introduced in 0.4.0.
+Build from source until 0.5.0 is published.
 
 ## Installation
 
