@@ -1,8 +1,9 @@
 # Preparing and publishing a release
 
-This checkout prepares **0.4.0**. Creating or merging its preparation PR does not
-publish packages. The [changelog](../CHANGELOG.md) and [migration guide](MIGRATING_0_4.md)
-describe the new writer and Python API changes.
+This checkout prepares **0.5.0**. Creating or merging its preparation PR does not
+publish packages. The [changelog](../CHANGELOG.md) and
+[extension guide](WRITER_EXTENSIONS.md) describe the writer additions. The
+[0.4 migration guide](MIGRATING_0_4.md) still applies when upgrading from 0.3.x.
 
 ## Local qualification
 
@@ -18,9 +19,9 @@ cargo fmt --all --check
 python scripts/jwc/check_corpus.py
 python scripts/jww/check_fixtures.py
 maturin build --release --locked --out dist
-python scripts/check-wheel.py --wheel-dir dist --expected-version 0.4.0 --report wheel-verification.json
+python scripts/check-wheel.py --wheel-dir dist --expected-version 0.5.0 --report wheel-verification.json
 maturin sdist --out sdist
-python scripts/check-sdist.py --archive sdist/ezjww-0.4.0.tar.gz --expected-version 0.4.0 --report sdist-verification.json
+python scripts/check-sdist.py --archive sdist/ezjww-0.5.0.tar.gz --expected-version 0.5.0 --report sdist-verification.json
 ```
 
 Run package tests/typechecks, browser build, web-WASM and cross-language checks
@@ -28,7 +29,7 @@ as in [CI](../.github/workflows/ci.yml). From `packages/ezjww`, pack the npm arc
 with `pnpm pack --pack-destination /tmp`; from the repository root verify it:
 
 ```sh
-node scripts/check-npm-package.mjs --archive /tmp/ezjww-0.4.0.tgz --expected-version 0.4.0 --report npm-verification.json
+node scripts/check-npm-package.mjs --archive /tmp/ezjww-0.5.0.tgz --expected-version 0.5.0 --report npm-verification.json
 ```
 
 Use fresh output directories so a previous artifact cannot be selected. The
