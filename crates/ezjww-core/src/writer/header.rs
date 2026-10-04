@@ -40,8 +40,123 @@ pub(super) fn write(
     for (g, group) in options.layer_groups.iter().enumerate() {
         archive.cstring(&group.name, &format!("options.layer_groups[{g}].name"))?;
     }
-    archive.bytes(&TEMPLATE[NAMES_END..]);
+    archive.bytes(&configured_template(options)?[NAMES_END..]);
     Ok(())
+}
+
+/// The immutable template supplies fields not exposed by the writer. Patch only
+/// configured tables; default drawings retain their native-qualified bytes.
+fn configured_template(options: &JwwWriteOptions) -> Result<Vec<u8>, JwwWriteError> {
+    use crate::reader::Reader;
+    let mut data = TEMPLATE.to_vec();
+    let pens = NAMES_END + 464;
+    let patterns = pens + 10 * 8 + 10 * 16;
+    let extended = patterns + 8 * 16 + 5 * 20 + 4 * 16 + 44 + 20 + 40 + 32 + 8;
+    let mut reader = Reader::new(TEMPLATE);
+    reader.skip(extended + 257 * 8).expect("template offset");
+    let mut printers = Vec::new();
+    for _ in 0..257 {
+        reader.read_cstring().expect("template color name");
+        printers.push(reader.bytes_read());
+        reader.skip(16).expect("template printer pen");
+    }
+    let sxf_start = reader.bytes_read();
+    reader.skip(33 * 16).expect("template patterns");
+    for _ in 0..33 {
+        reader.read_cstring().expect("template line name");
+        reader.skip(84).expect("template segments");
+    }
+    let sxf_end = reader.bytes_read();
+    let patch_u32 = |data: &mut [u8], at: usize, value: u32| {
+        data[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    };
+    if let Some(palette) = &options.palette {
+        for (i, &color) in palette.pen_colors.iter().enumerate() {
+            let at = pens + i * 8;
+            let old = u32::from_le_bytes(data[at..at + 4].try_into().unwrap()) & 0xffffff;
+            if color != old {
+                patch_u32(&mut data, at, color);
+                patch_u32(&mut data, pens + 80 + i * 16, color);
+            }
+        }
+        for (i, &color) in palette.extended_colors.as_ref().unwrap().iter().enumerate() {
+            let at = extended + i * 8;
+            let old = u32::from_le_bytes(data[at..at + 4].try_into().unwrap()) & 0xffffff;
+            if color != old {
+                patch_u32(&mut data, at, color);
+                patch_u32(&mut data, printers[i], color);
+            }
+        }
+    }
+    if let Some(presets) = &options.text_presets {
+        for (i, preset) in presets.iter().enumerate() {
+            let at = sxf_end + i * 28;
+            for (j, value) in [preset.size_x, preset.size_y, preset.spacing]
+                .iter()
+                .enumerate()
+            {
+                data[at + j * 8..at + j * 8 + 8].copy_from_slice(&value.to_le_bytes());
+            }
+            patch_u32(&mut data, at + 24, preset.pen_color);
+        }
+    }
+    if let Some(types) = &options.line_types {
+        let defaults = crate::parse_header(TEMPLATE)
+            .expect("template")
+            .line_types
+            .unwrap();
+        if types != &defaults {
+            let mut table = ArchiveWriter::new();
+            for pattern in &types.standard {
+                write_pattern(&mut table, pattern);
+            }
+            for random in &types.random {
+                for value in [
+                    random.pattern,
+                    random.width,
+                    random.pitch,
+                    random.printer_width,
+                    random.printer_pitch,
+                ] {
+                    table.u32(value);
+                }
+            }
+            for pattern in &types.double_length {
+                write_pattern(&mut table, pattern);
+            }
+            let table = table.into_bytes();
+            data[patterns..patterns + table.len()].copy_from_slice(&table);
+            let mut sxf = ArchiveWriter::new();
+            let slots = types.sxf.as_ref().unwrap();
+            for slot in slots {
+                write_pattern(&mut sxf, &slot.pattern);
+            }
+            for slot in slots {
+                sxf.cstring(&slot.name, "options.line_types.sxf.name")?;
+                sxf.u32(slot.segments_mm.len() as u32);
+                for i in 0..10 {
+                    sxf.f64(slot.segments_mm.get(i).copied().unwrap_or(0.0));
+                }
+            }
+            data.splice(sxf_start..sxf_end, sxf.into_bytes());
+        }
+    }
+    Ok(data)
+}
+
+fn write_pattern(archive: &mut ArchiveWriter, pattern: &crate::header::LineTypePattern) {
+    for value in [
+        pattern.pattern,
+        pattern.unit_dots,
+        pattern.pitch,
+        pattern.printer_pitch,
+    ] {
+        archive.u32(value);
+    }
+}
+
+pub fn default_tables() -> crate::header::JwwHeader {
+    crate::parse_header(TEMPLATE).expect("embedded header")
 }
 
 #[cfg(test)]

@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    fn serializes_dimension_nested_payloads_without_base() {
+    fn serializes_dimension_nested_payloads_with_base() {
         let base = EntityBase::default();
         let line = Line {
             base,
@@ -201,10 +201,10 @@ mod tests {
 
         assert_eq!(value["type"], "DIMENSION");
         assert_eq!(value["sxf_mode"], 2);
-        assert!(value["line"].get("base").is_none());
-        assert!(value["text"].get("base").is_none());
-        assert!(value["aux_lines"][0].get("base").is_none());
-        assert!(value["aux_points"][0].get("base").is_none());
+        assert!(value["line"].get("base").is_some());
+        assert!(value["text"].get("base").is_some());
+        assert!(value["aux_lines"][0].get("base").is_some());
+        assert!(value["aux_points"][0].get("base").is_some());
     }
 
     #[test]
@@ -266,6 +266,7 @@ mod tests {
             }),
             palette: None,
             line_types: None,
+            text_presets: None,
         }
     }
 }

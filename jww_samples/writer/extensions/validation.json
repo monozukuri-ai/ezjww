@@ -1,0 +1,70 @@
+{
+  "sxf_colors": {
+    "entities": 11,
+    "block_definitions": 0,
+    "native_dxf_entities": {
+      "LINE": 11
+    }
+  },
+  "sxf_linetypes": {
+    "entities": 37,
+    "block_definitions": 0,
+    "native_dxf_entities": {
+      "LINE": 37
+    }
+  },
+  "solid": {
+    "entities": 6,
+    "block_definitions": 0,
+    "native_dxf_entities": {
+      "SOLID": 2,
+      "CIRCLE": 1,
+      "ARC": 1,
+      "LINE": 76
+    }
+  },
+  "ellipse": {
+    "entities": 3,
+    "block_definitions": 0,
+    "native_dxf_entities": {
+      "LINE": 102
+    }
+  },
+  "dimension": {
+    "entities": 3,
+    "block_definitions": 0,
+    "native_dxf_entities": {
+      "LINE": 5,
+      "TEXT": 3,
+      "POINT": 2
+    }
+  },
+  "block": {
+    "entities": 2,
+    "block_definitions": 2,
+    "native_dxf_entities": {
+      "INSERT": 2
+    }
+  },
+  "text_auto_end": {
+    "entities": 4,
+    "block_definitions": 0,
+    "native_dxf_entities": {
+      "TEXT": 4
+    },
+    "endpoint_errors_mm": [
+      [
+        0.75,
+        1.250000000000005,
+        1.25,
+        1.75
+      ],
+      [
+        0.75,
+        1.250000000000005,
+        1.25,
+        1.75
+      ]
+    ]
+  }
+}

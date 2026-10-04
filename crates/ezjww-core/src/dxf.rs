@@ -2663,6 +2663,7 @@ mod tests {
             }),
             palette: None,
             line_types: None,
+            text_presets: None,
         }
     }
 

@@ -10,9 +10,9 @@ available through Python and TypeScript/WebAssembly.
 - Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.
 - Convert individual files or directories from the command line.
 
-This checkout prepares **0.4.0**. The writer and Python API changes below are
-unreleased; build from source until that version is published. See the
-[0.4 migration guide](https://github.com/monozukuri-ai/ezjww/blob/main/docs/MIGRATING_0_4.md).
+The basic writer API is available in **0.4.0**. This checkout adds unreleased
+SXF color/line tables, solids, ellipses, dimensions, blocks and convenience APIs;
+build from source to use these extensions.
 
 ## Installation
 
@@ -85,7 +85,7 @@ Use `read_jwc_document` and `read_jwc_header` for JWC-specific reads.
 See the [API reference](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_API.md) for format detection, coordinate options,
 errors, and conversion metadata.
 
-### Create a JWW drawing (unreleased)
+### Create a JWW drawing
 
 Build this revision from source to use the creation API:
 
@@ -113,7 +113,7 @@ application limits.
 **API migration:** `new()` / `Drawing.new()` now create writable JWW drawings.
 The former empty DXF view is available as `new_dxf()` / `Drawing.new_dxf()`.
 Replace `drawing.saveas("out.dxf", ...)` with `drawing.save_dxf("out.dxf", ...)`.
-`saveas()` writes JWW for new drawings; existing-file editing is outside this
+`saveas()` writes JWW for new drawings; lossless existing-file editing is outside this
 release's scope. `readfile(...).save_dxf(...)` remains the DXF conversion workflow.
 
 ### Queries and previews

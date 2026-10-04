@@ -7,7 +7,7 @@ and exposed attributes under that environment. Native saving changes text layout
 and can lose memo content; display qualification is partial. **Windows desktop
 validation has not been run.** A Windows CI reader test does not change that status.
 
-The writer implementation and public APIs are unchanged by this qualification.
+The 21-case qualification above predates the extension work described below.
 See [JWW writing](JWW_WRITE.md) for the supported input contract.
 
 ## Matrix
@@ -177,3 +177,52 @@ Repeat `--run` if the matrix was split into several runs. The current archive
 checker deliberately requires Wine 9.0 evidence; preserve a new Windows run
 separately and add its environment/expectations before claiming Windows support.
 Never regenerate measured expectations merely to hide a regression.
+
+## Writer extensions: 2026-10-04
+
+Seven additional generated cases passed native open/save/reopen/save and DXF
+export on **Jw_cad 10.02.1 / Wine 9.0**, using Linux Python, xdotool and a fresh
+prefix/display. All original input hashes remained unchanged; every CAD process
+exited normally. The [archived inputs, outputs, screenshots, exact runner and
+hash manifest](../jww_samples/writer/extensions) contain no application binaries
+or fonts. [Semantic results](../jww_samples/writer/extensions/validation.json)
+are reproduced by `python scripts/jww/check_extensions.py` and Python CI.
+
+| Case | Native JWW result | Native DXF result / limit |
+| --- | --- | --- |
+| `sxf_colors` | Pens 1/9/101/116/117/256/356 and three allocated colors retained; full palette retained | Reserved pen 100 changes to 1. DXF maps colors to ACI; it emits no true-color group 420 |
+| `sxf_linetypes` | 16–19 and 31–62 retained, including custom 6/2-mm pattern; active tables retained | Reserved style 30 changes to 9; reserved table slot 30 is rewritten |
+| `solid` | Quad, triangle, inline RGB, disk, sector and styles 105/106 retained; fills visible | Polygon SOLIDs retained; curved fills/rings are partially reduced to outlines/line segments |
+| `ellipse` | Three full/partial/tilted ellipse records retained exactly | Jw_cad exports 102 LINEs, not ELLIPSE. ezjww's own DXF converter emits ELLIPSE |
+| `dimension` | Three CDataSunpou records and all inline attributes/auxiliaries retained | Export becomes LINE/TEXT/POINT. Interactive dimension recalculation was **not tested** |
+| `block` | Two nested definitions, scales 0.01 and rotations retained; native name suffix added | Two top-level INSERTs and nested block definitions retained |
+| `text_auto_end` | Content, sizes, presets, spacing and angles retained; endpoints recalculated | Four endpoint errors were 0.75, 1.25, 1.25 and 1.75 mm, each within size_x |
+
+![Native solids after reopen](../jww_samples/writer/extensions/solid_reopened.png)
+
+These results do not satisfy an interpretation of R1/R4 requiring Jw_cad's own
+DXF exporter to preserve arbitrary RGB or emit native ELLIPSE entities. They
+establish preservation in JWW and record the native DXF exporter's limitations.
+New entities' Windows desktop, dimension editing and printing remain unqualified.
+The original 21-case evidence and the new seven-case evidence are separate runs.
+
+The request also reports **partial painting under Wine**: only a prefix of the
+entity list appeared, and reversing the entity order made the previously absent
+part visible. This is a downstream observation, not a new reproduction in this
+seven-case run. Do not treat a Wine screenshot alone as proof of missing records.
+Compare parsed entities and native saves, and inspect a derived GDI copy. The
+existing Direct2D/GDI comparison above and new screenshots retain environment
+limits and font substitution; they do not establish pixel or print fidelity.
+
+The Linux procedure is in [the extension guide](WRITER_EXTENSIONS.md#linuxwine-native-harness).
+To archive a new completed run without copying its application/prefix:
+
+```sh
+python scripts/jww/check_extensions.py --archive-run /tmp/extension-native \
+  --directory /tmp/extension-evidence --report /tmp/extension-validation.json
+```
+
+The checker regenerates all seven inputs byte for byte, checks artifact hashes
+and both native JWW saves, and reads DXF tags independently of ezjww's converter.
+Native normalizations are explicit assertions, including reserved slots and
+block-name metadata; unrelated differences fail the check.

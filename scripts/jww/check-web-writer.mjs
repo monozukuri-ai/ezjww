@@ -21,4 +21,14 @@ assert.equal(web.readDxfDocument(web.toJwwBytes(doc), false, 32).entities.length
 doc.entities[0].base.pen_style = 257;
 assert.throws(() => web.toJwwBytes(doc), e => String(e).includes("base.pen_style"));
 assert.throws(() => web.toJwwBytes(web.readDocument(basic)), e => String(e).includes("document"));
+const extended = web.newJwwDocument();
+extended.entities = [structuredClone(web.readDocument(basic).entities[0])];
+extended.entities[0].color = 0x1256AB;
+extended.entities[0].base.pen_style = 47;
+const parsed = web.readDocument(web.toJwwBytes(extended));
+assert.equal(parsed.entities[0].base.pen_style, 47);
+assert.equal(parsed.header.palette.extended_colors[17], 0x1256AB);
+const conversion = web.toWriteDocument(parsed, false);
+assert.ok(conversion.document);
+assert.deepEqual(web.readDocument(web.toJwwBytes(conversion.document)).entities, parsed.entities);
 console.log(`Web-target WASM writer smoke passed: ${fileURLToPath(wasmDir)}`);

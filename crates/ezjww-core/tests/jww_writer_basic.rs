@@ -132,8 +132,8 @@ fn invalid_arc_geometry_is_rejected() {
         ("arc_angle", 0.0),
         ("arc_angle", -1.0),
         ("arc_angle", std::f64::consts::TAU),
-        ("flatness", 0.5),
-        ("tilt_angle", 1.0),
+        ("flatness", 0.0),
+        ("tilt_angle", f64::NAN),
     ] {
         let mut doc = JwwWriteDocument::default();
         let arc = doc.add_arc(Coord2D::new(0.0, 0.0), 1.0, 0.0, 90.0);
@@ -203,7 +203,7 @@ fn text_validation_distinguishes_dimension_flags_from_line_widths() {
             "spacing" => text.spacing = -1.0,
             "angle" => text.angle = 360.0,
             "end_x" => text.end_x = f64::INFINITY,
-            "text_type" => text.text_type = 10001,
+            "text_type" => text.text_type = 10011,
             "base.pen_width" => text.base.pen_width = 25,
             "base.pen_style" => text.base.pen_style = 2,
             "font_name" => text.font_name.clear(),
@@ -278,7 +278,7 @@ fn invalid_layer_settings_and_pen_attributes_are_errors() {
             "layer" => line.base.layer = 16,
             "layer_group" => line.base.layer_group = 16,
             "pen_style" => line.base.pen_style = 100,
-            "pen_color" => line.base.pen_color = 100,
+            "pen_color" => line.base.pen_color = 99,
             "pen_width" => line.base.pen_width = 501,
             _ => unreachable!(),
         }

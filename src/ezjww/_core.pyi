@@ -1,6 +1,6 @@
 from typing import Literal, TypedDict
 
-from typing_extensions import TypeAlias
+from typing_extensions import TypeAlias, NotRequired
 
 class LayerHeader(TypedDict):
     state: int
@@ -25,8 +25,8 @@ class LineTypePattern(TypedDict):
     unit_dots: int
     pitch: int
     printer_pitch: int
-    runs: list[int]
-    segments_mm: list[float]
+    runs: NotRequired[list[int]]
+    segments_mm: NotRequired[list[float]]
 
 class RandomLineType(TypedDict):
     number: int
@@ -51,6 +51,12 @@ class JwwLineTypes(TypedDict):
     double_length: list[LineTypePattern]
     sxf: list[SxfLineType] | None
 
+class TextPreset(TypedDict):
+    size_x: float
+    size_y: float
+    spacing: float
+    pen_color: int
+
 class JwwHeader(TypedDict):
     version: int
     memo: str
@@ -59,6 +65,7 @@ class JwwHeader(TypedDict):
     layer_groups: list[LayerGroupHeader]
     palette: JwwPalette | None
     line_types: JwwLineTypes | None
+    text_presets: list[TextPreset] | None
 
 class EntityBase(TypedDict):
     group: int
@@ -70,12 +77,14 @@ class EntityBase(TypedDict):
     flag: int
 
 class LinePayload(TypedDict):
+    base: NotRequired[EntityBase]
     start_x: float
     start_y: float
     end_x: float
     end_y: float
 
 class PointPayload(TypedDict):
+    base: NotRequired[EntityBase]
     x: float
     y: float
     is_temporary: bool
@@ -84,6 +93,7 @@ class PointPayload(TypedDict):
     scale: float
 
 class TextPayload(TypedDict):
+    base: NotRequired[EntityBase]
     start_x: float
     start_y: float
     end_x: float
@@ -539,9 +549,14 @@ class JwwWriteOptions(TypedDict):
     write_layer_group: int
     layer_groups: list[LayerGroupHeader]
 
+    palette: NotRequired[JwwPalette | None]
+    line_types: NotRequired[JwwLineTypes | None]
+    text_presets: NotRequired[list[TextPreset] | None]
+
 class JwwWriteDocument(TypedDict):
     options: JwwWriteOptions
     entities: list[JwwEntity]
+    block_defs: NotRequired[list[BlockDef]]
 
 # Only the bounded new-document input is accepted, not parsed JwwDocument values.
 def new_jww_document() -> JwwWriteDocument: ...
@@ -556,3 +571,16 @@ def jww_write_document_to_dxf_string(
     max_block_nesting: int = 32, target_version: str = "AC1015",
     text_em_scale: float = 1.0,
 ) -> str: ...
+
+class JwwWriteConversionDiagnostic(TypedDict):
+    code: str
+    severity: Literal["info", "warning", "error"]
+    path: str
+    message: str
+    action: str
+
+class JwwWriteConversion(TypedDict):
+    document: JwwWriteDocument | None
+    diagnostics: list[JwwWriteConversionDiagnostic]
+
+def to_write_document(document: JwwDocument, skip_unsupported: bool = False) -> JwwWriteConversion: ...

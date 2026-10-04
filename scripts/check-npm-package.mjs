@@ -95,6 +95,17 @@ assert.ok(Buffer.from(basicBytes).equals(fs.readFileSync('basic.jww')));
 fs.writeFileSync('native-qualified.jww', basicBytes);
 assert.deepEqual(ez.readDocument(fs.readFileSync('native-qualified.jww')).entities, basic.entities);
 assert.equal(ez.readDxfDocument(basicBytes).entities.length, 6);
+const extended = ez.newJwwDocument();
+extended.entities.push({...basic.entities[0], color:0x1256AB, base:{...base(),pen_style:47}},
+  {...circle(0,0,10), flatness:0.5, tilt_angle:Math.PI/6},
+  {type:'SOLID',base:{...base(),pen_color:10},color:0xA53212,
+   point1_x:0,point1_y:0,point4_x:10,point4_y:0,point2_x:10,point2_y:10,point3_x:0,point3_y:10});
+const extendedParsed = ez.readDocument(ez.toJwwBytes(extended));
+assert.deepEqual(extendedParsed.entities.map(e=>e.type), ['LINE','CIRCLE','SOLID']);
+assert.equal(extendedParsed.header.palette.extended_colors[17],0x1256AB);
+const converted = ez.toWriteDocument(extendedParsed);
+assert.ok(converted.document);
+assert.deepEqual(ez.readDocument(ez.toJwwBytes(converted.document)).entities,extendedParsed.entities);
 const scaled = fs.readFileSync('q054.jwc');
 const paper = ez.readDxfDocument(scaled).entities[0];
 const model = ez.readDxfDocument(scaled, {jwcCoordinates:'model_millimeters'}).entities[0];
@@ -140,7 +151,7 @@ const typeProbe = join(workdir, "probe.ts");
 writeFileSync(typeProbe, `
 import {
   readCadDocument, readDocument, readDxfDocument, readDxfString,
-  newJwwDocument, toJwwBytes, type JwwWriteDocument, type JwwWriteEntity,
+  newJwwDocument, toJwwBytes, toWriteDocument, type JwwWriteDocument, type JwwWriteEntity,
 } from "ezjww";
 const input = new Uint8Array();
 const cad = readCadDocument(input);
@@ -161,6 +172,9 @@ const entity: JwwWriteEntity = {
 };
 created.entities.push(entity);
 const bytes: Uint8Array = toJwwBytes(created);
+const conversion: JwwWriteDocument | null = toWriteDocument(readDocument(bytes)).document;
+created.entities.push({type:"SOLID",base:{...entity.base,pen_color:10},color:0x1256AB,
+  point1_x:0,point1_y:0,point4_x:10,point4_y:0,point2_x:10,point2_y:10,point3_x:0,point3_y:10});
 for (const e of created.entities) {
   if (e.type === "TEXT") { const content: string = e.content; }
   if (e.type === "ARC") { const full: false = e.is_full_circle; }

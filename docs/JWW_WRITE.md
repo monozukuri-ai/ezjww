@@ -1,15 +1,17 @@
 # JWW writing in Python and Rust
 
-The Rust core creates new version-700 JWW drawings containing lines, circles,
-circular arcs, ordinary permanent points and plain text. It also writes paper
-size, memo, layer/group names, states, protection and scale denominators.
+The Rust core creates version-700 JWW drawings with lines, circles/ellipses,
+arcs, points, text, polygon/circle solids, dimensions and block definitions/references.
+It writes paper/layer settings, palette colors, line patterns and text presets.
 Coordinates are paper millimeters, with the origin at the paper center and +Y up.
-Changing a group's scale does not multiply or divide entity coordinates.
+Changing a group's scale does not rescale entity coordinates.
 
-The upcoming **0.4.0** release exposes the writer through Python's `new()` /
-`JwwDrawing` and TypeScript/WASM's `newJwwDocument()` / `toJwwBytes()`.
-Existing-file editing, ellipses, solids, blocks, dimensions, images,
-marker/temporary points and older output versions remain outside the writer's scope.
+The basic Python/Rust/TypeScript writer shipped in 0.4.0. The extended entities,
+tables and helpers documented here are **unreleased**; build this revision to use
+them. Existing-file lossless editing, embedded images, marker/temporary points,
+curve-group semantics and older output versions remain outside the writer's scope.
+See [the extension guide](WRITER_EXTENSIONS.md) for the R1–R8 request mapping,
+examples, native evidence and remaining qualification limits.
 
 ## Python API
 
@@ -39,32 +41,28 @@ Constructor arguments are keyword-only: `version=700`, `paper_size=3`, `memo=""`
 A new drawing has `source_format == "jww"` and `source_path is None`.
 
 `modelspace()` returns a persistent `JwwModelspace`. Its `entities` list and the
-dictionaries returned by the five `add_*` methods are mutable. Entity geometry
+dictionaries returned by the `add_*` methods are mutable. Entity geometry
 uses the native field names in the reader's `JwwEntity` schema. Each `jwwattribs`
 mapping sets fields in the entity's `base`: `pen_style`, `pen_color`, `pen_width`,
 `layer`, `layer_group`, `group`, `flag`. The support limits in the table below
 apply. Unrecognized attribute names are rejected.
 
-Python `add_arc(center, radius, start_angle, sweep_angle)` takes degrees and
-stores radians. `add_text(content, start, end, ...)` uses explicit baseline
-endpoints, with optional `size_x`, `size_y`, `spacing`, `angle` (degrees),
-`font_name`, `text_type`, and `jwwattribs`. Defaults match the Rust builders.
-No font measurement is performed.
+Python arc/ellipse/block builders take degrees and store native radians.
+`add_arc(..., flatness=1.0, tilt_angle=0.0)` and `add_ellipse(...)` support
+minor/major radius ratios in `(0, 1]`. `add_text(..., end=None)` can estimate the
+baseline endpoint from full/half-width characters, spacing and rotation. Use
+`msp.font_width_factors[font_name]` or `font_width_factor=` to calibrate the
+estimate. No font engine measurement is performed. Text presets 1–10 supply
+omitted sizes, spacing and color from `options["text_presets"]`.
 
-Writer options use the fields in the table below. For example, select group 2
-and its layer 5 by setting all related current-state fields together:
+Select a group/layer and add raw dictionaries in bulk:
 
 ```python
-drawing.options["layer_groups"][0]["state"] = 2
-drawing.options["write_layer_group"] = 2
-group = drawing.options["layer_groups"][2]
-group["state"] = 3
-group["layers"][group["write_layer"]]["state"] = 2
-group["write_layer"] = 5
-group["layers"][5]["state"] = 3
+drawing.select_layer(2, 5)
+msp.extend([])  # list of native writer dictionaries
 ```
 
-Builders default to layer/group 0; use `jwwattribs` to place entities elsewhere.
+Builders use the selected group/layer; `jwwattribs` overrides them.
 `header`, `source_document`, `jww_document`, `to_dxf()` and `to_dxf_string()` are
 fresh derived snapshots. Change the editable `options` / entity dictionaries
 to update the drawing. Conversion, analysis and plotting reflect current edits.
@@ -75,9 +73,10 @@ modelspaces continue to expose converted DXF entities and DXF layer/color values
 
 Rust validates all input on serialization/conversion/analysis, including manual
 list/dict edits. Unknown fields, missing fields and unsupported types fail with
-field-specific `ValueError`s. Low-level `_core` entrypoints take a
-`JwwWriteDocument` dictionary with `options` and `entities`; a parsed `JwwDocument`
-is rejected. Defaults come from `_core.new_jww_document()`.
+field-specific `ValueError`s. Public `new_jww_document()` / `to_jww_bytes()`
+accept a `JwwWriteDocument` dictionary containing `options`, `entities` and optional
+`block_defs`. Parsed documents require explicit `to_write_document()` conversion
+with diagnostics; they are rejected as direct writer inputs.
 
 `saveas()` requires a `.jww` extension; `save_dxf()` requires `.dxf` (case
 insensitive). Neither method infers a format from an arbitrary extension. Both
@@ -105,7 +104,7 @@ The CLI's `to-dxf` / batch conversion commands continue to produce DXF and use
 ## TypeScript / WASM API
 
 Build this revision from source (`pnpm install --frozen-lockfile` then
-`pnpm run build` in `packages/ezjww`) to use the unreleased writer API.
+`pnpm run build` in `packages/ezjww`) to use the unreleased extensions.
 
 ```typescript
 import { writeFileSync } from "node:fs";
@@ -128,7 +127,7 @@ writeFileSync("created.dxf", readDxfString(bytes, { targetVersion: "AC1024" }));
 ```
 
 `newJwwDocument()` takes no arguments and returns a fresh, mutable
-`JwwWriteDocument` containing `options` and `entities`, with the same native
+`JwwWriteDocument` containing `options`, `entities` and `block_defs`, with the same native
 defaults as Python and Rust. Edit those objects directly; `toJwwBytes()`
 validates the current values on every call, does not mutate the input, and
 returns an independent byte buffer. Identical inputs produce identical bytes.
@@ -136,13 +135,14 @@ There is no filesystem I/O in either function. Node callers choose their own
 write/overwrite policy; browser callers can download a `Blob` made from the bytes.
 
 `JwwWriteEntity` is a discriminated union of `JwwWriteLine`, `JwwWriteCircle`,
-`JwwWriteArc`, `JwwWritePoint` and `JwwWriteText`. All fields are required;
+`JwwWriteArc`, `JwwWritePoint`, `JwwWriteText`, `JwwWriteSolid`,
+`JwwWriteCircleSolid`, `JwwWriteDimension` and `JwwWriteBlock`. Geometry fields are required;
 the schema matches the Python low-level writer input. `base` uses `EntityBase`.
 Options contain exactly 16 groups with 16 layers each. The supported values in
 the tables below also apply to JavaScript, including calls directly to WASM.
 
 Arc fields use **radians**, including `start_angle`, `arc_angle` and `tilt_angle`.
-Set `flatness: 1`, `tilt_angle: 0`; a `CIRCLE` must have `is_full_circle: true`,
+`flatness` is in `(0, 1]` and `tilt_angle` rotates the ellipse axes; a `CIRCLE` must have `is_full_circle: true`,
 start 0 and sweep `2 * Math.PI`. An `ARC` must have `is_full_circle: false` and
 a positive sweep below `2 * Math.PI`. Text `angle` is **degrees**. Plain points
 require `is_temporary: false`, `code: 0`, `angle: 0`, `scale: 0`.
@@ -155,12 +155,15 @@ Errors from the raw WASM interface use the existing string-error convention
 (`String(error)` works for both reader and writer failures).
 
 `readDocument()` results have a different shape and are rejected by the writer.
-There is no existing-file rewrite or DXF-to-JWW conversion. For a preview or
-DXF export, pass newly generated bytes to the existing readers. Reader APIs
-remain unchanged.
+Use `toWriteDocument(parsed, skipUnsupported = false)` for explicit bounded
+conversion. Its result contains `document` (or `null`) and `diagnostics`; unsupported
+entities require explicit omission. Unexposed settings use template defaults.
+There is no general DXF-to-JWW converter. For preview/DXF export, read the new bytes.
+Reader dimensions now include each inline member's `base` attributes, and the
+header exposes `text_presets`. These are additive schema fields.
 
 The npm entry point targets Node.js. A web-target WASM build exports the same
-two functions after initialization:
+writer functions after initialization:
 
 ```typescript
 import initWasm, { newJwwDocument, toJwwBytes } from "./wasm/ezjww_wasm.js";
@@ -220,18 +223,20 @@ also returns a mutable entity reference.
 | Layer/group `protect` | 0 none, 1 allow display changes, 2 fixed display |
 | Group `scale` | Finite positive scale denominator; default 1 |
 | Entity `base.layer`, `base.layer_group` | 0..15 |
-| Entity `base.pen_color` | Basic colors 1..9 |
-| Line/arc `base.pen_style` | Basic styles 1..9 |
+| Entity `base.pen_color` | 1..9 or 100..356; SOLID/CIRCLE_SOLID use 10 for inline COLORREF |
+| Line/arc `base.pen_style` | 1..9, 16..19, 30..62 |
 | Line/arc/point `base.pen_width` | Native width code 0..500; 0 uses pen defaults |
 | Point/text `base.pen_style` | 1 (ordinary point / default text anchor) |
-| Text `base.pen_width` | 0; this field stores dimension flags for text |
-| Entity `base.group`, `base.flag` | 0 |
+| Text `base.pen_width` | 0 or the validated dimension flag combinations |
+| Entity `base.group` | 0; curve groups are unsupported |
+| Entity `base.flag` | 0 or supported dimension flags; see extension guide |
+| `palette`, `line_types`, `text_presets` | Optional reader-shaped tables; defaults supplied by `new_jww_document()` |
 
 Only the current group may have state 3, and each group must have exactly one
 state-3 layer matching its `write_layer`. Change both the index and states when
-selecting another layer. Basic pen codes use the template's palette, line patterns
-and print settings; width codes are not a new physical-width API. SXF/custom
-colors, custom line patterns and arbitrary flags are rejected.
+selecting another layer; Python's `select_layer()` handles this. Width codes
+remain native codes. Color values use Windows COLORREF (`0x00BBGGRR`), matching
+the reader. Tables and allocation rules are in the extension guide.
 
 Options default to A3, empty memo, current group/layer 0, all scales 1, and the
 native template's names (`0` and `Defpoints` for layers 0 and 1 in group 0;
@@ -241,18 +246,37 @@ such as `GroupF` / `F-F`. Other header settings come from the embedded native
 Jw_cad or a local template file at runtime. The header's variable-length name
 sections are rebuilt before copying the remaining settings.
 
+### Enlarged paper dimensions
+
+| Code | Label | Width × height (mm) |
+| --- | --- | --- |
+| 8 | 2A | 1682 × 1189 |
+| 9 | 3A | 2378 × 1682 |
+| 10 | 4A | 3364 × 2378 |
+| 11 | 5A | 4756 × 3364 |
+| 12 | 10m | 10000 × 7073 |
+| 13 | 50m | 50000 × 35366 |
+| 14 | 100m | 100000 × 70732 |
+
+These are Jw_cad 10.02.1's stored dimensions, including its integer rounding for
+10m–100m sheets. Its help describes these labels as screen widths.
+[`inspect_paper_sizes.py`](../scripts/jww/inspect_paper_sizes.py) reproduces the
+table from a locally installed, hash-checked executable without redistributing it.
+
 ### Angles and text
 
 - `add_arc` takes **degrees**: start in [0, 360), positive counterclockwise sweep
   in (0, 360). Crossing zero is allowed. Use `add_circle` for a full circle.
-- Direct `Arc` values use **radians**, matching the parser: circular flatness 1,
-  tilt 0, and full circles have start 0 and sweep 2*pi. Invalid values are rejected
-  without wrapping angles or converting ellipses.
+- Direct `Arc` values use **radians**, matching the parser. Full circles/ellipses
+  have start 0 and sweep 2*pi. Partial ellipse angles are measured in the rotated
+  major/minor-axis coordinate system. Invalid values are rejected without wrapping.
 - Text angle is **degrees** in [0, 360). Width/height must be positive; spacing is
   nonnegative. `add_text` defaults to 3 mm width/height, zero spacing/rotation,
-  free-size text type 0 and `ＭＳ ゴシック`. Plain types 0..10 are accepted; italic,
-  bold, dimension and alternative anchor encodings are deferred.
-- Supply text baseline endpoints explicitly. The writer does no font measurement.
+  free-size text type 0 and `ＭＳ ゴシック`. Types 0..10 accept style offsets
+  10000/20000/30000. The serialization reference's code calls 10000 italic and
+  20000 bold (its prose reverses these labels); the raw value is retained.
+  Alternative anchors remain unsupported.
+- Supply baseline endpoints explicitly or use the Python estimate. There is no font measurement.
   Jw_cad recalculates the endpoint and may choose a matching text preset on save.
 - Strings use MFC UTF-16LE, including supplementary characters. The Rust codec
   preserves empty and long strings (including length boundaries around 255 and
@@ -269,7 +293,7 @@ not stored for ordinary points.
 `JwwWriteDocument` is a new-document input type. A parsed `JwwDocument` does not
 retain every original setting or image and cannot serve as a lossless editable
 source. Python bindings, `_core.pyi` and the TypeScript writer types expose the
-new-document contract. Reader APIs are unchanged.
+new-document contract. The converter explicitly reports unsupported input.
 
 ## Reproduce acceptance cases
 
@@ -361,3 +385,10 @@ After building the browser example, `node scripts/jww/check-web-writer.mjs`
 checks the web-target WASM glue in Node. CI runs this separately from the
 Node-target package tests; browser interaction and Jw_cad validation are separate
 checks.
+
+## Linux Python native harness
+
+The [Linux/Wine procedure](WRITER_EXTENSIONS.md#linuxwine-native-harness) uses
+`wine`, `xdotool` and Xvfb; it does not require Windows Python. Run it in a new
+output directory. It creates and controls its own prefix/display and preserves
+input hashes, application hashes, screenshots, outputs and partial failure logs.

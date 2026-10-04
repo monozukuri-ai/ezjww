@@ -1,6 +1,23 @@
 # Changelog
 
-## 0.4.0 — unreleased
+## Unreleased
+
+### Added
+
+- SXF colors (100–356), per-entity COLORREF allocation, editable palette,
+  standard/double/SXF line patterns and text presets.
+- Polygon/circle solids, tilted ellipses/arcs, native dimensions and nested blocks.
+- Python layer selection, bulk insertion, estimated text endpoints, per-font
+  factors, multiline text and public dictionary-to-bytes entrypoints.
+- Explicit reader-to-writer conversion with per-entity diagnostics in Python
+  and TypeScript/WASM. Dimension reader payloads now retain child base attributes.
+- Linux Python/Wine native validation harness and documented enlarged paper sizes.
+
+See [the extension guide](docs/WRITER_EXTENSIONS.md) for supported values and
+native qualification limits. Output remains version 700; there is no lossless
+existing-file rewrite or version-600 writer.
+
+## 0.4.0
 
 ### Added
 
