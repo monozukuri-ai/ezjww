@@ -22,6 +22,7 @@ pub struct JwwDocumentDto<'a> {
     pub entities: &'a [crate::model::Entity],
     pub metadata_settings: Vec<MetadataSetting>,
     pub block_defs: &'a [BlockDef],
+    pub images: &'a [crate::model::EmbeddedImage],
     #[serde(serialize_with = "serialize_block_def_names")]
     pub block_def_names: BTreeMap<u32, String>,
     pub entity_counts: BTreeMap<String, usize>,
@@ -115,6 +116,7 @@ pub fn jww_document_to_dto_with_diagnostics<'a>(
         entities: &document.entities,
         metadata_settings: collect_metadata_settings(&document.entities),
         block_defs: &document.block_defs,
+        images: &document.images,
         block_def_names,
         entity_counts,
         validation: BlockReferenceValidationDto {
@@ -219,6 +221,7 @@ mod tests {
                 end_y: 4.0,
             })],
             block_defs: Vec::new(),
+            images: Vec::new(),
         };
 
         let value = serde_json::to_value(jww_document_to_dto(&doc)).unwrap();

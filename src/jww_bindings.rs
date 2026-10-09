@@ -36,6 +36,10 @@ fn value(input: &Bound<'_, PyAny>, path: &str, depth: usize) -> PyResult<Value> 
             .map(Value::from)
             .map_err(|_| invalid("invalid Unicode string"));
     }
+    if let Ok(bytes) = input.downcast::<PyBytes>() {
+        // Image payloads: Python passes bytes, the shared decoder takes base64.
+        return Ok(Value::String(ezjww_core::base64::encode(bytes.as_bytes())));
+    }
     if let Ok(items) = input.downcast::<PyList>() {
         return items
             .iter()

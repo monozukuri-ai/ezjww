@@ -2,6 +2,8 @@ use serde::Serialize;
 
 pub const CP932_DECODE_REPLACED: &str = "CP932_DECODE_REPLACED";
 pub const ENTITY_LIST_TRUNCATED: &str = "ENTITY_LIST_TRUNCATED";
+/// The version-700 image archive could not be read to its end; images read before the error are kept.
+pub const IMAGE_LIST_TRUNCATED: &str = "IMAGE_LIST_TRUNCATED";
 /// JWC header CSV settings differ from the reference corpus; retained as raw text.
 pub const JWC_HEADER_SETTINGS_UNVERIFIED: &str = "JWC_HEADER_SETTINGS_UNVERIFIED";
 /// JWC record attribute values (styles, flags, spare bytes) outside the reference corpus.
@@ -49,12 +51,26 @@ pub struct UnverifiedDiagnosticDetails {
     pub values: Vec<String>,
 }
 
+/// Details of a version-700 image archive that could not be read to its end.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ImageListDiagnosticDetails {
+    /// Absolute byte offset of the image record that failed.
+    pub byte_offset: usize,
+    /// Image count announced by the file (may itself be corrupt).
+    pub expected_images: usize,
+    /// Images that were read successfully before the error.
+    pub parsed_images: usize,
+    /// The parser error that stopped the read.
+    pub error: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum DiagnosticDetails {
     Decode(DecodeDiagnosticDetails),
     Truncation(TruncationDiagnosticDetails),
     Unverified(UnverifiedDiagnosticDetails),
+    ImageList(ImageListDiagnosticDetails),
 }
 
 /// A structured parser diagnostic (CP932 replacement, truncated entity list, ...).
@@ -145,6 +161,31 @@ impl Diagnostic {
         }
     }
 
+    pub(crate) fn image_list_truncated(
+        byte_offset: usize,
+        expected_images: usize,
+        parsed_images: usize,
+        error: impl Into<String>,
+    ) -> Self {
+        let error = error.into();
+        Self {
+            code: IMAGE_LIST_TRUNCATED.to_string(),
+            severity: "warning".to_string(),
+            message: format!(
+                "JWW image archive could not be read to its end: kept {parsed_images} of \
+                 {expected_images} announced images, stopped at byte {byte_offset} ({error}). \
+                 Drawing entities and block definitions were read completely."
+            ),
+            action: "skipped".to_string(),
+            details: DiagnosticDetails::ImageList(ImageListDiagnosticDetails {
+                byte_offset,
+                expected_images,
+                parsed_images,
+                error,
+            }),
+        }
+    }
+
     pub(crate) fn jwc_unverified(
         code: &str,
         severity: &str,
@@ -178,6 +219,14 @@ impl Diagnostic {
     }
 
     /// Truncation details when this diagnostic reports a truncated entity list.
+    /// Details when this diagnostic reports a partially read image archive.
+    pub fn image_list_details(&self) -> Option<&ImageListDiagnosticDetails> {
+        match &self.details {
+            DiagnosticDetails::ImageList(details) => Some(details),
+            _ => None,
+        }
+    }
+
     pub fn truncation_details(&self) -> Option<&TruncationDiagnosticDetails> {
         match &self.details {
             DiagnosticDetails::Truncation(details) => Some(details),

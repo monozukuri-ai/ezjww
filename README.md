@@ -5,6 +5,7 @@ available through Python and TypeScript/WebAssembly.
 
 - Read JWW files and a [limited binary JWC profile](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_FORMAT.md).
 - Create new version-700 JWW drawings with basic geometry and text (Python/TypeScript/Rust).
+- Read and write the images embedded in version-700 files (`^@BM` placements).
 - Inspect source records, headers, layers, and parsing diagnostics.
 - Query converted geometry, calculate bounds, and audit drawings.
 - Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.

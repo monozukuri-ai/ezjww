@@ -1,3 +1,4 @@
+pub mod base64;
 pub mod diagnostics;
 pub mod dxf;
 pub mod error;
@@ -16,7 +17,8 @@ pub use writer::{to_jww_bytes, JwwWriteDocument, JwwWriteError, JwwWriteOptions}
 pub use cad::{detect_file_format, parse_cad_document, read_cad_document_from_file, CadDocument};
 pub use diagnostics::{
     DecodeDiagnostic, DecodeDiagnosticDetails, Diagnostic, DiagnosticDetails,
-    TruncationDiagnosticDetails, CP932_DECODE_REPLACED, ENTITY_LIST_TRUNCATED,
+    ImageListDiagnosticDetails, TruncationDiagnosticDetails, CP932_DECODE_REPLACED,
+    ENTITY_LIST_TRUNCATED, IMAGE_LIST_TRUNCATED,
 };
 pub use dxf::{
     convert_document, convert_document_with_options, document_to_string,
@@ -38,8 +40,10 @@ pub use jwc::{
 };
 pub use model::{
     collect_entity_coordinates, collect_metadata_settings, coordinates_bbox,
-    metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Coord2D, Dimension, Entity,
-    EntityBase, JwwDocument, Line, MetadataSetting, Point, Solid, Text,
+    image_reference_content, metadata_setting_from_text, parse_image_reference, Arc, Block,
+    BlockDef, CircleSolid, Coord2D, Dimension, EmbeddedImage, Entity, EntityBase, ImageReference,
+    JwwDocument, Line, MetadataSetting, Point, Solid, Text, IMAGE_DEFAULT_EXTRA, IMAGE_TEMP_PREFIX,
+    IMAGE_TEXT_PREFIX,
 };
 pub use parser::{
     block_def_name_map, entity_counts, parse_document, parse_document_with_diagnostics,

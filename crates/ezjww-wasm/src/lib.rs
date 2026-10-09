@@ -30,6 +30,34 @@ pub fn read_document(data: &[u8]) -> Result<JsValue, JsValue> {
     ))
 }
 
+/// Parse a `^@BM` image placement text; `null` when the text is not one.
+#[wasm_bindgen(js_name = imageReference)]
+pub fn image_reference(content: &str) -> Result<JsValue, JsValue> {
+    match ezjww_core::parse_image_reference(content) {
+        Some(reference) => to_js_value(&reference),
+        None => Ok(JsValue::NULL),
+    }
+}
+
+/// Build a `^@BM` image placement text; `extra` defaults to Jw_cad's parameters.
+#[wasm_bindgen(js_name = imageReferenceContent)]
+pub fn image_reference_content(
+    path: &str,
+    width: f64,
+    height: f64,
+    extra: JsValue,
+) -> Result<String, JsValue> {
+    let extra: Vec<String> = if extra.is_undefined() || extra.is_null() {
+        Vec::new()
+    } else {
+        serde_wasm_bindgen::from_value(extra).map_err(|e| js_error(&e.to_string()))?
+    };
+    let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+    Ok(ezjww_core::image_reference_content(
+        path, width, height, &extra,
+    ))
+}
+
 #[wasm_bindgen(js_name = isJwcFile)]
 pub fn is_jwc_file(data: &[u8]) -> bool {
     ezjww_core::is_jwc_signature(data)

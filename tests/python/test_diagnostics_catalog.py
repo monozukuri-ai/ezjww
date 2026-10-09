@@ -19,6 +19,7 @@ class DiagnosticsCatalogTests(unittest.TestCase):
         expected = {
             "CP932_DECODE_REPLACED",
             "ENTITY_LIST_TRUNCATED",
+            "IMAGE_LIST_TRUNCATED",
             "UNRESOLVED_BLOCK_REFERENCES",
             "UNSUPPORTED_DXF_ENTITIES",
             "JWC_HEADER_SETTINGS_UNVERIFIED",

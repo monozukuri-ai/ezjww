@@ -95,6 +95,22 @@ export interface PointPayload {
   scale: number;
 }
 
+/** Parsed `^@BM` image placement: file reference and drawn size in paper mm. */
+export interface ImageReference {
+  path: string;
+  file_name: string;
+  width: number;
+  height: number;
+  extra: string[];
+}
+
+/** An image file stored in a version-700 JWW archive; `data` is base64. */
+export interface EmbeddedImage {
+  name: string;
+  data: string;
+  compressed: boolean;
+}
+
 export interface TextPayload {
   base?: EntityBase;
   start_x: number;
@@ -108,6 +124,7 @@ export interface TextPayload {
   angle: number;
   font_name: string;
   content: string;
+  image?: ImageReference;
 }
 
 export interface JwwEntity {
@@ -137,6 +154,7 @@ export interface JwwEntity {
   spacing?: number;
   font_name?: string;
   content?: string;
+  image?: ImageReference;
   point1_x?: number;
   point1_y?: number;
   point2_x?: number;
@@ -198,6 +216,13 @@ export interface UnverifiedDiagnosticDetails {
   values: string[];
 }
 
+export interface ImageListDiagnosticDetails {
+  byte_offset: number;
+  expected_images: number;
+  parsed_images: number;
+  error: string;
+}
+
 export interface DecodeDiagnostic {
   code: string;
   severity: "info" | "warning" | "error";
@@ -206,13 +231,15 @@ export interface DecodeDiagnostic {
   details:
     | DecodeDiagnosticDetails
     | TruncationDiagnosticDetails
-    | UnverifiedDiagnosticDetails;
+    | UnverifiedDiagnosticDetails
+    | ImageListDiagnosticDetails;
 }
 
 export interface JwwDocument {
   header: JwwHeader;
   entities: JwwEntity[];
   block_defs: BlockDef[];
+  images: EmbeddedImage[];
   block_def_names: Record<string, string>;
   entity_counts: Record<string, number>;
   validation: BlockReferenceValidation;
@@ -322,10 +349,18 @@ export type JwwWriteEntity =
   | JwwWriteDimension;
 
 /** Editable new-document input, distinct from a parsed JwwDocument. */
+/** Writer input for an embedded image; `data` is base64, `compressed` must match a `.gz` name. */
+export interface JwwWriteImage {
+  name: string;
+  data: string;
+  compressed?: boolean;
+}
+
 export interface JwwWriteDocument {
   options: JwwWriteOptions;
   entities: JwwWriteEntity[];
   block_defs?: JwwWriteBlockDef[];
+  images?: JwwWriteImage[];
 }
 
 /** Return independent, mutable Rust writer defaults (A3, version 700). */
@@ -425,6 +460,16 @@ export function readHeader(input: JwwInput): JwwHeader {
 
 export function readDocument(input: JwwInput): JwwDocument {
   return wasm.readDocument(toUint8Array(input)) as JwwDocument;
+}
+
+/** Parse a `^@BM` image placement text; null when the text is not one. */
+export function imageReference(content: string): ImageReference | null {
+  return wasm.imageReference(content) as ImageReference | null;
+}
+
+/** Build a `^@BM` image placement text; `extra` defaults to Jw_cad's parameters. */
+export function imageReferenceContent(path: string, width: number, height: number, extra?: string[]): string {
+  return wasm.imageReferenceContent(path, width, height, extra ?? null);
 }
 
 export type CadInput = JwwInput;

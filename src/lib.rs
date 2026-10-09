@@ -24,7 +24,7 @@ pub use ezjww_core::{
 };
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList};
 
 #[pyfunction]
 fn hello_from_bin() -> String {
@@ -86,6 +86,15 @@ fn document_to_pyobject(
         "block_def_names",
         block_def_names_to_pydict(py, &block_name_map)?,
     )?;
+    let images = PyList::empty_bound(py);
+    for image in &document.images {
+        let item = PyDict::new_bound(py);
+        item.set_item("name", &image.name)?;
+        item.set_item("data", PyBytes::new_bound(py, &image.data))?;
+        item.set_item("compressed", image.is_compressed())?;
+        images.append(item)?;
+    }
+    out.set_item("images", images)?;
 
     let counts = entity_counts_to_pydict(py, entity_counts(&document.entities))?;
     out.set_item("entity_counts", counts)?;
@@ -491,6 +500,9 @@ fn entity_to_pydict<'py>(
             out.set_item("angle", v.angle)?;
             out.set_item("font_name", &v.font_name)?;
             out.set_item("content", &v.content)?;
+            if let Some(reference) = v.image_reference() {
+                out.set_item("image", image_reference_to_pydict(py, &reference)?)?;
+            }
         }
         Entity::Solid(v) => {
             out.set_item("point1_x", v.point1_x)?;
@@ -582,6 +594,42 @@ fn text_to_pydict<'py>(py: Python<'py>, text: &Text) -> PyResult<Bound<'py, PyDi
     out.set_item("font_name", &text.font_name)?;
     out.set_item("content", &text.content)?;
     Ok(out)
+}
+
+fn image_reference_to_pydict<'py>(
+    py: Python<'py>,
+    reference: &ezjww_core::ImageReference,
+) -> PyResult<Bound<'py, PyDict>> {
+    let out = PyDict::new_bound(py);
+    out.set_item("path", &reference.path)?;
+    out.set_item("file_name", &reference.file_name)?;
+    out.set_item("width", reference.width)?;
+    out.set_item("height", reference.height)?;
+    out.set_item("extra", &reference.extra)?;
+    Ok(out)
+}
+
+/// Parse a `^@BM` image placement text; None when the text is not one.
+#[pyfunction]
+fn image_reference(py: Python<'_>, content: &str) -> PyResult<PyObject> {
+    match ezjww_core::parse_image_reference(content) {
+        Some(reference) => Ok(image_reference_to_pydict(py, &reference)?.unbind().into()),
+        None => Ok(py.None()),
+    }
+}
+
+/// Build a `^@BM` image placement text; `extra` defaults to Jw_cad's parameters.
+#[pyfunction]
+#[pyo3(signature = (path, width, height, extra=None))]
+fn image_reference_content(
+    path: &str,
+    width: f64,
+    height: f64,
+    extra: Option<Vec<String>>,
+) -> String {
+    let extra = extra.unwrap_or_default();
+    let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+    ezjww_core::image_reference_content(path, width, height, &extra)
 }
 
 fn metadata_setting_to_pydict<'py>(
@@ -962,6 +1010,12 @@ fn decode_diagnostic_to_pydict<'py>(
             details.set_item("count", unverified.count)?;
             details.set_item("values", &unverified.values)?;
         }
+        DiagnosticDetails::ImageList(images) => {
+            details.set_item("byte_offset", images.byte_offset)?;
+            details.set_item("expected_images", images.expected_images)?;
+            details.set_item("parsed_images", images.parsed_images)?;
+            details.set_item("error", &images.error)?;
+        }
     }
     out.set_item("details", details)?;
     Ok(out)
@@ -994,5 +1048,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_dxf_string, m)?)?;
     m.add_function(wrap_pyfunction!(write_dxf, m)?)?;
     m.add_function(wrap_pyfunction!(write_dxf_with_report, m)?)?;
+    m.add_function(wrap_pyfunction!(image_reference, m)?)?;
+    m.add_function(wrap_pyfunction!(image_reference_content, m)?)?;
     Ok(())
 }

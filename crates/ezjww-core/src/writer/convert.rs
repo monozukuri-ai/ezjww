@@ -10,7 +10,7 @@ pub fn to_write_document(source: Value, skip_unsupported: bool) -> Result<Value,
     let mut target = input::new_document();
     let mut diagnostics = vec![
         json!({"code":"JWW_TEMPLATE_DEFAULTS", "severity":"warning", "path":"header",
-        "message":"Only exposed writer settings are retained. Other header fields, timestamps and embedded files use new-document defaults; this is not a lossless rewrite.", "action":"defaults"}),
+        "message":"Only exposed writer settings are retained. Other header fields and timestamps use new-document defaults (embedded images are copied); this is not a lossless rewrite.", "action":"defaults"}),
     ];
     for field in [
         "memo",
@@ -85,6 +85,7 @@ pub fn to_write_document(source: Value, skip_unsupported: bool) -> Result<Value,
             let mut value = value.clone();
             if let Some(obj) = value.as_object_mut() {
                 obj.remove("block_name");
+                obj.remove("image"); // derived from content; recomputed on read
             }
             let checked = dimension_bases(&value, &path).and_then(|()| {
                 input::entity(&value, &path).and_then(|e| validate::entity(&e, &path, &options))
@@ -117,6 +118,10 @@ pub fn to_write_document(source: Value, skip_unsupported: bool) -> Result<Value,
         blocks.push(definition);
     }
     target["block_defs"] = json!(blocks);
+    // The reader's image archive (name, base64 data, compressed) is the writer's input shape.
+    if let Some(images) = source.get("images").and_then(Value::as_array) {
+        target["images"] = json!(images);
+    }
     // Recompute reference metadata, while missing/cyclic references still fail.
     let referenced: std::collections::HashSet<u64> = target["entities"]
         .as_array()

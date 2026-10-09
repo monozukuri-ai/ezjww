@@ -18,8 +18,9 @@ Validation runs before bytes are returned or a destination file is replaced.
 | R8 helpers | `select_layer`, `extend`, public `new_jww_document` / `to_jww_bytes`, explicit `to_write_document` / `toWriteDocument`, paper dimensions and Linux/Wine harness |
 
 Version 600 remains unsupported, as permitted by the low-priority request.
-Images, marker/temporary points, alternate text anchors and arbitrary curve flags
-remain outside the bounded writer. The native application's editing, printing
+Marker/temporary points, alternate text anchors and arbitrary curve flags
+remain outside the bounded writer; embedded images arrived in 0.6.0 (see
+[JWW_WRITE.md](JWW_WRITE.md#images)). The native application's editing, printing
 and Windows desktop behavior need separate qualification.
 
 ## Colors and patterns

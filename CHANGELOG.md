@@ -1,6 +1,22 @@
 # Changelog
 
-## 0.5.0 — unreleased
+## 0.6.0 — unreleased
+
+### Added
+
+- Embedded images (version 700). The reader returns the image archive as
+  `images` (name, bytes, `compressed`), parses `^@BM` placement texts into
+  `image` (`path`, `file_name`, `width`, `height`, `extra`) and reports a
+  partially readable archive with `IMAGE_LIST_TRUNCATED`. The writer embeds
+  files (`JwwDrawing.embed_image`, Rust `add_image`, low-level `images`),
+  places them (`modelspace().add_image`, Rust `add_image_reference`) and
+  `to_write_document` copies the archive. A `%temp%` placement must name an
+  embedded image; external image links are accepted; other `^@` control texts
+  are still rejected. Helpers: `image_reference`, `image_reference_content`,
+  `compress_image`, `decompress_image` (Python); `imageReference`,
+  `imageReferenceContent` (TypeScript).
+
+## 0.5.0
 
 ### Added
 

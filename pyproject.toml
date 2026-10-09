@@ -1,6 +1,6 @@
 [project]
 name = "ezjww"
-version = "0.5.0"
+version = "0.6.0"
 description = "JWW/JWC reader, JWW writer and DXF converter powered by Rust"
 license = { file = "LICENSE" }
 readme = "README.md"

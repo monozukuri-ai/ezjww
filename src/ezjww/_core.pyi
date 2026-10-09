@@ -92,6 +92,23 @@ class PointPayload(TypedDict):
     angle: float
     scale: float
 
+class ImageReference(TypedDict):
+    path: str
+    file_name: str
+    width: float
+    height: float
+    extra: list[str]
+
+class EmbeddedImage(TypedDict):
+    name: str
+    data: bytes
+    compressed: bool
+
+class JwwWriteImage(TypedDict):
+    name: str
+    data: bytes | str  # raw bytes, or base64 text as in JSON inputs
+    compressed: NotRequired[bool]
+
 class TextPayload(TypedDict):
     base: NotRequired[EntityBase]
     start_x: float
@@ -105,6 +122,7 @@ class TextPayload(TypedDict):
     angle: float
     font_name: str
     content: str
+    image: NotRequired[ImageReference]
 
 class MetadataSetting(TypedDict):
     entity_index: int
@@ -139,6 +157,7 @@ class JwwEntity(TypedDict, total=False):
     spacing: float
     font_name: str
     content: str
+    image: ImageReference
     point1_x: float
     point1_y: float
     point2_x: float
@@ -195,12 +214,23 @@ class UnverifiedDiagnosticDetails(TypedDict):
     count: int
     values: list[str]
 
+class ImageListDiagnosticDetails(TypedDict):
+    byte_offset: int
+    expected_images: int
+    parsed_images: int
+    error: str
+
 class DecodeDiagnostic(TypedDict):
     code: str
     severity: str
     message: str
     action: str
-    details: DecodeDiagnosticDetails | TruncationDiagnosticDetails | UnverifiedDiagnosticDetails
+    details: (
+        DecodeDiagnosticDetails
+        | TruncationDiagnosticDetails
+        | UnverifiedDiagnosticDetails
+        | ImageListDiagnosticDetails
+    )
 
 class DxfWriteReport(TypedDict):
     target_version: str
@@ -224,6 +254,7 @@ class JwwDocument(TypedDict):
     entities: list[JwwEntity]
     metadata_settings: list[MetadataSetting]
     block_defs: list[BlockDef]
+    images: list[EmbeddedImage]
     block_def_names: dict[int, str]
     entity_counts: dict[str, int]
     validation: BlockReferenceValidation
@@ -495,6 +526,10 @@ class JwcDxfWriteReport(TypedDict):
     jwc_conversion_report: JwcConversionReport
 
 def hello_from_bin() -> str: ...
+def image_reference(content: str) -> ImageReference | None: ...
+def image_reference_content(
+    path: str, width: float, height: float, extra: list[str] | None = None
+) -> str: ...
 def is_jww_file(path: str) -> bool: ...
 def read_header(path: str) -> JwwHeader: ...
 def read_document(path: str) -> JwwDocument: ...
@@ -557,6 +592,7 @@ class JwwWriteDocument(TypedDict):
     options: JwwWriteOptions
     entities: list[JwwEntity]
     block_defs: NotRequired[list[BlockDef]]
+    images: NotRequired[list[JwwWriteImage]]
 
 # Only the bounded new-document input is accepted, not parsed JwwDocument values.
 def new_jww_document() -> JwwWriteDocument: ...

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import gzip
 import json
 import math
 import os
@@ -23,6 +24,8 @@ if TYPE_CHECKING:
 from ezjww._core import (
     detect_file_format,
     hello_from_bin,
+    image_reference,
+    image_reference_content,
     is_jwc_file,
     is_jww_file,
     read_cad_document,
@@ -39,6 +42,7 @@ from ezjww.diagnostics import (
     ALL_ISSUE_CODES,
     CP932_DECODE_REPLACED,
     ENTITY_LIST_TRUNCATED,
+    IMAGE_LIST_TRUNCATED,
     ISSUE_CODES,
     UNRESOLVED_BLOCK_REFERENCES,
     UNSUPPORTED_DXF_ENTITIES,
@@ -56,7 +60,12 @@ __all__ = [
     "to_write_document",
     "new_jww_document",
     "ENTITY_LIST_TRUNCATED",
+    "IMAGE_LIST_TRUNCATED",
     "ISSUE_CODES",
+    "compress_image",
+    "decompress_image",
+    "image_reference",
+    "image_reference_content",
     "IssueCode",
     "Modelspace",
     "audit",
@@ -226,6 +235,13 @@ class Drawing:
     @property
     def source_format(self) -> Literal["jww", "jwc"] | None:
         return self._source_format
+
+    @property
+    def images(self) -> list[dict[str, Any]]:
+        """Image files embedded in a version-700 JWW (name, raw bytes, compressed)."""
+        if self._jww_document is None:
+            return []
+        return list(self._jww_document.get("images", []) or [])
 
     @property
     def jwc_coordinates(self) -> JwcCoordinateSpace:
@@ -501,11 +517,15 @@ class JwwModelspace(Modelspace):
     """Editable native entities for a new JWW; angles in raw ARC dicts are radians."""
 
     def __init__(
-        self, options: dict[str, Any], block_defs: list[dict[str, Any]] | None = None
+        self,
+        options: dict[str, Any],
+        block_defs: list[dict[str, Any]] | None = None,
+        images: list[dict[str, Any]] | None = None,
     ) -> None:
         super().__init__([])
         self._options = options
         self._block_defs = block_defs if block_defs is not None else []
+        self._images = images if images is not None else []
         self.font_width_factors: dict[str, float] = {}
 
     def _input(self) -> dict[str, Any]:
@@ -522,6 +542,7 @@ class JwwModelspace(Modelspace):
             "options": self._options,
             "entities": self.entities,
             "block_defs": definitions,
+            "images": [dict(image) for image in self._images],
         }
 
     def _base(
@@ -731,6 +752,57 @@ class JwwModelspace(Modelspace):
                 "text_type": text_type,
             },
             color,
+        )
+
+    def add_image(
+        self,
+        name: str,
+        start: tuple[float, float],
+        width: float,
+        height: float,
+        *,
+        embedded: bool = True,
+        angle: float = 0.0,
+        extra: list[str] | None = None,
+        size_x: float = 2.0,
+        size_y: float = 2.0,
+        font_name: str = "ＭＳ ゴシック",
+        text_type: int = 0,
+        color: int | None = None,
+        jwwattribs: Mapping[str, int | str] | None = None,
+    ) -> dict[str, Any]:
+        """Place an image: lower-left corner at `start`, `width` x `height` paper mm.
+
+        Jw_cad stores the placement as a text (`^@BM...`). With `embedded=True`,
+        `name` refers to a file added with `JwwDrawing.embed_image` and the path
+        becomes `%temp%<name>`; with `embedded=False`, `name` is an external path
+        written verbatim. `extra` keeps Jw_cad's trailing parameters (trimming,
+        transparency); omitted, the defaults of a freshly inserted image are used.
+        """
+        if not isinstance(name, str) or not name:
+            raise ValueError("image name must be a nonempty string")
+        for value, label in ((width, "width"), (height, "height")):
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"image {label} must be finite and positive")
+        path = name
+        if embedded and not name.lower().startswith("%temp%"):
+            if any(sep in name for sep in "/\\"):
+                raise ValueError("embedded image names are bare file names")
+            path = f"%temp%{name}"
+        content = image_reference_content(path, float(width), float(height), extra)
+        rad = math.radians(angle)
+        end = (start[0] + width * math.cos(rad), start[1] + width * math.sin(rad))
+        return self.add_text(
+            content,
+            start,
+            end,
+            size_x=size_x,
+            size_y=size_y,
+            angle=angle,
+            font_name=font_name,
+            text_type=text_type,
+            color=color,
+            jwwattribs=jwwattribs,
         )
 
     def extend(self, entities: list[dict[str, Any]]) -> None:
@@ -1027,7 +1099,8 @@ class JwwDrawing(Drawing):
         self._options = document["options"]
         self._options.update(version=version, paper_size=paper_size, memo=memo)
         self.block_defs: list[dict[str, Any]] = []
-        self._modelspace = JwwModelspace(self._options, self.block_defs)
+        self._images: list[dict[str, Any]] = []
+        self._modelspace = JwwModelspace(self._options, self.block_defs, self._images)
         self.to_jww_bytes()  # Constructor options must be valid immediately.
 
     @classmethod
@@ -1043,6 +1116,11 @@ class JwwDrawing(Drawing):
     def options(self) -> dict[str, Any]:
         """Mutable writer settings; see JWW_WRITE.md for supported fields."""
         return self._options
+
+    @property
+    def images(self) -> list[dict[str, Any]]:
+        """Mutable list of embedded image files ({name, data}); see embed_image."""
+        return self._images
 
     @property
     def source_document(self) -> dict[str, Any]:
@@ -1108,6 +1186,28 @@ class JwwDrawing(Drawing):
             }
         )
         return number
+
+    def embed_image(self, name: str, data: bytes, *, compress: bool = True) -> str:
+        """Store an image file in the drawing and return its placement name.
+
+        Jw_cad keeps images gzip-compressed under `<name>.gz`; `compress=False`
+        stores the bytes as they are (also accepted by Jw_cad). Place the image
+        with `modelspace().add_image(returned_name, ...)`.
+        """
+        if not isinstance(name, str) or not name or any(c in name for c in "/\\\0"):
+            raise ValueError("image name must be a bare, nonempty file name")
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise ValueError("image data must be nonempty bytes")
+        reference = name[:-3] if name.lower().endswith(".gz") else name
+        stored = reference + ".gz" if compress else name
+        payload = compress_image(bytes(data)) if compress else bytes(data)
+        if any(
+            _image_reference_name(existing["name"]).lower() == reference.lower()
+            for existing in self._images
+        ):
+            raise ValueError(f"duplicate image name: {reference}")
+        self._images.append({"name": stored, "data": payload})
+        return reference
 
     def to_jww_bytes(self) -> bytes:
         return _core.to_jww_bytes(self._modelspace._input())
@@ -2261,6 +2361,24 @@ def _run(argv: list[str] | None = None) -> int:
 
 def main() -> None:
     raise SystemExit(_run())
+
+
+def _image_reference_name(name: str) -> str:
+    return name[:-3] if name.lower().endswith(".gz") else name
+
+
+def compress_image(data: bytes) -> bytes:
+    """gzip an image file the way Jw_cad stores it (deterministic header)."""
+    return gzip.compress(bytes(data), mtime=0)
+
+
+def decompress_image(image: Mapping[str, Any]) -> bytes:
+    """The file bytes of an `images` entry (gunzipped when `compressed`)."""
+    data = bytes(image["data"])
+    compressed = image.get("compressed")
+    if compressed is None:
+        compressed = str(image.get("name", "")).lower().endswith(".gz")
+    return gzip.decompress(data) if compressed else data
 
 
 def new_jww_document() -> JwwWriteDocument:

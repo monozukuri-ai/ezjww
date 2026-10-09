@@ -1,5 +1,8 @@
 use super::{JwwWriteDocument, JwwWriteError};
-use crate::model::{metadata_setting_from_text, Entity, EntityBase};
+use crate::model::{
+    metadata_setting_from_text, parse_image_reference, EmbeddedImage, Entity, EntityBase,
+    IMAGE_TEXT_PREFIX,
+};
 use std::f64::consts::TAU;
 
 type Result = std::result::Result<(), JwwWriteError>;
@@ -76,15 +79,84 @@ pub(super) fn document(document: &JwwWriteDocument) -> Result {
     }
     tables(options)?;
     blocks(document)?;
+    images(&document.images)?;
     for (index, item) in document.entities.iter().enumerate() {
-        entity(item, &format!("entities[{index}]"), options)?;
+        let path = format!("entities[{index}]");
+        entity(item, &path, options)?;
+        image_reference(item, &path, &document.images)?;
     }
     for (i, block) in document.block_defs.iter().enumerate() {
         for (j, item) in block.entities.iter().enumerate() {
-            entity(item, &format!("block_defs[{i}].entities[{j}]"), options)?;
+            let path = format!("block_defs[{i}].entities[{j}]");
+            entity(item, &path, options)?;
+            image_reference(item, &path, &document.images)?;
         }
     }
     Ok(())
+}
+
+fn images(images: &[EmbeddedImage]) -> Result {
+    let mut names = std::collections::HashSet::new();
+    for (i, image) in images.iter().enumerate() {
+        let path = format!("images[{i}]");
+        string(&image.name, &format!("{path}.name"))?;
+        require(
+            !image.name.is_empty() && !image.name.contains(['/', '\\']),
+            &format!("{path}.name"),
+            "expected a bare file name",
+        )?;
+        require(
+            names.insert(image.name.to_lowercase()),
+            &format!("{path}.name"),
+            "duplicate image name",
+        )?;
+        require(
+            !image.data.is_empty(),
+            &format!("{path}.data"),
+            "expected image bytes",
+        )?;
+        if u32::try_from(image.data.len()).is_err() {
+            return Err(JwwWriteError::LimitExceeded {
+                field: format!("{path}.data"),
+                maximum: u64::from(u32::MAX),
+            });
+        }
+        if image.is_compressed() {
+            require(
+                image.data.starts_with(&[0x1f, 0x8b]),
+                &format!("{path}.data"),
+                "a .gz image must hold gzip data",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// An image placement that points into the archive (`%temp%`) must name an
+/// embedded image; Jw_cad would otherwise show an empty frame. External paths
+/// are links the user keeps alongside the drawing and pass unchanged.
+fn image_reference(entity: &Entity, path: &str, images: &[EmbeddedImage]) -> Result {
+    let Entity::Text(text) = entity else {
+        return Ok(());
+    };
+    let Some(reference) = text.image_reference() else {
+        return Ok(());
+    };
+    if !reference.is_embedded() {
+        return Ok(());
+    }
+    require(
+        images.iter().any(|image| {
+            image
+                .reference_name()
+                .eq_ignore_ascii_case(&reference.file_name)
+        }),
+        &format!("{path}.content"),
+        &format!(
+            "image {} is not embedded; add it with images / add_image",
+            reference.file_name
+        ),
+    )
 }
 
 pub(super) fn entity(entity: &Entity, path: &str, _options: &super::JwwWriteOptions) -> Result {
@@ -224,11 +296,26 @@ pub(super) fn entity(entity: &Entity, path: &str, _options: &super::JwwWriteOpti
                 !text.font_name.is_empty(),
                 "expected a font name",
             )?;
-            valid(
-                "content",
-                !text.content.starts_with("^@"),
-                "embedded image/control text is not supported",
-            )?;
+            if text.content.starts_with(IMAGE_TEXT_PREFIX) {
+                let reference = parse_image_reference(&text.content);
+                valid(
+                    "content",
+                    reference.is_some(),
+                    "expected ^@BM<file>,<width>,<height>[,...] for an image placement",
+                )?;
+                let reference = reference.expect("checked");
+                valid(
+                    "content",
+                    reference.width > 0.0 && reference.height > 0.0,
+                    "expected a positive image width and height in millimetres",
+                )?;
+            } else {
+                valid(
+                    "content",
+                    !text.content.starts_with("^@"),
+                    "embedded control text is not supported",
+                )?;
+            }
             valid(
                 "content",
                 metadata_setting_from_text(text).is_none(),

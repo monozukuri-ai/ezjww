@@ -15,7 +15,10 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use crate::header::{JwwLineTypes, JwwPalette, LayerGroupHeader, LayerHeader, TextPreset};
-use crate::model::{Arc, BlockDef, Coord2D, Entity, EntityBase, Line, Point, Text};
+use crate::model::{
+    image_reference_content, Arc, BlockDef, Coord2D, EmbeddedImage, Entity, EntityBase, Line,
+    Point, Text, IMAGE_TEMP_PREFIX,
+};
 use serde::Serialize;
 
 /// Settings for a new drawing. Other header settings use the embedded template.
@@ -77,6 +80,9 @@ pub struct JwwWriteDocument {
     pub options: JwwWriteOptions,
     pub entities: Vec<Entity>,
     pub block_defs: Vec<BlockDef>,
+    /// Image files embedded in the version-700 archive. A text starting with
+    /// `^@BM%temp%<name>` places one of them; see `add_image_reference`.
+    pub images: Vec<EmbeddedImage>,
 }
 
 impl JwwWriteDocument {
@@ -145,6 +151,40 @@ impl JwwWriteDocument {
             unreachable!()
         };
         point
+    }
+
+    /// Embed an image file. Jw_cad stores images gzip-compressed under a `.gz`
+    /// name; pass compressed bytes with such a name, or raw bytes with the plain
+    /// name (Jw_cad accepts both). Place it with `add_image_reference`.
+    pub fn add_image(&mut self, name: impl Into<String>, data: Vec<u8>) -> &mut EmbeddedImage {
+        self.images.push(EmbeddedImage {
+            name: name.into(),
+            data,
+        });
+        self.images.last_mut().expect("pushed")
+    }
+
+    /// Place an embedded image (by its reference name, `.gz` removed) with its
+    /// lower-left corner at `start`, drawn `width` x `height` paper millimetres.
+    /// Jw_cad encodes the placement as a text, so the result is a `Text` whose
+    /// content starts with `^@BM%temp%`; edit it to set layer or pen attributes.
+    pub fn add_image_reference(
+        &mut self,
+        file_name: &str,
+        start: Coord2D,
+        width: f64,
+        height: f64,
+    ) -> &mut Text {
+        let content = image_reference_content(
+            &format!("{IMAGE_TEMP_PREFIX}{file_name}"),
+            width,
+            height,
+            &[],
+        );
+        let text = self.add_text(start, Coord2D::new(start.x + width, start.y), content);
+        text.size_x = 2.0;
+        text.size_y = 2.0;
+        text
     }
 
     /// Add plain text with explicit baseline endpoints, 3 mm width/height,
@@ -242,6 +282,12 @@ pub fn to_jww_bytes(document: &JwwWriteDocument) -> Result<Vec<u8>, JwwWriteErro
     for definition in &document.block_defs {
         entities::block_definition(&mut archive, definition)?;
     }
-    archive.u32(0); // version-700 embedded image count
+    // Version-700 image archive: count, then name / size / bytes per image.
+    archive.u32(document.images.len() as u32);
+    for image in &document.images {
+        archive.cstring(&image.name, "images.name")?;
+        archive.u32(image.data.len() as u32);
+        archive.bytes(&image.data);
+    }
     Ok(archive.into_bytes())
 }

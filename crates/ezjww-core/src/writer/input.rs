@@ -1,6 +1,7 @@
 //! Shared strict input decoder for Python and JavaScript writer dictionaries.
 use super::{JwwWriteDocument, JwwWriteError, JwwWriteOptions};
-use crate::model::{Block, BlockDef, CircleSolid, Dimension, Solid};
+use crate::base64;
+use crate::model::{Block, BlockDef, CircleSolid, Dimension, EmbeddedImage, Solid};
 use crate::{Arc, Entity, EntityBase, LayerGroupHeader, LayerHeader, Line, Point, Text};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -91,7 +92,11 @@ pub fn from_value(mut value: Value) -> Result<JwwWriteDocument, JwwWriteError> {
         ));
     }
     allocate_colors(&mut value)?;
-    let input = Input::new(&value, "document", &["options", "entities", "block_defs"])?;
+    let input = Input::new(
+        &value,
+        "document",
+        &["options", "entities", "block_defs", "images"],
+    )?;
     let options = options(input.get("options")?)?;
     let entities = array(input.get("entities")?, "entities")?
         .iter()
@@ -120,10 +125,34 @@ pub fn from_value(mut value: Value) -> Result<JwwWriteDocument, JwwWriteError> {
             });
         }
     }
+    let mut images = Vec::new();
+    if let Some(values) = input.fields.get("images") {
+        for (i, value) in array(values, "images")?.iter().enumerate() {
+            let path = format!("images[{i}]");
+            let image = Input::new(value, &path, &["name", "data", "compressed"])?;
+            let name = image.string("name")?;
+            let data = base64::decode(&image.string("data")?)
+                .map_err(|reason| invalid(&format!("{path}.data"), &reason))?;
+            let parsed = EmbeddedImage { name, data };
+            if let Some(flag) = image.fields.get("compressed") {
+                let flag = flag
+                    .as_bool()
+                    .ok_or_else(|| invalid(&format!("{path}.compressed"), "expected bool"))?;
+                if flag != parsed.is_compressed() {
+                    return Err(invalid(
+                        &format!("{path}.compressed"),
+                        "must agree with the .gz name suffix",
+                    ));
+                }
+            }
+            images.push(parsed);
+        }
+    }
     Ok(JwwWriteDocument {
         options,
         entities,
         block_defs,
+        images,
     })
 }
 

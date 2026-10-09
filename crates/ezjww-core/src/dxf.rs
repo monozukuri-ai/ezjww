@@ -3057,6 +3057,7 @@ mod tests {
         let doc = JwwDocument {
             header,
             entities: vec![line(1), line(2), line(5), line(47), line(49), line(12)],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3252,6 +3253,7 @@ mod tests {
             header: empty_header(),
             entities: vec![Entity::Text(text_span("AB", 0.0, 4.0, 3.0))],
             block_defs: Vec::new(),
+            images: Vec::new(),
         };
         let dxf = convert_document(&document);
         let factor = match &dxf.entities[0] {
@@ -3284,6 +3286,7 @@ mod tests {
                 rotation: 0.0,
                 def_number: 1,
             })],
+            images: Vec::new(),
             block_defs: vec![BlockDef {
                 base,
                 number: 1,
@@ -3539,6 +3542,7 @@ mod tests {
                 make_text("visible note", 10.0),
             ],
             block_defs: Vec::new(),
+            images: Vec::new(),
         };
 
         let converted = convert_document(&document);
@@ -3567,6 +3571,7 @@ mod tests {
                 flatness: 1.0,
                 is_full_circle: false,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3596,6 +3601,7 @@ mod tests {
                 flatness: 0.5,
                 is_full_circle: false,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3624,6 +3630,7 @@ mod tests {
                 end_x: 10.0,
                 end_y: 0.0,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3657,6 +3664,7 @@ mod tests {
                 solid_mode: 100.0,
                 color: None,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3717,6 +3725,7 @@ mod tests {
                 point4_y: 10.0,
                 color: None,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3760,6 +3769,7 @@ mod tests {
                 point4_y: 0.0,
                 color: None,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3800,6 +3810,7 @@ mod tests {
                 point4_y: 0.0,
                 color: None,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3864,6 +3875,7 @@ mod tests {
         let doc = JwwDocument {
             header: empty_header(),
             entities: vec![line, dim],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -3900,6 +3912,7 @@ mod tests {
         let doc = JwwDocument {
             header: empty_header(),
             entities: vec![entity],
+            images: Vec::new(),
             block_defs: vec![block_def],
         };
 
@@ -3965,6 +3978,7 @@ mod tests {
         let doc = JwwDocument {
             header: empty_header(),
             entities: vec![top_insert],
+            images: Vec::new(),
             block_defs: vec![block_1, block_2],
         };
 
@@ -4034,6 +4048,7 @@ mod tests {
         let doc = JwwDocument {
             header: empty_header(),
             entities: vec![top_insert],
+            images: Vec::new(),
             block_defs: vec![block_1, block_2],
         };
 
@@ -4067,6 +4082,7 @@ mod tests {
         let doc = JwwDocument {
             header: empty_header(),
             entities: vec![top_insert],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -4132,6 +4148,7 @@ mod tests {
         let doc = JwwDocument {
             header: empty_header(),
             entities: vec![top_insert],
+            images: Vec::new(),
             block_defs: vec![block_1, block_2],
         };
 
@@ -4163,6 +4180,7 @@ mod tests {
                 end_x: 10.0,
                 end_y: 0.0,
             })],
+            images: Vec::new(),
             block_defs: vec![],
         };
 
@@ -4221,6 +4239,7 @@ mod tests {
                     end_y: 1.0,
                 }),
             ],
+            images: Vec::new(),
             block_defs: vec![
                 BlockDef {
                     base: first_base,
@@ -4417,6 +4436,7 @@ mod tests {
                     content: "abc".to_string(),
                 }),
             ],
+            images: Vec::new(),
             block_defs: vec![],
         };
 

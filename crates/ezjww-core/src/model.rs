@@ -1,7 +1,126 @@
 use serde::ser::{SerializeStruct, Serializer};
 use serde::Serialize;
 
+use crate::base64;
 use crate::header::JwwHeader;
+
+/// Prefix of a Jw_cad image placement text: `^@BM<file>,<width>,<height>[,...]`.
+pub const IMAGE_TEXT_PREFIX: &str = "^@BM";
+/// Path prefix of images that Jw_cad extracts from the drawing's own image archive.
+pub const IMAGE_TEMP_PREFIX: &str = "%temp%";
+/// Trailing parameters Jw_cad writes for a freshly inserted, untrimmed image.
+pub const IMAGE_DEFAULT_EXTRA: [&str; 7] = ["0", "0", "1", "0", "255", "255", "255"];
+
+/// An image file stored in a version-700 JWW archive (`.gz` names hold gzip data).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedImage {
+    /// File name Jw_cad extracts to `%temp%`; `.gz` marks a gzip-compressed payload.
+    pub name: String,
+    /// Raw archive bytes (still compressed when `is_compressed`).
+    pub data: Vec<u8>,
+}
+
+impl EmbeddedImage {
+    pub fn is_compressed(&self) -> bool {
+        has_gz_suffix(&self.name)
+    }
+
+    /// The file name an image placement text refers to (`.gz` removed).
+    pub fn reference_name(&self) -> &str {
+        strip_gz_suffix(&self.name)
+    }
+}
+
+impl Serialize for EmbeddedImage {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("EmbeddedImage", 3)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("data", &base64::encode(&self.data))?;
+        state.serialize_field("compressed", &self.is_compressed())?;
+        state.end()
+    }
+}
+
+fn has_gz_suffix(name: &str) -> bool {
+    name.len() > 3 && name[name.len() - 3..].eq_ignore_ascii_case(".gz")
+}
+
+fn strip_gz_suffix(name: &str) -> &str {
+    if has_gz_suffix(name) {
+        &name[..name.len() - 3]
+    } else {
+        name
+    }
+}
+
+/// The parameters of an image placement text (`^@BM...`). Only the file reference
+/// and the drawn size are interpreted; `extra` keeps the remaining parameters
+/// (trimming, transparency, ...) verbatim for round trips.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ImageReference {
+    /// The path as written, e.g. `%temp%logo.bmp` or `C:\\images\\logo.bmp`.
+    pub path: String,
+    /// The bare file name (`logo.bmp`), used to match an embedded image.
+    pub file_name: String,
+    /// Drawn width in paper millimetres.
+    pub width: f64,
+    /// Drawn height in paper millimetres.
+    pub height: f64,
+    pub extra: Vec<String>,
+}
+
+impl ImageReference {
+    /// Whether the path points into the drawing's own archive (`%temp%`).
+    pub fn is_embedded(&self) -> bool {
+        self.path.len() >= IMAGE_TEMP_PREFIX.len()
+            && self.path[..IMAGE_TEMP_PREFIX.len()].eq_ignore_ascii_case(IMAGE_TEMP_PREFIX)
+    }
+}
+
+/// Parse an image placement text. `None` when the text is not an image or
+/// lacks a finite width and height.
+pub fn parse_image_reference(content: &str) -> Option<ImageReference> {
+    let rest = content.strip_prefix(IMAGE_TEXT_PREFIX)?;
+    let mut parts = rest.split(',');
+    let path = parts.next()?.to_string();
+    let width: f64 = parts.next()?.trim().parse().ok()?;
+    let height: f64 = parts.next()?.trim().parse().ok()?;
+    if path.is_empty() || !width.is_finite() || !height.is_finite() {
+        return None;
+    }
+    let file_name = image_file_name(&path).to_string();
+    Some(ImageReference {
+        path,
+        file_name,
+        width,
+        height,
+        extra: parts.map(|p| p.trim().to_string()).collect(),
+    })
+}
+
+/// Build an image placement text; `extra` defaults to `IMAGE_DEFAULT_EXTRA` when empty.
+pub fn image_reference_content(path: &str, width: f64, height: f64, extra: &[&str]) -> String {
+    let extra: Vec<&str> = if extra.is_empty() {
+        IMAGE_DEFAULT_EXTRA.to_vec()
+    } else {
+        extra.to_vec()
+    };
+    format!(
+        "{IMAGE_TEXT_PREFIX}{path},{width},{height},{}",
+        extra.join(",")
+    )
+}
+
+fn image_file_name(path: &str) -> &str {
+    let rest = if path.len() >= IMAGE_TEMP_PREFIX.len()
+        && path[..IMAGE_TEMP_PREFIX.len()].eq_ignore_ascii_case(IMAGE_TEMP_PREFIX)
+    {
+        &path[IMAGE_TEMP_PREFIX.len()..]
+    } else {
+        path
+    };
+    rest.rsplit(['\\', '/']).next().unwrap_or(rest)
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
 pub struct EntityBase {
@@ -76,7 +195,7 @@ pub struct Point {
     pub scale: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Text {
     pub base: EntityBase,
     pub start_x: f64,
@@ -90,6 +209,38 @@ pub struct Text {
     pub angle: f64,
     pub font_name: String,
     pub content: String,
+}
+
+impl Text {
+    /// The image placement this text encodes, if it starts with `^@BM`.
+    pub fn image_reference(&self) -> Option<ImageReference> {
+        parse_image_reference(&self.content)
+    }
+}
+
+// Serialized like the derived form, plus the parsed `image` placement when the
+// content is one, so JSON/WASM consumers see the same shape as the Python dicts.
+impl Serialize for Text {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let image = self.image_reference();
+        let mut state = serializer.serialize_struct("Text", 12 + usize::from(image.is_some()))?;
+        state.serialize_field("base", &self.base)?;
+        state.serialize_field("start_x", &self.start_x)?;
+        state.serialize_field("start_y", &self.start_y)?;
+        state.serialize_field("end_x", &self.end_x)?;
+        state.serialize_field("end_y", &self.end_y)?;
+        state.serialize_field("text_type", &self.text_type)?;
+        state.serialize_field("size_x", &self.size_x)?;
+        state.serialize_field("size_y", &self.size_y)?;
+        state.serialize_field("spacing", &self.spacing)?;
+        state.serialize_field("angle", &self.angle)?;
+        state.serialize_field("font_name", &self.font_name)?;
+        state.serialize_field("content", &self.content)?;
+        if let Some(image) = &image {
+            state.serialize_field("image", image)?;
+        }
+        state.end()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -474,6 +625,8 @@ pub struct JwwDocument {
     pub header: JwwHeader,
     pub entities: Vec<Entity>,
     pub block_defs: Vec<BlockDef>,
+    /// Version-700 image archive (empty for older files and files without images).
+    pub images: Vec<EmbeddedImage>,
 }
 
 pub fn collect_entity_coordinates(entities: &[Entity]) -> Vec<Coord2D> {

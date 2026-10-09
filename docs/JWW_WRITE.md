@@ -8,7 +8,8 @@ Changing a group's scale does not rescale entity coordinates.
 
 The basic Python/Rust/TypeScript writer shipped in 0.4.0. The extended entities,
 tables and helpers documented here are part of **0.5.0**, currently unreleased;
-build this revision to use them. Existing-file lossless editing, embedded images, marker/temporary points,
+build this revision to use them. Embedded images arrived in **0.6.0** (see
+[Images](#images)). Existing-file lossless editing, marker/temporary points,
 curve-group semantics and older output versions remain outside the writer's scope.
 See [the extension guide](WRITER_EXTENSIONS.md) for the R1–R8 request mapping,
 examples, native evidence and remaining qualification limits.
@@ -282,8 +283,8 @@ table from a locally installed, hash-checked executable without redistributing i
   preserves empty and long strings (including length boundaries around 255 and
   65,534 UTF-16 units). Native application retention is tested separately below.
 - Text is single-line: controls including NUL, tabs and newlines are rejected.
-  Empty fonts, `^@` image/control prefixes and recognized native internal-setting
-  text are rejected. NUL is also rejected in memo and layer/group names.
+  Empty fonts, `^@` control prefixes other than image placements (`^@BM`, see
+  [Images](#images)) and recognized native internal-setting text are rejected. NUL is also rejected in memo and layer/group names.
 
 Errors identify fields, for example `entities[0].radius` or
 `options.layer_groups[2].scale`. Non-finite numbers and unsupported entity types
@@ -294,6 +295,33 @@ not stored for ordinary points.
 retain every original setting or image and cannot serve as a lossless editable
 source. Python bindings, `_core.pyi` and the TypeScript writer types expose the
 new-document contract. The converter explicitly reports unsupported input.
+
+### Images
+
+Jw_cad places a raster image with a text whose content starts with `^@BM`:
+`^@BM<path>,<width>,<height>,<trimming and transparency parameters>`, width and
+height in paper millimetres, the text start point at the image's lower-left
+corner. Version-700 files can carry the image files themselves in an archive
+after the block definitions (`images`: name, bytes, `compressed`); such
+placements use the `%temp%<name>` path, which Jw_cad resolves by extracting the
+archive to its temporary folder on load. Jw_cad stores the files gzip-compressed
+under `<name>.gz` and also accepts uncompressed entries.
+
+- Reader: `read_document()["images"]` lists the archive; a text with an image
+  placement carries a parsed `image` (`path`, `file_name`, `width`, `height`,
+  `extra`). `decompress_image(image)` returns the file bytes.
+  `IMAGE_LIST_TRUNCATED` reports an archive that could not be read to its end.
+- Writer: `JwwDrawing.embed_image(name, data, compress=True)` stores a file and
+  returns the placement name; `modelspace().add_image(name, start, width, height)`
+  places it. Pass `embedded=False` to link an external path instead. Rust uses
+  `add_image` / `add_image_reference`; low-level documents take
+  `images: [{name, data}]` with `bytes` (Python) or base64 text (JSON/TypeScript).
+  A `%temp%` placement must name an embedded image; other `^@` control texts
+  are still rejected. `to_write_document` copies the archive.
+- Only the file reference and the drawn size are interpreted. The remaining
+  parameters (`extra`) default to Jw_cad's `0,0,1,0,255,255,255` and round-trip
+  verbatim. Native Jw_cad verification of written archives is still pending;
+  the Wine harness covers geometry and text only.
 
 ## Reproduce acceptance cases
 

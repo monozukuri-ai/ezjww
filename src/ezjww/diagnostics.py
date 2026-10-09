@@ -9,6 +9,7 @@ IssueSeverity = Literal["info", "warning", "error"]
 
 CP932_DECODE_REPLACED = "CP932_DECODE_REPLACED"
 ENTITY_LIST_TRUNCATED = "ENTITY_LIST_TRUNCATED"
+IMAGE_LIST_TRUNCATED = "IMAGE_LIST_TRUNCATED"
 UNRESOLVED_BLOCK_REFERENCES = "UNRESOLVED_BLOCK_REFERENCES"
 UNSUPPORTED_DXF_ENTITIES = "UNSUPPORTED_DXF_ENTITIES"
 JWC_HEADER_SETTINGS_UNVERIFIED = "JWC_HEADER_SETTINGS_UNVERIFIED"
@@ -42,6 +43,14 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "JWW parser",
         "The main entity list could not be read to its end; entities parsed before "
         "the error were kept and block definitions were not read.",
+    ),
+    IMAGE_LIST_TRUNCATED: IssueCode(
+        "warning",
+        "skipped",
+        "JWW parser",
+        "The version-700 image archive after the block definitions could not be "
+        "read to its end; images read before the error were kept and the drawing "
+        "itself is complete.",
     ),
     UNRESOLVED_BLOCK_REFERENCES: IssueCode(
         "warning",

@@ -8,8 +8,8 @@ use crate::diagnostics::DecodeDiagnostic;
 use crate::error::JwwError;
 use crate::header::parse_header_with_diagnostics;
 use crate::model::{
-    Arc, Block, BlockDef, CircleSolid, Dimension, Entity, EntityBase, JwwDocument, Line, Point,
-    Solid, Text,
+    Arc, Block, BlockDef, CircleSolid, Dimension, EmbeddedImage, Entity, EntityBase, JwwDocument,
+    Line, Point, Solid, Text,
 };
 use crate::reader::Reader;
 
@@ -47,9 +47,9 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
     diagnostics.extend(entity_diagnostics);
 
     let entities = outcome.entities;
-    let block_defs = match outcome.truncation {
+    let (block_defs, images) = match outcome.truncation {
         None => {
-            let (block_defs, block_diagnostics) = if stop_offset < data.len() {
+            let (block_defs, block_diagnostics, consumed) = if stop_offset < data.len() {
                 parse_block_def_list(
                     &data[stop_offset..],
                     header.version,
@@ -57,10 +57,21 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
                     &mut table,
                 )
             } else {
-                (Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), None)
             };
             diagnostics.extend(block_diagnostics);
-            block_defs
+            // Version 700 appends the image archive (count, then name/size/bytes
+            // records) right after the block definition list.
+            let images = match consumed {
+                Some(used) if header.version == 700 && stop_offset + used < data.len() => {
+                    let offset = stop_offset + used;
+                    let (images, image_diagnostics) = parse_image_list(&data[offset..], offset);
+                    diagnostics.extend(image_diagnostics);
+                    images
+                }
+                _ => Vec::new(),
+            };
+            (block_defs, images)
         }
         Some(truncation) => {
             // Best effort: keep what was read when at least one entity survived,
@@ -75,7 +86,7 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
                 entities.len(),
                 truncation.error.to_string(),
             ));
-            Vec::new()
+            (Vec::new(), Vec::new())
         }
     };
 
@@ -84,6 +95,7 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
             header,
             entities,
             block_defs,
+            images,
         },
         diagnostics,
     })
@@ -518,12 +530,14 @@ fn parse_dimension(reader: &mut Reader<'_>, version: u32) -> Result<Dimension, J
     })
 }
 
+/// Returns the definitions, decode diagnostics and, when the whole list was read,
+/// the number of bytes it occupied (so the image archive behind it can be located).
 fn parse_block_def_list(
     data: &[u8],
     version: u32,
     base_offset: usize,
     table: &mut ArchiveTable,
-) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>) {
+) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>, Option<usize>) {
     let mut reader = Reader::with_base_offset(data, base_offset);
     // The block definition list is a CObList too, so its count follows
     // CArchive::ReadCount (WORD, 0xFFFF escape). Older writers of this crate's
@@ -531,7 +545,7 @@ fn parse_block_def_list(
     // WORD count are zero and a class tag follows.
     let count = match read_count(&mut reader) {
         Ok(v) => v,
-        Err(_) => return (Vec::new(), reader.into_decode_diagnostics()),
+        Err(_) => return (Vec::new(), reader.into_decode_diagnostics(), None),
     };
     let plain_word_count = data.len() >= 6 && !(data[0] == 0xFF && data[1] == 0xFF);
     if count > 0
@@ -543,25 +557,80 @@ fn parse_block_def_list(
     {
         // Legacy DWORD count layout: consume its high word.
         if reader.skip(2).is_err() {
-            return (Vec::new(), reader.into_decode_diagnostics());
+            return (Vec::new(), reader.into_decode_diagnostics(), None);
         }
     }
 
     if count > 10_000 {
-        return (Vec::new(), reader.into_decode_diagnostics());
+        return (Vec::new(), reader.into_decode_diagnostics(), None);
     }
 
     let mut block_defs = Vec::<BlockDef>::with_capacity(count);
+    let mut complete = true;
 
     for _ in 0..count {
         match parse_block_def_with_tracking(&mut reader, version, table) {
             Ok(Some(block_def)) => block_defs.push(block_def),
             Ok(None) => {}
-            Err(_) => break,
+            Err(_) => {
+                complete = false;
+                break;
+            }
         }
     }
 
-    (block_defs, reader.into_decode_diagnostics())
+    let consumed = complete.then_some(reader.bytes_read());
+    (block_defs, reader.into_decode_diagnostics(), consumed)
+}
+
+/// Version-700 image archive: `DWORD count`, then per image a CString name,
+/// a DWORD size and the (usually gzip-compressed) file bytes. Older writers and
+/// this crate's own output before 0.6 end the file right after the block list.
+fn parse_image_list(
+    data: &[u8],
+    base_offset: usize,
+) -> (Vec<EmbeddedImage>, Vec<DecodeDiagnostic>) {
+    let mut reader = Reader::with_base_offset(data, base_offset);
+    let count = match reader.read_u32() {
+        Ok(v) => v as usize,
+        Err(_) => return (Vec::new(), reader.into_decode_diagnostics()),
+    };
+    let mut truncation = None;
+    let mut images = Vec::<EmbeddedImage>::new();
+    if count > 10_000 {
+        truncation = Some(DecodeDiagnostic::image_list_truncated(
+            base_offset,
+            count,
+            0,
+            "implausible image count",
+        ));
+    } else {
+        for index in 0..count {
+            let offset = base_offset + reader.bytes_read();
+            let record = reader
+                .read_cstring_with_context(&format!("images[{index}].name"))
+                .and_then(|name| {
+                    let size = reader.read_u32()? as usize;
+                    let data = reader.read_bytes(size)?;
+                    Ok(EmbeddedImage { name, data })
+                });
+            match record {
+                Ok(image) => images.push(image),
+                Err(error) => {
+                    truncation = Some(DecodeDiagnostic::image_list_truncated(
+                        offset,
+                        count,
+                        images.len(),
+                        error.to_string(),
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    let mut diagnostics = reader.into_decode_diagnostics();
+    diagnostics.extend(truncation);
+    (images, diagnostics)
 }
 
 fn parse_block_def_with_tracking(
