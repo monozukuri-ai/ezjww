@@ -283,3 +283,21 @@ def test_native_block_name_and_reader_diagnostics():
     result = ezjww.to_write_document(parsed, skip_unsupported=True)
     assert result["document"] is None
     assert any(d["code"] == "JWW_READER_DIAGNOSTIC" for d in result["diagnostics"])
+
+
+def test_add_block_can_take_ownership_of_the_entity_list():
+    # copy_entities=False skips the deep copy: the block keeps the given dictionaries
+    # (the list itself is still ours), while the default keeps copying
+    import ezjww
+
+    d = ezjww.new()
+    owned = [{"kind": "probe", "points": [[0.0, 0.0], [5.0, 5.0]]}]
+    copied = d.add_block("copied", owned)
+    taken = d.add_block("taken", owned, copy_entities=False)
+    assert copied != taken
+    defs = {b["name"]: b for b in d.block_defs}
+    assert defs["copied"]["entities"] == owned
+    assert defs["copied"]["entities"][0] is not owned[0]
+    assert defs["taken"]["entities"] == owned
+    assert defs["taken"]["entities"] is not owned
+    assert defs["taken"]["entities"][0] is owned[0]

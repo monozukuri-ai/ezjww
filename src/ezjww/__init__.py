@@ -1175,8 +1175,16 @@ class JwwDrawing(Drawing):
                         entry["state"] = 3
         self._options["write_layer_group"] = group
 
-    def add_block(self, name: str, entities: list[dict[str, Any]]) -> int:
-        """Add an independent copy of native writer entities, relative to (0, 0)."""
+    def add_block(
+        self, name: str, entities: list[dict[str, Any]], *, copy_entities: bool = True
+    ) -> int:
+        """Add native writer entities as a block definition, relative to (0, 0).
+
+        By default the entities are deep-copied so the caller may keep mutating
+        its own list. Pass ``copy_entities=False`` when the list is built for
+        this call and will not be touched again: the deep copy dominated large
+        exports (2.5 million copied objects for 253 blocks took 5 s).
+        """
         if (
             not isinstance(name, str)
             or not name
@@ -1194,7 +1202,7 @@ class JwwDrawing(Drawing):
                 "number": number,
                 "is_referenced": False,
                 "name": name,
-                "entities": copy.deepcopy(entities),
+                "entities": copy.deepcopy(entities) if copy_entities else list(entities),
             }
         )
         return number

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `Drawing.add_block(..., copy_entities=False)` registers the given entity list
+  without deep-copying it, for callers that build the list for that call. The
+  default still copies. (253 blocks of a DWG export spent 5 s in `deepcopy`.)
 - Read the pen widths of a JWW header (`header.pens` / `JwwPens`): the screen
   width in dots and the printer color, width and point radius of pen colors
   0..=9 and of the extended colors 100..=356, with the unit the widths are in
