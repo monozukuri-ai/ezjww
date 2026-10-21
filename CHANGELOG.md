@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Detect JWW/JWS files whose ANSI strings are UTF-8 (Jw_cad under Wine with a
+  UTF-8 locale) and read them as UTF-8 instead of CP932: the CP932 pass collects
+  `EncodingEvidence` (every non-ASCII string well-formed UTF-8, plus at least
+  three multi-byte sequences or one CP932 anomaly), then the file is parsed
+  again with `TextEncoding::Utf8`. The result carries `text_encoding`
+  (`ParsedJwwDocument`, `JwsDocument`, the DTOs, the Python document dict and
+  `Drawing.text_encoding`) and a leading `TEXT_ENCODING_DETECTED` diagnostic;
+  a name cut inside a UTF-8 sequence by Jw_cad's fixed buffer is trimmed and
+  reported as `CP932_DECODE_REPLACED` with `details.encoding = "utf-8"`. Font
+  names and SXF line type / extended color names (`Reader::read_system_cstring_with_context`)
+  come from Jw_cad's own CP932 string table even under Wine, so they do not
+  count as evidence and fall back to CP932 when they are not well-formed UTF-8.
 - `Drawing.add_block(..., copy_entities=False)` registers the given entity list
   without deep-copying it, for callers that build the list for that call. The
   default still copies. (253 blocks of a DWG export spent 5 s in `deepcopy`.)

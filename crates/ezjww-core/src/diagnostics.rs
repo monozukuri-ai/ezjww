@@ -1,6 +1,8 @@
 use serde::Serialize;
 
 pub const CP932_DECODE_REPLACED: &str = "CP932_DECODE_REPLACED";
+/// The ANSI strings of a JWW/JWS file were read as UTF-8 instead of CP932 (Jw_cad under Wine with a UTF-8 locale).
+pub const TEXT_ENCODING_DETECTED: &str = "TEXT_ENCODING_DETECTED";
 pub const ENTITY_LIST_TRUNCATED: &str = "ENTITY_LIST_TRUNCATED";
 /// The version-700 image archive could not be read to its end; images read before the error are kept.
 pub const IMAGE_LIST_TRUNCATED: &str = "IMAGE_LIST_TRUNCATED";
@@ -64,6 +66,19 @@ pub struct ImageListDiagnosticDetails {
     pub error: String,
 }
 
+/// Details of a file whose ANSI strings were decoded as UTF-8 (see [`crate::reader::EncodingEvidence`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EncodingDiagnosticDetails {
+    /// The encoding the strings were read with (`utf-8`).
+    pub encoding: String,
+    /// ANSI strings with at least one byte >= 0x80.
+    pub non_ascii_strings: usize,
+    /// Multi-byte UTF-8 sequences found in them.
+    pub utf8_sequences: usize,
+    /// Strings whose CP932 reading had replacement, C1 control or private-use characters.
+    pub cp932_anomalies: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum DiagnosticDetails {
@@ -71,6 +86,7 @@ pub enum DiagnosticDetails {
     Truncation(TruncationDiagnosticDetails),
     Unverified(UnverifiedDiagnosticDetails),
     ImageList(ImageListDiagnosticDetails),
+    Encoding(EncodingDiagnosticDetails),
 }
 
 /// A structured parser diagnostic (CP932 replacement, truncated entity list, ...).
@@ -104,7 +120,7 @@ impl Diagnostic {
 
     /// Undecodable bytes in a string were replaced with U+FFFD. The code stays
     /// `CP932_DECODE_REPLACED` for every encoding (stable contract); the actual
-    /// encoding is in `details.encoding` (`cp932` or `utf-16le`).
+    /// encoding is in `details.encoding` (`cp932`, `utf-8` or `utf-16le`).
     pub(crate) fn decode_replaced(
         encoding: &str,
         field: impl Into<String>,
@@ -113,10 +129,10 @@ impl Diagnostic {
         replacement_characters: usize,
     ) -> Self {
         let field = field.into();
-        let label = if encoding == "cp932" {
-            "CP932"
-        } else {
-            "UTF-16LE"
+        let label = match encoding {
+            "cp932" => "CP932",
+            "utf-8" => "UTF-8",
+            _ => "UTF-16LE",
         };
         Self {
             code: CP932_DECODE_REPLACED.to_string(),
@@ -132,6 +148,28 @@ impl Diagnostic {
                 byte_length,
                 replacement_characters,
                 had_errors: true,
+            }),
+        }
+    }
+
+    /// The ANSI strings of the file were read as UTF-8 (second pass) because
+    /// the CP932 pass found them all to be well-formed UTF-8.
+    pub(crate) fn text_encoding_detected(evidence: crate::reader::EncodingEvidence) -> Self {
+        Self {
+            code: TEXT_ENCODING_DETECTED.to_string(),
+            severity: "info".to_string(),
+            message: format!(
+                "Strings were read as UTF-8 instead of CP932: all {} non-ASCII strings are \
+                 well-formed UTF-8 ({} multi-byte sequences, {} CP932 anomalies). Jw_cad running \
+                 under Wine with a UTF-8 locale writes files like this.",
+                evidence.non_ascii_strings, evidence.utf8_sequences, evidence.cp932_anomalies
+            ),
+            action: "normalized".to_string(),
+            details: DiagnosticDetails::Encoding(EncodingDiagnosticDetails {
+                encoding: "utf-8".to_string(),
+                non_ascii_strings: evidence.non_ascii_strings,
+                utf8_sequences: evidence.utf8_sequences,
+                cp932_anomalies: evidence.cp932_anomalies,
             }),
         }
     }

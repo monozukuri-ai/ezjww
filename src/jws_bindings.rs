@@ -34,6 +34,7 @@ pub(crate) fn read_jws_document(py: Python<'_>, path: &str) -> PyResult<PyObject
         &doc.images,
         &doc.diagnostics,
         &doc.validate_block_references(),
+        doc.text_encoding,
     )
 }
 pub(crate) fn convert(path: &str, options: ConvertOptions) -> PyResult<JwsDxfConversion> {

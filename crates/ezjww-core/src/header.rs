@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::diagnostics::DecodeDiagnostic;
 use crate::error::JwwError;
-use crate::reader::Reader;
+use crate::reader::{Reader, TextContext};
 
 pub const JWW_SIGNATURE: &[u8; 8] = b"JwwData.";
 
@@ -356,12 +356,15 @@ pub fn is_jww_signature(data: &[u8]) -> bool {
     data.len() >= JWW_SIGNATURE.len() && &data[..JWW_SIGNATURE.len()] == JWW_SIGNATURE
 }
 
+/// Header only: ANSI strings are read as CP932 (the UTF-8 detection needs the
+/// whole file, see [`crate::parser::parse_document_with_diagnostics`]).
 pub fn parse_header(data: &[u8]) -> Result<JwwHeader, JwwError> {
-    parse_header_with_diagnostics(data).map(|(header, _)| header)
+    parse_header_with_diagnostics(data, &TextContext::default()).map(|(header, _)| header)
 }
 
 pub(crate) fn parse_header_with_diagnostics(
     data: &[u8],
+    text: &TextContext,
 ) -> Result<(JwwHeader, Vec<DecodeDiagnostic>), JwwError> {
     if !is_jww_signature(data) {
         let head = data
@@ -375,7 +378,7 @@ pub(crate) fn parse_header_with_diagnostics(
         return Err(JwwError::InvalidSignature);
     }
 
-    let mut reader = Reader::new(data);
+    let mut reader = Reader::with_text(data, 0, text);
     reader.skip(JWW_SIGNATURE.len())?;
 
     let version = reader.read_u32()?;
@@ -644,7 +647,7 @@ fn parse_sxf_line_types(
     let mut extended_printer = Vec::with_capacity(257);
     for index in 0..257 {
         let field = format!("header.extended_colors[{index}].name");
-        let _name = reader.read_cstring_with_context(&field)?;
+        let _name = reader.read_system_cstring_with_context(&field)?;
         extended_printer.push(read_printer_pen(reader)?);
     }
 
@@ -657,7 +660,7 @@ fn parse_sxf_line_types(
     }
     for (index, line_type) in line_types.iter_mut().enumerate() {
         let field = format!("header.line_types.sxf[{index}].name");
-        line_type.name = reader.read_cstring_with_context(&field)?;
+        line_type.name = reader.read_system_cstring_with_context(&field)?;
         let segments = reader.read_u32()?;
         let mut lengths = [0f64; 10];
         for length in &mut lengths {

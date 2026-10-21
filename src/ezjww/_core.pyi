@@ -234,6 +234,12 @@ class ImageListDiagnosticDetails(TypedDict):
     parsed_images: int
     error: str
 
+class EncodingDiagnosticDetails(TypedDict):
+    encoding: str
+    non_ascii_strings: int
+    utf8_sequences: int
+    cp932_anomalies: int
+
 class DecodeDiagnostic(TypedDict):
     code: str
     severity: str
@@ -244,6 +250,7 @@ class DecodeDiagnostic(TypedDict):
         | TruncationDiagnosticDetails
         | UnverifiedDiagnosticDetails
         | ImageListDiagnosticDetails
+        | EncodingDiagnosticDetails
     )
 
 class DxfWriteReport(TypedDict):
@@ -273,6 +280,7 @@ class JwwDocument(TypedDict):
     entity_counts: dict[str, int]
     validation: BlockReferenceValidation
     diagnostics: list[DecodeDiagnostic]
+    text_encoding: Literal["cp932", "utf-8"]
 
 class DxfLineType(TypedDict):
     name: str
@@ -536,6 +544,7 @@ class JwsDocument(TypedDict):
     block_def_names: dict[int, str]
     entity_counts: dict[str, int]
     validation: BlockReferenceValidation
+    text_encoding: Literal["cp932", "utf-8"]
     diagnostics: list[DecodeDiagnostic]
 
 class JwwCadDocument(TypedDict):

@@ -8,6 +8,7 @@ from typing import Any, Literal
 IssueSeverity = Literal["info", "warning", "error"]
 
 CP932_DECODE_REPLACED = "CP932_DECODE_REPLACED"
+TEXT_ENCODING_DETECTED = "TEXT_ENCODING_DETECTED"
 ENTITY_LIST_TRUNCATED = "ENTITY_LIST_TRUNCATED"
 IMAGE_LIST_TRUNCATED = "IMAGE_LIST_TRUNCATED"
 UNRESOLVED_BLOCK_REFERENCES = "UNRESOLVED_BLOCK_REFERENCES"
@@ -34,8 +35,16 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "warning",
         "normalized",
         "JWW parser",
-        "One or more undecodable byte sequences (CP932, or UTF-16LE for Unicode "
-        "strings) were replaced.",
+        "One or more undecodable byte sequences (CP932 or UTF-8 for ANSI strings, "
+        "UTF-16LE for Unicode strings) were replaced.",
+    ),
+    TEXT_ENCODING_DETECTED: IssueCode(
+        "info",
+        "normalized",
+        "JWW parser",
+        "Every non-ASCII ANSI string of the file is well-formed UTF-8, so the "
+        "strings were read as UTF-8 instead of CP932 (Jw_cad under Wine with a "
+        "UTF-8 locale writes such files).",
     ),
     ENTITY_LIST_TRUNCATED: IssueCode(
         "error",

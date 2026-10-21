@@ -5,8 +5,8 @@ mod writer;
 
 use ezjww_core::{
     convert_document_with_options, document_to_string_with_version, is_jww_signature,
-    jww_document_to_dto_with_diagnostics, parse_document, parse_document_with_diagnostics,
-    parse_header, ConvertOptions, JwwError,
+    parse_document, parse_document_with_diagnostics, parse_header, parsed_jww_document_to_dto,
+    ConvertOptions, JwwError,
 };
 
 #[wasm_bindgen(js_name = isJwwFile)]
@@ -24,10 +24,7 @@ pub fn read_header(data: &[u8]) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = readDocument)]
 pub fn read_document(data: &[u8]) -> Result<JsValue, JsValue> {
     let parsed = parse_document_with_diagnostics(data).map_err(to_js_error)?;
-    to_js_value(&jww_document_to_dto_with_diagnostics(
-        &parsed.document,
-        &parsed.diagnostics,
-    ))
+    to_js_value(&parsed_jww_document_to_dto(&parsed))
 }
 
 /// Parse a `^@BM` image placement text; `null` when the text is not one.

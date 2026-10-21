@@ -93,7 +93,7 @@ fn jww_write_document_to_document(
     py: Python<'_>,
     document: &Bound<'_, PyDict>,
 ) -> PyResult<PyObject> {
-    super::document_to_pyobject(py, &parsed(document)?, &[])
+    super::document_to_pyobject(py, &parsed(document)?, &[], ezjww_core::TextEncoding::Cp932)
 }
 
 fn writer_convert_options(

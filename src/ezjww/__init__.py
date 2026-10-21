@@ -47,6 +47,7 @@ from ezjww.diagnostics import (
     ENTITY_LIST_TRUNCATED,
     IMAGE_LIST_TRUNCATED,
     ISSUE_CODES,
+    TEXT_ENCODING_DETECTED,
     UNRESOLVED_BLOCK_REFERENCES,
     UNSUPPORTED_DXF_ENTITIES,
     IssueCode,
@@ -65,6 +66,7 @@ __all__ = [
     "ENTITY_LIST_TRUNCATED",
     "IMAGE_LIST_TRUNCATED",
     "ISSUE_CODES",
+    "TEXT_ENCODING_DETECTED",
     "compress_image",
     "decompress_image",
     "image_reference",
@@ -233,6 +235,17 @@ class Drawing:
     @property
     def jww_document(self) -> dict[str, Any] | None:
         return self._jww_document
+
+    @property
+    def text_encoding(self) -> str | None:
+        """How the ANSI strings of a JWW/JWS source were decoded: ``"cp932"``
+        (Jw_cad on Windows) or ``"utf-8"`` (Jw_cad under Wine with a UTF-8
+        locale, detected per file). ``None`` for JWC sources and new drawings."""
+        document = self.source_document
+        if document is None:
+            return None
+        value = document.get("text_encoding")
+        return value if isinstance(value, str) else None
 
     @property
     def source_document(self) -> dict[str, Any] | None:

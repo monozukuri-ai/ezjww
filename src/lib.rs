@@ -53,13 +53,19 @@ fn read_header(py: Python<'_>, path: &str) -> PyResult<PyObject> {
 #[pyfunction]
 fn read_document(py: Python<'_>, path: &str) -> PyResult<PyObject> {
     let parsed = read_document_from_file_with_diagnostics(path).map_err(to_py_err)?;
-    document_to_pyobject(py, &parsed.document, &parsed.diagnostics)
+    document_to_pyobject(
+        py,
+        &parsed.document,
+        &parsed.diagnostics,
+        parsed.text_encoding,
+    )
 }
 
 fn document_to_pyobject(
     py: Python<'_>,
     document: &JwwDocument,
     diagnostics: &[DecodeDiagnostic],
+    text_encoding: ezjww_core::TextEncoding,
 ) -> PyResult<PyObject> {
     document_parts_to_pyobject(
         py,
@@ -69,8 +75,10 @@ fn document_to_pyobject(
         &document.images,
         diagnostics,
         &validate_block_references(document),
+        text_encoding,
     )
 }
+#[allow(clippy::too_many_arguments)]
 fn document_parts_to_pyobject(
     py: Python<'_>,
     header: PyObject,
@@ -79,6 +87,7 @@ fn document_parts_to_pyobject(
     images: &[ezjww_core::EmbeddedImage],
     decode_diagnostics: &[DecodeDiagnostic],
     validation: &BlockReferenceValidation,
+    text_encoding: ezjww_core::TextEncoding,
 ) -> PyResult<PyObject> {
     let out = PyDict::new_bound(py);
     out.set_item("header", header)?;
@@ -128,6 +137,7 @@ fn document_parts_to_pyobject(
         diagnostics.append(decode_diagnostic_to_pydict(py, diagnostic)?)?;
     }
     out.set_item("diagnostics", diagnostics)?;
+    out.set_item("text_encoding", text_encoding.as_str())?;
 
     Ok(out.unbind().into())
 }
@@ -1069,6 +1079,12 @@ fn decode_diagnostic_to_pydict<'py>(
             details.set_item("byte_length", decode.byte_length)?;
             details.set_item("replacement_characters", decode.replacement_characters)?;
             details.set_item("had_errors", decode.had_errors)?;
+        }
+        DiagnosticDetails::Encoding(encoding) => {
+            details.set_item("encoding", &encoding.encoding)?;
+            details.set_item("non_ascii_strings", encoding.non_ascii_strings)?;
+            details.set_item("utf8_sequences", encoding.utf8_sequences)?;
+            details.set_item("cp932_anomalies", encoding.cp932_anomalies)?;
         }
         DiagnosticDetails::Truncation(truncation) => {
             details.set_item("byte_offset", truncation.byte_offset)?;

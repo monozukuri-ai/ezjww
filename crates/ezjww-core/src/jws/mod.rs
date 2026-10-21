@@ -71,6 +71,8 @@ pub struct JwsDocument {
     pub block_defs: Vec<BlockDef>,
     pub images: Vec<EmbeddedImage>,
     pub diagnostics: Vec<DecodeDiagnostic>,
+    /// How the ANSI strings were decoded (see `ParsedJwwDocument::text_encoding`).
+    pub text_encoding: crate::reader::TextEncoding,
 }
 impl JwsDocument {
     pub fn validate_block_references(&self) -> crate::BlockReferenceValidation {

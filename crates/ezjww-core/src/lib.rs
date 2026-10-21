@@ -23,8 +23,8 @@ pub use writer::{to_jww_bytes, JwwWriteDocument, JwwWriteError, JwwWriteOptions}
 pub use cad::{detect_file_format, parse_cad_document, read_cad_document_from_file, CadDocument};
 pub use diagnostics::{
     DecodeDiagnostic, DecodeDiagnosticDetails, Diagnostic, DiagnosticDetails,
-    ImageListDiagnosticDetails, TruncationDiagnosticDetails, CP932_DECODE_REPLACED,
-    ENTITY_LIST_TRUNCATED, IMAGE_LIST_TRUNCATED,
+    EncodingDiagnosticDetails, ImageListDiagnosticDetails, TruncationDiagnosticDetails,
+    CP932_DECODE_REPLACED, ENTITY_LIST_TRUNCATED, IMAGE_LIST_TRUNCATED, TEXT_ENCODING_DETECTED,
 };
 pub use dxf::{
     convert_document, convert_document_with_options, document_to_string,
@@ -56,8 +56,9 @@ pub use parser::{
     read_document_from_file, read_document_from_file_with_diagnostics, resolve_block_name,
     validate_block_references, BlockReferenceValidation, ParsedJwwDocument,
 };
+pub use reader::{EncodingEvidence, TextContext, TextEncoding};
 pub use schema::{
-    jww_document_to_dto, jww_document_to_dto_with_diagnostics, BlockReferenceValidationDto,
-    DxfDocumentDto, JwwDocumentDto,
+    jww_document_to_dto, jww_document_to_dto_with_diagnostics, parsed_jww_document_to_dto,
+    BlockReferenceValidationDto, DxfDocumentDto, JwwDocumentDto,
 };
 pub mod cad;

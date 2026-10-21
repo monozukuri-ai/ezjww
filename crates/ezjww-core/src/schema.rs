@@ -6,7 +6,10 @@ use crate::diagnostics::DecodeDiagnostic;
 use crate::dxf::DxfDocument;
 use crate::header::JwwHeader;
 use crate::model::{collect_metadata_settings, BlockDef, JwwDocument, MetadataSetting};
-use crate::parser::{block_def_name_map, entity_counts, validate_block_references};
+use crate::parser::{
+    block_def_name_map, entity_counts, validate_block_references, ParsedJwwDocument,
+};
+use crate::reader::TextEncoding;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BlockReferenceValidationDto {
@@ -28,6 +31,8 @@ pub struct JwwDocumentDto<'a> {
     pub entity_counts: BTreeMap<String, usize>,
     pub validation: BlockReferenceValidationDto,
     pub diagnostics: &'a [DecodeDiagnostic],
+    /// `cp932` unless the file's ANSI strings were read as UTF-8.
+    pub text_encoding: TextEncoding,
 }
 
 pub type DxfDocumentDto = DxfDocument;
@@ -70,9 +75,7 @@ pub enum CadDocumentDto<'a> {
 
 pub fn cad_document_to_dto(document: &crate::CadDocument) -> CadDocumentDto<'_> {
     match document {
-        crate::CadDocument::Jww(parsed) => CadDocumentDto::Jww(
-            jww_document_to_dto_with_diagnostics(&parsed.document, &parsed.diagnostics),
-        ),
+        crate::CadDocument::Jww(parsed) => CadDocumentDto::Jww(parsed_jww_document_to_dto(parsed)),
         crate::CadDocument::Jwc(doc) => CadDocumentDto::Jwc(jwc_document_to_dto(doc)),
         crate::CadDocument::Jws(doc) => CadDocumentDto::Jws(jws_document_to_dto(doc)),
     }
@@ -98,6 +101,13 @@ pub fn jwc_dxf_document_to_dto(conversion: &crate::jwc::JwcDxfConversion) -> Jwc
 
 pub fn jww_document_to_dto(document: &JwwDocument) -> JwwDocumentDto<'_> {
     jww_document_to_dto_with_diagnostics(document, &[])
+}
+
+/// The DTO of a parsed file, including which text encoding its strings used.
+pub fn parsed_jww_document_to_dto(parsed: &ParsedJwwDocument) -> JwwDocumentDto<'_> {
+    let mut dto = jww_document_to_dto_with_diagnostics(&parsed.document, &parsed.diagnostics);
+    dto.text_encoding = parsed.text_encoding;
+    dto
 }
 
 pub fn jww_document_to_dto_with_diagnostics<'a>(
@@ -128,6 +138,7 @@ pub fn jww_document_to_dto_with_diagnostics<'a>(
             unresolved_def_numbers: validation.unresolved_def_numbers,
         },
         diagnostics,
+        text_encoding: TextEncoding::Cp932,
     }
 }
 
@@ -236,6 +247,7 @@ mod tests {
         assert_eq!(value["validation"]["has_unresolved"], false);
         assert!(value["block_def_names"].is_object());
         assert_eq!(value["diagnostics"], json!([]));
+        assert_eq!(value["text_encoding"], "cp932");
     }
 
     #[test]

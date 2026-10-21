@@ -255,6 +255,19 @@ JWW parsing supports CP932 and Unicode strings, block definitions, and structure
 diagnostics. Some damaged JWW entity lists can be read partially; inspect
 [diagnostics](https://github.com/monozukuri-ai/ezjww/blob/main/docs/DIAGNOSTICS.md) before relying on the result.
 
+ANSI strings (`BYTE length` + bytes) are CP932 by default. Jw_cad running under
+Wine with a UTF-8 locale writes them as UTF-8; the reader detects that per file
+(every non-ASCII ANSI string is well-formed UTF-8, with at least three multi-byte
+sequences or one CP932 decoding anomaly), reads the file again as UTF-8, reports
+`TEXT_ENCODING_DETECTED` and sets the document's `text_encoding` (`"cp932"` or
+`"utf-8"`, also `Drawing.text_encoding`). A CP932 string can be well-formed UTF-8
+by coincidence only in narrow byte patterns (for example `ﾒｰ` = `D2 B0`), so a
+file with a single such string stays CP932. Font names and the SXF line type and
+extended color names are copied by Jw_cad from its own CP932 string table even
+under Wine, so they neither count as evidence nor switch with the file: in a UTF-8
+file they are read as UTF-8 only when well-formed, otherwise as CP932. Unicode
+strings (`FF FE FF`, UTF-16LE) are never affected.
+
 JWC support covers the `fixed2421_basic_v1` and `fixed2389_basic_v1` document
 profiles (two header layouts sharing one record layout). It includes lines,
 circles, circular and elliptical arcs, rotated ellipses, CP932 text, points, and

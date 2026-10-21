@@ -11,12 +11,15 @@ use crate::model::{
     Arc, Block, BlockDef, CircleSolid, Dimension, EmbeddedImage, Entity, EntityBase, JwwDocument,
     Line, Point, Solid, Text,
 };
-use crate::reader::Reader;
+use crate::reader::{Reader, TextContext, TextEncoding};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedJwwDocument {
     pub document: JwwDocument,
     pub diagnostics: Vec<DecodeDiagnostic>,
+    /// How the ANSI strings were decoded: CP932 unless the file turned out to be
+    /// UTF-8 (then a `TEXT_ENCODING_DETECTED` diagnostic leads the list).
+    pub text_encoding: TextEncoding,
 }
 
 pub fn parse_document(data: &[u8]) -> Result<JwwDocument, JwwError> {
@@ -24,13 +27,36 @@ pub fn parse_document(data: &[u8]) -> Result<JwwDocument, JwwError> {
 }
 
 pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument, JwwError> {
-    let (header, mut diagnostics) = parse_header_with_diagnostics(data)?;
+    let cp932 = TextContext::new(TextEncoding::Cp932);
+    let parsed = parse_document_pass(data, &cp932)?;
+    if !cp932.prefers_utf8() {
+        return Ok(parsed);
+    }
+    // Every non-ASCII ANSI string is well-formed UTF-8: read the file again as
+    // UTF-8 (Jw_cad under Wine with a UTF-8 locale writes files like this). The
+    // string lengths do not depend on the encoding, so the second pass walks the
+    // same records; the CP932 result is kept if it fails anyway.
+    let utf8 = TextContext::new(TextEncoding::Utf8);
+    match parse_document_pass(data, &utf8) {
+        Ok(mut again) => {
+            again.diagnostics.insert(
+                0,
+                DecodeDiagnostic::text_encoding_detected(cp932.evidence()),
+            );
+            Ok(again)
+        }
+        Err(_) => Ok(parsed),
+    }
+}
+
+fn parse_document_pass(data: &[u8], text: &TextContext) -> Result<ParsedJwwDocument, JwwError> {
+    let (header, mut diagnostics) = parse_header_with_diagnostics(data, text)?;
     let entity_list_offset = if header.version == 700 {
         crate::header_layout::header_end_v700(data)?
     } else {
         find_entity_list_offset(data, header.version).ok_or(JwwError::EntityListNotFound)?
     };
-    let mut reader = Reader::with_base_offset(&data[entity_list_offset..], entity_list_offset);
+    let mut reader = Reader::with_text(&data[entity_list_offset..], entity_list_offset, text);
     let mut table = ArchiveTable::new();
     let outcome = parse_entity_list_lenient(&mut reader, header.version, &mut table);
     let stop_offset = entity_list_offset + reader.bytes_read();
@@ -55,6 +81,7 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
                     header.version,
                     stop_offset,
                     &mut table,
+                    text,
                 )
             } else {
                 (Vec::new(), Vec::new(), None)
@@ -65,7 +92,8 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
             let images = match consumed {
                 Some(used) if header.version == 700 && stop_offset + used < data.len() => {
                     let offset = stop_offset + used;
-                    let (images, image_diagnostics) = parse_image_list(&data[offset..], offset);
+                    let (images, image_diagnostics) =
+                        parse_image_list(&data[offset..], offset, text);
                     diagnostics.extend(image_diagnostics);
                     images
                 }
@@ -98,6 +126,7 @@ pub fn parse_document_with_diagnostics(data: &[u8]) -> Result<ParsedJwwDocument,
             images,
         },
         diagnostics,
+        text_encoding: text.encoding(),
     })
 }
 
@@ -126,8 +155,9 @@ pub(crate) fn parse_symbol_body(
     data: &[u8],
     offset: usize,
     version: u32,
+    text: &TextContext,
 ) -> Result<ArchiveBody, (usize, JwwError)> {
-    let mut reader = Reader::with_base_offset(&data[offset..], offset);
+    let mut reader = Reader::with_text(&data[offset..], offset, text);
     let mut table = ArchiveTable::new();
     table.strict = true;
     reader.require_finite_numbers();
@@ -512,7 +542,7 @@ fn parse_text(reader: &mut Reader<'_>, version: u32) -> Result<Text, JwwError> {
         size_y: reader.read_f64()?,
         spacing: reader.read_f64()?,
         angle: reader.read_f64()?,
-        font_name: reader.read_cstring_with_context("entity.text.font_name")?,
+        font_name: reader.read_system_cstring_with_context("entity.text.font_name")?,
         content: reader.read_cstring_with_context("entity.text.content")?,
     })
 }
@@ -610,8 +640,9 @@ fn parse_block_def_list(
     version: u32,
     base_offset: usize,
     table: &mut ArchiveTable,
+    text: &TextContext,
 ) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>, Option<usize>) {
-    let mut reader = Reader::with_base_offset(data, base_offset);
+    let mut reader = Reader::with_text(data, base_offset, text);
     // The block definition list is a CObList too, so its count follows
     // CArchive::ReadCount (WORD, 0xFFFF escape). Older writers of this crate's
     // fixtures used a plain DWORD; accept that layout when the two bytes after a
@@ -662,8 +693,9 @@ fn parse_block_def_list(
 fn parse_image_list(
     data: &[u8],
     base_offset: usize,
+    text: &TextContext,
 ) -> (Vec<EmbeddedImage>, Vec<DecodeDiagnostic>) {
-    let mut reader = Reader::with_base_offset(data, base_offset);
+    let mut reader = Reader::with_text(data, base_offset, text);
     let count = match reader.read_u32() {
         Ok(v) => v as usize,
         Err(_) => return (Vec::new(), reader.into_decode_diagnostics()),
@@ -1414,6 +1446,138 @@ mod tests {
         assert_eq!(parsed.document.block_defs[0].entities.len(), 1);
         let validation = validate_block_references(&parsed.document);
         assert_eq!(validation.unresolved_def_numbers, Vec::<u32>::new());
+    }
+
+    fn append_ansi_cstring(data: &mut Vec<u8>, bytes: &[u8]) {
+        assert!(bytes.len() < 0xFF);
+        data.push(bytes.len() as u8);
+        data.extend_from_slice(bytes);
+    }
+
+    /// Version-700 file whose text, font and block names are ANSI CStrings
+    /// (`BYTE length` + bytes) in the given encoding, like Jw_cad writes them
+    /// on Windows (CP932) or under Wine with a UTF-8 locale (UTF-8).
+    fn ansi_strings_file(encode: impl Fn(&str) -> Vec<u8>) -> Vec<u8> {
+        ansi_strings_file_with_font(&encode, &encode)
+    }
+
+    fn ansi_strings_file_with_font(
+        encode: &dyn Fn(&str) -> Vec<u8>,
+        encode_font: &dyn Fn(&str) -> Vec<u8>,
+    ) -> Vec<u8> {
+        let mut data = include_bytes!("writer/templates/header_700.bin").to_vec();
+        data.extend_from_slice(&2u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataMoji");
+        append_entity_base(&mut data);
+        for value in [0.0f64, 0.0, 10.0, 0.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        data.extend_from_slice(&0u32.to_le_bytes()); // text_type
+        for value in [2.5f64, 2.5, 0.0, 0.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        append_ansi_cstring(&mut data, &encode_font("ＭＳ ゴシック"));
+        append_ansi_cstring(&mut data, &encode("女子便所"));
+        append_new_class(&mut data, b"CDataBlock");
+        append_entity_base(&mut data);
+        for value in [0.0f64, 0.0, 1.0, 1.0, 0.0] {
+            data.extend_from_slice(&value.to_le_bytes());
+        }
+        data.extend_from_slice(&7u32.to_le_bytes()); // def_number
+        data.extend_from_slice(&1u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataList");
+        append_entity_base(&mut data);
+        data.extend_from_slice(&7u32.to_le_bytes()); // number
+        data.extend_from_slice(&1u32.to_le_bytes()); // is_referenced
+        data.extend_from_slice(&0u32.to_le_bytes()); // ctime
+        append_ansi_cstring(&mut data, &encode("図形"));
+        data.extend_from_slice(&1u16.to_le_bytes()); // nested list: 1 line
+        append_new_class(&mut data, b"CDataSen");
+        append_line_payload(&mut data, 3.0);
+        data
+    }
+
+    fn text_and_block_name(parsed: &super::ParsedJwwDocument) -> (String, String, String) {
+        let (font, content) = match &parsed.document.entities[0] {
+            Entity::Text(text) => (text.font_name.clone(), text.content.clone()),
+            other => panic!("expected TEXT entity, got {:?}", other),
+        };
+        (font, content, parsed.document.block_defs[0].name.clone())
+    }
+
+    #[test]
+    fn utf8_ansi_strings_are_detected_and_read_again_as_utf8() {
+        let data = ansi_strings_file(|text| text.as_bytes().to_vec());
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.text_encoding, crate::reader::TextEncoding::Utf8);
+        assert_eq!(
+            text_and_block_name(&parsed),
+            (
+                "ＭＳ ゴシック".to_string(),
+                "女子便所".to_string(),
+                "図形".to_string()
+            )
+        );
+        let detected = &parsed.diagnostics[0];
+        assert_eq!(detected.code, crate::diagnostics::TEXT_ENCODING_DETECTED);
+        assert_eq!(detected.severity, "info");
+        match &detected.details {
+            crate::diagnostics::DiagnosticDetails::Encoding(details) => {
+                assert_eq!(details.encoding, "utf-8");
+                // The font name is a system string: it does not count.
+                assert_eq!(details.non_ascii_strings, 2);
+                assert_eq!(details.utf8_sequences, 4 + 2);
+                assert!(details.cp932_anomalies >= 1);
+            }
+            other => panic!("expected encoding details, got {other:?}"),
+        }
+        // Nothing was replaced: the UTF-8 pass decoded every string cleanly.
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let dto = crate::schema::parsed_jww_document_to_dto(&parsed);
+        assert_eq!(serde_json::to_value(dto).unwrap()["text_encoding"], "utf-8");
+    }
+
+    #[test]
+    fn wine_mix_of_cp932_font_names_and_utf8_text_is_read_as_utf8() {
+        // What Jw_cad under Wine with a UTF-8 locale writes: the font name from
+        // its CP932 string table, the typed strings as UTF-8.
+        let data = ansi_strings_file_with_font(&|text| text.as_bytes().to_vec(), &|text| {
+            encoding_rs::SHIFT_JIS.encode(text).0.into_owned()
+        });
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.text_encoding, crate::reader::TextEncoding::Utf8);
+        assert_eq!(
+            text_and_block_name(&parsed),
+            (
+                "ＭＳ ゴシック".to_string(),
+                "女子便所".to_string(),
+                "図形".to_string()
+            )
+        );
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            parsed.diagnostics[0].code,
+            crate::diagnostics::TEXT_ENCODING_DETECTED
+        );
+    }
+
+    #[test]
+    fn cp932_ansi_strings_stay_cp932() {
+        let data = ansi_strings_file(|text| encoding_rs::SHIFT_JIS.encode(text).0.into_owned());
+        let parsed = parse_document_with_diagnostics(&data).unwrap();
+        assert_eq!(parsed.text_encoding, crate::reader::TextEncoding::Cp932);
+        assert_eq!(
+            text_and_block_name(&parsed),
+            (
+                "ＭＳ ゴシック".to_string(),
+                "女子便所".to_string(),
+                "図形".to_string()
+            )
+        );
+        assert!(parsed
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code != crate::diagnostics::TEXT_ENCODING_DETECTED));
     }
 
     #[test]
