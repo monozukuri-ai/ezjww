@@ -22,7 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # setup-python has no Python 3.9 build for Ubuntu 26.04.
+          - os: ubuntu-24.04
             python-version: "3.9"
           - os: ubuntu-latest
             python-version: "3.13"
