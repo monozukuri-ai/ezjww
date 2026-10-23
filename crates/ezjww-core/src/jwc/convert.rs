@@ -74,6 +74,7 @@ pub fn convert_jwc_document(
             layers: &layers,
             palette: None,
             line_types: None,
+            pens: None,
             is_metadata_text: |_| false,
             include_temporary_points: true,
         },

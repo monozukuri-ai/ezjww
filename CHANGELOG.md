@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- DXF conversion writes an entity whose own pen width is 0 (most Jw_cad
+  entities) with its pen color's printed width from `header.pens`
+  (`JwwPens::printer_width_mm`), snapped to the nearest DXF lineweight
+  (group 370). Before, such entities were written at the default lineweight
+  (-3) and the widths Jw_cad prints with were lost. An entity's own pen width
+  still wins; JWC and JWS conversions, which carry no pen table, are unchanged.
+  (`ConversionView::pens`, 0.7.4.)
 - Detect JWW/JWS files whose ANSI strings are UTF-8 (Jw_cad under Wine with a
   UTF-8 locale) and read them as UTF-8 instead of CP932: the CP932 pass collects
   `EncodingEvidence` (every non-ASCII string well-formed UTF-8, plus at least

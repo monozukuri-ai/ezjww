@@ -57,6 +57,7 @@ pub fn convert_jws_document(
             layers: &layers,
             palette: None,
             line_types: None,
+            pens: None,
             // Image control strings are source metadata, not visible labels.
             is_metadata_text: |text| {
                 metadata_setting_from_text(text).is_some() || text.image_reference().is_some()

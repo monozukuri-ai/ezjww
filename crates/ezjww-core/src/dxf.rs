@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
-use crate::header::{JwwLineTypes, JwwPalette, PRINTER_PITCH_UNIT_MM};
+use crate::header::{JwwLineTypes, JwwPalette, JwwPens, PRINTER_PITCH_UNIT_MM};
 use crate::model::{
     metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text,
 };
@@ -333,6 +333,9 @@ pub(crate) struct ConversionView<'a> {
     pub palette: Option<&'a JwwPalette>,
     /// Line type settings of the file; `None` uses the Jw_cad defaults.
     pub line_types: Option<&'a JwwLineTypes>,
+    /// Printer pens of the file: an entity with pen width 0 is written with its
+    /// pen color's printed width. `None` leaves such entities at the default.
+    pub pens: Option<&'a JwwPens>,
     pub is_metadata_text: fn(&Text) -> bool,
     pub include_temporary_points: bool,
 }
@@ -355,6 +358,7 @@ pub fn convert_document_with_options(doc: &JwwDocument, options: ConvertOptions)
             layers: &layers,
             palette: doc.header.palette.as_ref(),
             line_types: doc.header.line_types.as_ref(),
+            pens: doc.header.pens.as_ref(),
             is_metadata_text: |text| metadata_setting_from_text(text).is_some(),
             include_temporary_points: false,
         },
@@ -373,6 +377,7 @@ pub(crate) fn convert_view_with_options(
     let pens = PenStyles {
         colors: ColorTable::new(view.palette),
         line_types: LineTypeTable::new(view.line_types),
+        widths: PenWidthTable::new(view.pens),
     };
 
     let mut unsupported_entities = Vec::<String>::new();
@@ -1569,7 +1574,7 @@ fn convert_entity(
     let layer = layer_name(layer_names, base.layer_group, base.layer);
     let color = pens.colors.aci(base.pen_color);
     let line_type = pens.line_types.name(base.pen_style).to_string();
-    let line_weight = map_line_weight(base.pen_width);
+    let line_weight = pens.widths.line_weight(base.pen_width, base.pen_color);
 
     match entity {
         Entity::Line(v) => Some(vec![DxfEntity::Line(DxfLine {
@@ -2351,10 +2356,63 @@ fn map_color_fallback(pen_color: u16) -> i32 {
     }
 }
 
-/// Pen colors and line types of one document, resolved once.
+/// Pen colors, line types and printed widths of one document, resolved once.
 struct PenStyles {
     colors: ColorTable,
     line_types: LineTypeTable,
+    widths: PenWidthTable,
+}
+
+/// DXF lineweights (group 370, 1/100 mm) AutoCAD accepts.
+const DXF_LINE_WEIGHTS: [i32; 24] = [
+    0, 5, 9, 13, 15, 18, 20, 25, 30, 35, 40, 50, 53, 60, 70, 80, 90, 100, 106, 120, 140, 158, 200,
+    211,
+];
+
+/// Printed width of each pen color as a DXF lineweight.
+///
+/// Jw_cad prints an entity whose own pen width is 0 (the usual case) with the
+/// width set for its pen color, so without this table such entities lose their
+/// widths in the DXF. The width is snapped to the nearest DXF lineweight.
+struct PenWidthTable {
+    by_color: Vec<i32>,
+}
+
+impl PenWidthTable {
+    fn new(pens: Option<&JwwPens>) -> Self {
+        let mut by_color = vec![-3; 357];
+        if let Some(pens) = pens {
+            for color in 1..=356u16 {
+                if let Some(mm) = pens.printer_width_mm(color) {
+                    by_color[usize::from(color)] = snap_line_weight(mm * 100.0);
+                }
+            }
+        }
+        Self { by_color }
+    }
+
+    /// Lineweight of an entity: its own pen width, else its pen color's width.
+    fn line_weight(&self, pen_width: u16, pen_color: u16) -> i32 {
+        if pen_width != 0 {
+            return map_line_weight(pen_width);
+        }
+        self.by_color
+            .get(usize::from(pen_color))
+            .copied()
+            .unwrap_or(-3)
+    }
+}
+
+fn snap_line_weight(hundredths: f64) -> i32 {
+    DXF_LINE_WEIGHTS
+        .iter()
+        .copied()
+        .min_by(|a, b| {
+            (f64::from(*a) - hundredths)
+                .abs()
+                .total_cmp(&(f64::from(*b) - hundredths).abs())
+        })
+        .unwrap_or(-3)
 }
 
 /// Jw_cad line types 2..=9 and 16..=19: number, DXF linetype name, description,
@@ -3487,6 +3545,7 @@ mod tests {
                 layers: &layers,
                 palette: None,
                 line_types: None,
+                pens: None,
                 include_temporary_points: false,
                 is_metadata_text: if filter_settings {
                     |text| crate::model::metadata_setting_from_text(text).is_some()
@@ -3643,6 +3702,53 @@ mod tests {
 
         let out = document_to_string(&dxf);
         assert!(out.contains("370\n20\n"));
+    }
+
+    #[test]
+    fn convert_document_uses_pen_color_width_for_pen_width_zero() {
+        use crate::header::{JwwPens, PrinterPen, WidthUnit};
+        let mut printer: [PrinterPen; 10] = Default::default();
+        for (color, width) in [(1usize, 13u32), (2, 18), (3, 25), (4, 35), (5, 50), (6, 72)] {
+            printer[color].width = width;
+        }
+        let mut header = empty_header();
+        header.pens = Some(JwwPens {
+            screen_widths: [1; 10],
+            printer,
+            extended_printer: None,
+            max_draw_width: -101,
+            width_unit: WidthUnit::HundredthMm,
+            printer_dpi: None,
+        });
+        let line = |pen_color: u16, pen_width: u16| {
+            Entity::Line(Line {
+                base: EntityBase {
+                    pen_color,
+                    pen_width,
+                    ..EntityBase::default()
+                },
+                start_x: 0.0,
+                start_y: 0.0,
+                end_x: 10.0,
+                end_y: 0.0,
+            })
+        };
+        let doc = JwwDocument {
+            header,
+            entities: vec![line(1, 0), line(2, 0), line(6, 0), line(7, 0), line(1, 100)],
+            images: Vec::new(),
+            block_defs: vec![],
+        };
+        let weights: Vec<i32> = convert_document(&doc)
+            .entities
+            .iter()
+            .map(|entity| match entity {
+                DxfEntity::Line(line) => line.line_weight,
+                other => panic!("expected LINE, got {:?}", other),
+            })
+            .collect();
+        // 0.72 mm snaps to 70; pen 7 has no width (default); an own width wins
+        assert_eq!(weights, vec![13, 18, 70, -3, 100]);
     }
 
     #[test]
