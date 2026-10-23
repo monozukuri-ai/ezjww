@@ -1,6 +1,7 @@
 pub mod base64;
 pub mod diagnostics;
 pub mod dxf;
+mod dxf_fonts;
 pub mod error;
 pub mod format;
 pub mod header;

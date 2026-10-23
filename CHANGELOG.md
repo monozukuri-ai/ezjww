@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- DXF conversion gives every font the texts use a text style of its own that
+  names the font *file* AutoCAD looks for (`ＭＳ ゴシック` -> `msgothic.ttc`,
+  `HGｺﾞｼｯｸM` -> `HGRGM.TTC`) and keeps the TrueType family in the style's
+  `ACAD` xdata, with an `APPID` table registering `ACAD`. Before, every TEXT
+  used `STANDARD` with `txt` and no big font, so AutoCAD drew Japanese text as
+  `?`. An unknown face keeps its name as the family and gets a file that draws
+  its script (`msgothic.ttc` for Japanese); texts without a font stay on
+  `STANDARD`. The table and the rules follow `cad2d_ir.fonts`, so the direct
+  conversion and the IR path name the same files. (0.7.5.)
 - DXF conversion writes an entity whose own pen width is 0 (most Jw_cad
   entities) with its pen color's printed width from `header.pens`
   (`JwwPens::printer_width_mm`), snapped to the nearest DXF lineweight

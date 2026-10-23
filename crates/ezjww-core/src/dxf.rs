@@ -8,6 +8,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde::Serializer;
 
+use crate::dxf_fonts::style_font;
 use crate::header::{JwwLineTypes, JwwPalette, JwwPens, PRINTER_PITCH_UNIT_MM};
 use crate::model::{
     metadata_setting_from_text, Arc, Block, BlockDef, CircleSolid, Entity, JwwDocument, Solid, Text,
@@ -544,7 +545,10 @@ impl AsciiDxfWriter<'_> {
         self.section_start("TABLES");
         self.write_ltype_table(doc);
         self.write_layer_table(doc);
-        self.write_style_table();
+        let uses_xdata = self.write_style_table(doc);
+        if uses_xdata {
+            self.write_appid_table();
+        }
         self.write_block_record_table();
         self.section_end();
     }
@@ -653,22 +657,52 @@ impl AsciiDxfWriter<'_> {
         self.group_str(0, "ENDTAB");
     }
 
-    fn write_style_table(&mut self) {
+    /// STANDARD plus one style per font the texts use. Returns whether a
+    /// style carries `ACAD` xdata (and so needs the `APPID` table).
+    fn write_style_table(&mut self, doc: &DxfDocument) -> bool {
+        let mut styles = collect_text_styles(doc);
+        styles.remove("STANDARD");
         self.group_str(0, "TABLE");
         self.group_str(2, "STYLE");
         self.write_handle();
-        self.group_i32(70, 1);
-        self.group_str(0, "STYLE");
+        self.group_i32(70, (styles.len() + 1) as i32);
+        let mut uses_xdata = false;
+        for name in std::iter::once("STANDARD").chain(styles.iter().map(String::as_str)) {
+            // Jw_cad names a Windows face; the style has to name the file.
+            let font = style_font(if name == "STANDARD" { "" } else { name });
+            self.group_str(0, "STYLE");
+            self.write_handle();
+            self.group_str(2, &escape_unicode(name));
+            self.group_i32(70, 0);
+            self.group_f64(40, 0.0);
+            self.group_f64(41, 1.0);
+            self.group_f64(50, 0.0);
+            self.group_i32(71, 0);
+            self.group_f64(42, 2.5);
+            self.group_str(3, &escape_unicode(&font.file));
+            self.group_str(4, "");
+            if let Some(family) = &font.family {
+                // AutoCAD finds the face inside a .ttc, and fonts it has no
+                // file for, by this family.
+                self.group_str(1001, "ACAD");
+                self.group_str(1000, &escape_unicode(family));
+                self.group_i32(1071, font.flags);
+                uses_xdata = true;
+            }
+        }
+        self.group_str(0, "ENDTAB");
+        uses_xdata
+    }
+
+    fn write_appid_table(&mut self) {
+        self.group_str(0, "TABLE");
+        self.group_str(2, "APPID");
         self.write_handle();
-        self.group_str(2, "STANDARD");
+        self.group_i32(70, 1);
+        self.group_str(0, "APPID");
+        self.write_handle();
+        self.group_str(2, "ACAD");
         self.group_i32(70, 0);
-        self.group_f64(40, 0.0);
-        self.group_f64(41, 1.0);
-        self.group_f64(50, 0.0);
-        self.group_i32(71, 0);
-        self.group_f64(42, 2.5);
-        self.group_str(3, "txt");
-        self.group_str(4, "");
         self.group_str(0, "ENDTAB");
     }
 
@@ -1043,6 +1077,18 @@ fn collect_line_types(doc: &DxfDocument) -> BTreeSet<String> {
         }
     }
     out
+}
+
+fn collect_text_styles(doc: &DxfDocument) -> BTreeSet<String> {
+    let blocks = doc.blocks.iter().flat_map(|block| block.entities.iter());
+    doc.entities
+        .iter()
+        .chain(blocks)
+        .filter_map(|entity| match entity {
+            DxfEntity::Text(v) => Some(v.style.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn entity_line_type(entity: &DxfEntity) -> &str {
@@ -2125,8 +2171,13 @@ fn convert_text(
         width_factor,
         rotation: text.angle,
         content: text.content.clone(),
-        style: "STANDARD".to_string(),
+        style: text_style_name(&text.font_name),
     }
+}
+
+/// The text style of a Jw_cad font: one style per font, named after it.
+fn text_style_name(font_name: &str) -> String {
+    sanitize_dxf_table_name(font_name, "STANDARD")
 }
 
 fn block_name_map(block_defs: &[BlockDef]) -> HashMap<u32, String> {
@@ -3328,6 +3379,46 @@ mod tests {
             records[0].contains(&format!(" 41\n{factor:.12}\n")),
             "group 41 missing from the emitted TEXT: {}",
             records[0]
+        );
+    }
+
+    #[test]
+    fn texts_use_a_style_that_names_the_font_file() {
+        // AutoCAD reads a face name in group 3 as a missing SHX font and shows `?`.
+        let mut gothic = text_span("日本語", 0.0, 6.0, 2.0);
+        gothic.font_name = "ＭＳ ゴシック".to_string();
+        let document = JwwDocument {
+            header: empty_header(),
+            entities: vec![
+                Entity::Text(gothic),
+                Entity::Text(text_span("AB", 0.0, 4.0, 3.0)),
+            ],
+            block_defs: Vec::new(),
+            images: Vec::new(),
+        };
+        let rendered = document_to_string(&convert_document(&document));
+        let gothic_style = "\\U+FF2D\\U+FF33 \\U+30B4\\U+30B7\\U+30C3\\U+30AF";
+
+        let records = text_entity_records(&rendered);
+        assert!(
+            records[0].contains(&format!("  7\n{gothic_style}\n")),
+            "{}",
+            records[0]
+        );
+        assert!(records[1].contains("  7\nSTANDARD\n"), "{}", records[1]);
+
+        let style = rendered
+            .split("  0\n")
+            .find(|record| record.starts_with("STYLE\n  5\n") && record.contains(gothic_style))
+            .expect("a STYLE record for the font");
+        assert!(style.contains("  3\nmsgothic.ttc\n"), "{style}");
+        assert!(
+            style.contains("1001\nACAD\n1000\nMS Gothic\n1071\n32817\n"),
+            "{style}"
+        );
+        assert!(
+            rendered.contains("APPID\n  5\n"),
+            "the xdata needs a registered ACAD"
         );
     }
 
