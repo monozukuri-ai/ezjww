@@ -18,6 +18,10 @@ JWC_ATTRIBUTE_UNVERIFIED = "JWC_ATTRIBUTE_UNVERIFIED"
 JWC_CURVE_MARKERS_UNVERIFIED = "JWC_CURVE_MARKERS_UNVERIFIED"
 JWC_GROUP_SCALE_DEFAULTED = "JWC_GROUP_SCALE_DEFAULTED"
 JWC_WRITE_SCALE_MISMATCH = "JWC_WRITE_SCALE_MISMATCH"
+JWC_ARC_ANGLE_NORMALIZED = "JWC_ARC_ANGLE_NORMALIZED"
+JWC_ELLIPSE_AXES_SWAPPED = "JWC_ELLIPSE_AXES_SWAPPED"
+JWC_LINE_STYLE_DEFAULTED = "JWC_LINE_STYLE_DEFAULTED"
+JWS_SCHEMA_VERSION_USED = "JWS_SCHEMA_VERSION_USED"
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,36 @@ ISSUE_CODES: dict[str, IssueCode] = {
         "JWC parser",
         "The header write scale differs from the selected layer group's scale; "
         "per-group scales were used.",
+    ),
+    JWC_ARC_ANGLE_NORMALIZED: IssueCode(
+        "info",
+        "normalized",
+        "JWC parser",
+        "Arc angles stored outside [0, 360) degrees (or an end one full turn from "
+        "the start) were wrapped; a full turn is read as a closed curve.",
+    ),
+    JWC_ELLIPSE_AXES_SWAPPED: IssueCode(
+        "warning",
+        "normalized",
+        "JWC parser",
+        "An arc stores a flatness above one, so its radius is the minor axis; the "
+        "conversion swaps the axes (radius x flatness, 1 / flatness, tilt + 90 "
+        "degrees) so the same ellipse has a flatness of at most one.",
+    ),
+    JWC_LINE_STYLE_DEFAULTED: IssueCode(
+        "warning",
+        "normalized",
+        "JWC parser",
+        "A record stores line style 0, which is not a Jw_cad style number; the "
+        "conversion draws it continuous (style 1).",
+    ),
+    JWS_SCHEMA_VERSION_USED: IssueCode(
+        "info",
+        "normalized",
+        "JWS parser",
+        "The header version is older than the MFC class schema of the records "
+        "(Jw_cad 6 writes header 420 with schema 600); the records were read with "
+        "the schema's layout.",
     ),
 }
 

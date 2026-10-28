@@ -2,7 +2,10 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ezjww_core::diagnostics::{JWC_ATTRIBUTE_UNVERIFIED, JWC_CURVE_MARKERS_UNVERIFIED};
+use ezjww_core::diagnostics::{
+    JWC_ARC_ANGLE_NORMALIZED, JWC_ATTRIBUTE_UNVERIFIED, JWC_CURVE_MARKERS_UNVERIFIED,
+    JWC_ELLIPSE_AXES_SWAPPED, JWC_LINE_STYLE_DEFAULTED,
+};
 use ezjww_core::jwc::{JwcDocumentProfile, JwcEntityData, JwcLayerAddress, JWC_MAX_FILE_SIZE};
 use ezjww_core::{
     metadata_setting_from_text, parse_document, parse_jwc_document, parse_jwc_header,
@@ -442,9 +445,15 @@ fn unverified_attributes_are_retained_and_reported_not_dropped() {
             assert_eq!(attributes[0].action, "retained");
         }
     }
+    // Style 0 (seen in real DOS files) is retained and reported; the conversion draws it continuous.
+    let mut style_zero = fixture("q001");
+    style_zero[2437] = 0;
+    let doc = parse_jwc_document(&style_zero).unwrap();
+    assert_eq!(doc.diagnostics.len(), 1);
+    assert_eq!(doc.diagnostics[0].code, JWC_LINE_STYLE_DEFAULTED);
+    assert_eq!(doc.diagnostics[0].action, "normalized");
     // Values with no plausible meaning still fail at the exact byte.
     for (id, offset, value) in [
-        ("q001", 2437, 0),
         ("q001", 2437, 10),
         ("q001", 2438, 0),
         ("q001", 2438, 10),
@@ -513,21 +522,96 @@ fn arc_radius_flatness_and_angle_ranges_fail_while_tilts_and_elliptical_arcs_are
             Err(JwcError::InvalidValue { offset: 2429, .. })
         ));
     }
-    for flatness in [0_u16, 10001, u16::MAX] {
+    let mut data = fixture("q010");
+    data[2433..2435].copy_from_slice(&0_u16.to_le_bytes());
+    assert_eq!(
+        parse_jwc_document(&data).unwrap_err().byte_offset(),
+        Some(2433)
+    );
+    // A flatness above one (the radius is the minor axis) is retained and reported;
+    // the conversion swaps the axes.
+    for flatness in [10001_u16, u16::MAX] {
         let mut data = fixture("q010");
         data[2433..2435].copy_from_slice(&flatness.to_le_bytes());
-        let error = parse_jwc_document(&data).unwrap_err();
-        assert_eq!(error.byte_offset(), Some(2433));
+        let doc = parse_jwc_document(&data).unwrap();
+        assert!(matches!(
+            doc.entities[0].data,
+            JwcEntityData::Arc { flatness: f, .. } if f == f64::from(flatness) / 10000.
+        ));
+        let swapped: Vec<_> = doc
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == JWC_ELLIPSE_AXES_SWAPPED)
+            .collect();
+        assert_eq!(swapped.len(), 1);
+        assert_eq!(swapped[0].unverified_details().unwrap().byte_offset, 2433);
     }
+    // Angles outside [0, 360) are wrapped (real files store 360 for a closed
+    // curve, sweeps past 360 and negative starts); the record reports it.
     for offset in [2435, 2439, 2443] {
         for raw in [-1_i32, 360 * 65536, i32::MAX, i32::MIN] {
             let mut data = fixture("q010");
             data[offset..offset + 4].copy_from_slice(&raw.to_le_bytes());
+            let doc = parse_jwc_document(&data).unwrap_or_else(|e| panic!("{offset} {raw}: {e}"));
+            let JwcEntityData::Arc {
+                start_angle_degrees,
+                end_angle_degrees,
+                tilt_angle_degrees,
+                ..
+            } = doc.entities[0].data
+            else {
+                panic!("expected arc")
+            };
+            for angle in [start_angle_degrees, end_angle_degrees, tilt_angle_degrees] {
+                assert!((0. ..360.).contains(&angle), "{offset} {raw}: {angle}");
+            }
+            let expected = (f64::from(raw) / 65536.).rem_euclid(360.);
+            let actual = match offset {
+                2435 => start_angle_degrees,
+                2439 => end_angle_degrees,
+                _ => tilt_angle_degrees,
+            };
             assert!(
-                matches!(parse_jwc_document(&data), Err(JwcError::UnsupportedLayout { offset: o, .. }) if o == offset)
+                (actual - expected).abs() < 1e-9 || expected >= 360.,
+                "{offset} {raw}"
             );
+            assert!(doc
+                .diagnostics
+                .iter()
+                .any(|d| d.code == JWC_ARC_ANGLE_NORMALIZED && d.action == "normalized"));
         }
     }
+    // start 0 / end 360 (and any pair one full turn apart) is the closed curve.
+    for (start, end) in [
+        (0_i32, 360_i32 * 65536),
+        (10 * 65536, 370 * 65536),
+        (360 * 65536, 0),
+    ] {
+        let mut data = fixture("q010");
+        data[2435..2439].copy_from_slice(&start.to_le_bytes());
+        data[2439..2443].copy_from_slice(&end.to_le_bytes());
+        let doc = parse_jwc_document(&data).unwrap();
+        assert!(
+            matches!(
+                doc.entities[0].data,
+                JwcEntityData::Arc {
+                    is_full_circle: true,
+                    ..
+                }
+            ),
+            "{start} {end}"
+        );
+        assert_eq!(doc.entities[0].entity_type(), "CIRCLE");
+    }
+    // A sweep past 360 that is not a full turn keeps its wrapped end.
+    let mut data = fixture("q010");
+    data[2435..2439].copy_from_slice(&0_i32.to_le_bytes());
+    data[2439..2443].copy_from_slice(&(450 * 65536_i32).to_le_bytes());
+    let doc = parse_jwc_document(&data).unwrap();
+    assert!(matches!(
+        doc.entities[0].data,
+        JwcEntityData::Arc { is_full_circle: false, end_angle_degrees, .. } if end_angle_degrees == 90.
+    ));
     // Equal nonzero angles denote a closed curve in real files.
     let mut equal = fixture("q010");
     equal[2435..2439].copy_from_slice(&65536_i32.to_le_bytes());

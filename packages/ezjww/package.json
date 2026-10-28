@@ -1,6 +1,6 @@
 {
   "name": "ezjww",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "description": "JWW/JWC reader, JWW writer and DXF converter for TypeScript, powered by Rust WebAssembly.",
   "license": "MIT",
   "repository": {

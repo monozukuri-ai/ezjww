@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- JWC reading accepts the framing and value variants of real DOS-era files
+  (23 of 23 production files that the reference-corpus rules rejected now read):
+  a missing LF at bytes 199/399/599/799, a CSV block padded with spaces and no
+  NUL, pool addresses with fewer than four hex digits (`0:10ea`), a write-layer
+  table that is not packed `group << 4 | layer`, stale inactive temporary-point
+  slots and text references stored as pool-relative offsets are retained and
+  reported as `JWC_ATTRIBUTE_UNVERIFIED`; paper codes 8–14 (2A, 3A, 4A, 5A,
+  10 m, 50 m, 100 m — `JwcPaper` gained the variants) and a coordinate extent
+  other than 518 (`csv0[30]`, the paper width in source units) scale the
+  drawing by paper width / extent; arc angles outside [0, 360) are wrapped and
+  an end one full turn from the start is a closed curve
+  (`JWC_ARC_ANGLE_NORMALIZED`); a flatness above one keeps the stored values
+  and the conversion swaps the axes (`JWC_ELLIPSE_AXES_SWAPPED`); line style 0
+  is drawn continuous (`JWC_LINE_STYLE_DEFAULTED`). `JWC_MAX_ENTITIES` is
+  4,000,000 and the text pool may be 16 MiB (`JWC_MAX_TEXT_POOL_BYTES`); both
+  stay bounded by the 64 MiB file limit. (0.7.6.)
+- JWS reading follows the MFC class schema of the records when the header
+  version is older (Jw_cad 6 writes header 420 with schema 600), reported as
+  `JWS_SCHEMA_VERSION_USED`. (0.7.6.)
 - DXF conversion gives every font the texts use a text style of its own that
   names the font *file* AutoCAD looks for (`ＭＳ ゴシック` -> `msgothic.ttc`,
   `HGｺﾞｼｯｸM` -> `HGRGM.TTC`) and keeps the TrueType family in the style's

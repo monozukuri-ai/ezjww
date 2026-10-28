@@ -411,7 +411,7 @@ fn parse_entity_list_lenient(
 
 // Jw_cad 10.02.1's old-format JWS save sets header 600 while retaining
 // MFC runtime class schema 700. This pair is covered by a native fixture.
-fn symbol_schema_matches(version: u32, schema: u16) -> bool {
+pub(crate) fn symbol_schema_matches(version: u32, schema: u16) -> bool {
     u32::from(schema) == version || (version == 600 && schema == 700)
 }
 

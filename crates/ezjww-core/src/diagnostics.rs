@@ -16,6 +16,14 @@ pub const JWC_CURVE_MARKERS_UNVERIFIED: &str = "JWC_CURVE_MARKERS_UNVERIFIED";
 pub const JWC_GROUP_SCALE_DEFAULTED: &str = "JWC_GROUP_SCALE_DEFAULTED";
 /// The JWC header write scale differs from the selected group's scale.
 pub const JWC_WRITE_SCALE_MISMATCH: &str = "JWC_WRITE_SCALE_MISMATCH";
+/// JWC arc angles stored outside [0, 360) were wrapped; a full-turn sweep was read as a closed curve.
+pub const JWC_ARC_ANGLE_NORMALIZED: &str = "JWC_ARC_ANGLE_NORMALIZED";
+/// A JWC arc stores a flatness above one (the radius is the minor axis); conversion swaps the axes.
+pub const JWC_ELLIPSE_AXES_SWAPPED: &str = "JWC_ELLIPSE_AXES_SWAPPED";
+/// A JWC record stores line style 0, which is not a Jw_cad style number; it is drawn continuous.
+pub const JWC_LINE_STYLE_DEFAULTED: &str = "JWC_LINE_STYLE_DEFAULTED";
+/// A JWS header version and the MFC class schema of its records disagree; the schema's layout was used.
+pub const JWS_SCHEMA_VERSION_USED: &str = "JWS_SCHEMA_VERSION_USED";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DecodeDiagnosticDetails {
@@ -220,6 +228,27 @@ impl Diagnostic {
                 expected_images,
                 parsed_images,
                 error,
+            }),
+        }
+    }
+
+    /// A JWS file whose header version is older than the MFC class schema its
+    /// records carry (Jw_cad 6 writes header 420 with schema 600). The records
+    /// were read with the schema's layout.
+    pub(crate) fn jws_schema_version_used(header_version: u32, schema: u32) -> Self {
+        Self {
+            code: JWS_SCHEMA_VERSION_USED.to_string(),
+            severity: "info".to_string(),
+            message: format!(
+                "JWS header version {header_version} but its records carry class schema \
+                 {schema}; the records were read with the schema-{schema} layout."
+            ),
+            action: "normalized".to_string(),
+            details: DiagnosticDetails::Unverified(UnverifiedDiagnosticDetails {
+                field: "header.version".to_string(),
+                byte_offset: 200,
+                count: 1,
+                values: vec![header_version.to_string(), schema.to_string()],
             }),
         }
     }

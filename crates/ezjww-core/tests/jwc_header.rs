@@ -288,20 +288,15 @@ fn every_truncated_prefix_is_rejected_without_panicking() {
 #[test]
 fn unsupported_layouts_are_separate_from_invalid_values() {
     let mut cases = Vec::new();
-    let mut data = fixture("q000");
-    data[399] = b'\r';
-    cases.push((data, 399));
+    // Missing fixed LFs, unpacked write-layer bytes and stale temporary-point
+    // slots occur in real DOS files and are reported, not rejected (see
+    // jwc_real_world.rs); an unknown paper code, an inverted pool and trailing
+    // bytes still are unsupported layouts.
     for (block, index, value) in [(200, 11, "5"), (600, 1, "3fff:0000")] {
         let mut data = fixture("q000");
         let offset = set_csv(&mut data, block, index, value);
         cases.push((data, offset));
     }
-    let mut data = fixture("q000");
-    data[2407] = 0x34;
-    cases.push((data, 2407));
-    let mut data = fixture("q000");
-    data[804] = 1;
-    cases.push((data, 804));
     let mut data = fixture("q000");
     let offset = data.len();
     data.push(0);
@@ -334,7 +329,7 @@ fn unsupported_layouts_are_separate_from_invalid_values() {
 #[test]
 fn excessive_counts_and_strings_fail_before_count_based_allocations() {
     for (index, value) in [
-        (0, "100001"),
+        (0, "4000001"),
         (0, "4294967295"),
         (0, "999999999999999999999999"),
         (4, "101"),
@@ -346,8 +341,8 @@ fn excessive_counts_and_strings_fail_before_count_based_allocations() {
         );
     }
     let mut data = fixture("q000");
-    set_csv(&mut data, 200, 0, "60000");
-    let offset = set_csv(&mut data, 200, 1, "60000");
+    set_csv(&mut data, 200, 0, "2000001");
+    let offset = set_csv(&mut data, 200, 1, "2000000");
     assert!(
         matches!(parse_jwc_header(&data), Err(JwcError::LimitExceeded { offset: o, .. }) if o == offset)
     );
@@ -383,9 +378,10 @@ fn bad_string_references_and_terminators_never_consume_names() {
         parse_jwc_header(&data),
         Err(JwcError::InvalidValue { offset: 2445, .. })
     ));
-    // A reference below the declared pool segment wraps out of range.
+    // A reference below the declared pool segment wraps out of range (a first
+    // reference of exactly 0 is the pool-relative form instead, see jwc_real_world.rs).
     let mut data = fixture("q030");
-    data[2437..2441].copy_from_slice(&0_u32.to_le_bytes());
+    data[2437..2441].copy_from_slice(&0x3fff_fff0_u32.to_le_bytes());
     assert!(matches!(
         parse_jwc_header(&data),
         Err(JwcError::InvalidValue { offset: 2437, .. })

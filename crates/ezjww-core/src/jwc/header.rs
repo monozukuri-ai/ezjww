@@ -9,7 +9,7 @@ use super::reader::Reader;
 use super::unverified::UnverifiedCollector;
 use super::{
     JwcError, FIXED_SIGNATURE, JWC_FAMILY_SIGNATURE, JWC_FIXED_HEADER_SIZE,
-    JWC_FIXED_HEADER_SIZE_U16_SCALES, JWC_MAX_ENTITIES, JWC_MAX_FILE_SIZE,
+    JWC_FIXED_HEADER_SIZE_U16_SCALES, JWC_MAX_ENTITIES, JWC_MAX_FILE_SIZE, JWC_MAX_TEXT_POOL_BYTES,
     JWC_SIGNATURE_VARIANT_OFFSET,
 };
 use crate::diagnostics::{
@@ -106,6 +106,8 @@ pub struct JwcEntityCounts {
     pub temporary_points: u32,
 }
 
+/// Paper codes follow Jw_cad's sheet table (`csv0[11]`): 0–4 are A0–A4 and
+/// 8–14 the oversize sheets 2A–5A and 10 m, 50 m, 100 m (codes 5–7 are unused).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum JwcPaper {
     A0,
@@ -113,9 +115,42 @@ pub enum JwcPaper {
     A2,
     A3,
     A4,
+    #[serde(rename = "2A")]
+    TwoA,
+    #[serde(rename = "3A")]
+    ThreeA,
+    #[serde(rename = "4A")]
+    FourA,
+    #[serde(rename = "5A")]
+    FiveA,
+    #[serde(rename = "10m")]
+    M10,
+    #[serde(rename = "50m")]
+    M50,
+    #[serde(rename = "100m")]
+    M100,
 }
 
 impl JwcPaper {
+    pub fn from_code(code: u32) -> Option<Self> {
+        Some(match code {
+            0 => Self::A0,
+            1 => Self::A1,
+            2 => Self::A2,
+            3 => Self::A3,
+            4 => Self::A4,
+            8 => Self::TwoA,
+            9 => Self::ThreeA,
+            10 => Self::FourA,
+            11 => Self::FiveA,
+            12 => Self::M10,
+            13 => Self::M50,
+            14 => Self::M100,
+            _ => return None,
+        })
+    }
+
+    /// Landscape width and height in millimetres (Jw_cad's sheet table).
     pub fn dimensions_mm(self) -> (f64, f64) {
         match self {
             Self::A0 => (1189., 841.),
@@ -123,6 +158,13 @@ impl JwcPaper {
             Self::A2 => (594., 420.),
             Self::A3 => (420., 297.),
             Self::A4 => (297., 210.),
+            Self::TwoA => (1682., 1189.),
+            Self::ThreeA => (2378., 1682.),
+            Self::FourA => (3364., 2378.),
+            Self::FiveA => (4756., 3364.),
+            Self::M10 => (10000., 7071.),
+            Self::M50 => (50000., 35355.),
+            Self::M100 => (100000., 70711.),
         }
     }
 }
@@ -234,18 +276,31 @@ impl CsvField<'_> {
     }
 }
 
-/// Read one bounded CSV block. Framing (NUL terminator, NUL/space padding,
-/// printable ASCII) is structural and still fails; the field count only has a
-/// lower bound because real files carry 31 or 32 csv0 fields.
+/// Read one bounded CSV block. Framing (NUL/space padding, printable ASCII) is
+/// structural and still fails; the field count only has a lower bound because
+/// real files carry 31 or 32 csv0 fields. The reference writer NUL-terminates
+/// every block, but some DOS files pad the whole 199-byte block with spaces and
+/// rely on the fixed LF after it, so a missing NUL only bounds the text at the
+/// block end and is reported.
 fn csv<'a>(
     reader: &Reader<'a>,
     start: usize,
     min_fields: usize,
+    unverified: &mut UnverifiedCollector,
 ) -> Result<Vec<CsvField<'a>>, JwcError> {
     let data = reader.bytes(start, 199, "header.csv")?;
-    let end = data.iter().position(|&b| b == 0).ok_or_else(|| {
-        JwcError::unsupported(start, "header.csv", "missing bounded CSV terminator")
-    })?;
+    let end = match data.iter().position(|&b| b == 0) {
+        Some(end) => end,
+        None => {
+            unverified.note(
+                JWC_ATTRIBUTE_UNVERIFIED,
+                "header.csv.terminator",
+                start,
+                "no NUL within the 199-byte block",
+            );
+            data.len()
+        }
+    };
     if let Some(index) = data[end..].iter().position(|&b| b != 0 && b != b' ') {
         return Err(JwcError::unsupported(
             start + end + index,
@@ -291,18 +346,33 @@ fn csv<'a>(
 }
 
 /// `SSSS:OOOO` — a DOS far pointer (segment:offset, hexadecimal). The reference
-/// corpus always used segment `4000`; real files use other segments.
-fn far_pointer(field: &CsvField<'_>, name: &str) -> Result<u32, JwcError> {
+/// corpus always used segment `4000` with four digits per part; real files use
+/// other segments and some writers drop the leading zeros (`0:0`, `0:10ea`).
+/// Text references carry the same form, so only the difference matters.
+fn far_pointer(
+    field: &CsvField<'_>,
+    name: &str,
+    unverified: &mut UnverifiedCollector,
+) -> Result<u32, JwcError> {
     let parse = |part: &str| -> Option<u32> {
-        (part.len() == 4 && part.bytes().all(|b| b.is_ascii_hexdigit()))
+        ((1..=4).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_hexdigit()))
             .then(|| u32::from_str_radix(part, 16).ok())
             .flatten()
     };
-    field
+    let value = field
         .text
         .split_once(':')
         .and_then(|(segment, offset)| Some((parse(segment)? << 16) | parse(offset)?))
-        .ok_or_else(|| JwcError::unsupported(field.offset, name, "unverified pool address form"))
+        .ok_or_else(|| JwcError::unsupported(field.offset, name, "unverified pool address form"))?;
+    if field.text.len() != 9 {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
+            "header.pool_address",
+            field.offset,
+            field.text,
+        );
+    }
+    Ok(value)
 }
 
 fn compare_reference(
@@ -395,10 +465,11 @@ fn signature_profile(reader: &Reader<'_>) -> Result<JwcHeaderProfile, JwcError> 
 }
 
 /// Read a complete file because names follow the entity arrays and string pool.
-/// Validates the header framing (fixed LFs, CSV blocks, pool addresses, record
-/// spans, temporary-point slots, write-layer packing) but does NOT validate
-/// line/arc/text/point geometry, entity attributes, or document convertibility.
-/// Settings that merely differ from the reference corpus are retained and
+/// Validates the header framing (CSV blocks, pool addresses, record spans) but
+/// does NOT validate line/arc/text/point geometry, entity attributes, or
+/// document convertibility. Settings and framing details that merely differ
+/// from the reference corpus (fixed LFs, CSV terminators, pool address digits,
+/// write-layer packing, inactive temporary-point slots) are retained and
 /// reported as diagnostics instead of rejecting the file.
 pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
     let matched = data.len().min(JWC_FAMILY_SIGNATURE.len());
@@ -416,19 +487,23 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
     }
     let fixed_header_size = profile.fixed_header_size();
     let fixed = reader.bytes(0, fixed_header_size, "header")?;
+    let mut unverified = UnverifiedCollector::new();
+    // The reference writer ends the memo and each CSV block with an LF at a
+    // fixed position; some DOS files pad with spaces instead. The LF carries no
+    // data, so its absence is reported, not rejected.
     for offset in [199, 399, 599, 799] {
         if fixed[offset] != b'\n' {
-            return Err(JwcError::unsupported(
+            unverified.note(
+                JWC_ATTRIBUTE_UNVERIFIED,
+                "header.lf",
                 offset,
-                "header",
-                "missing fixed-position LF",
-            ));
+                format!("{:#04x}", fixed[offset]),
+            );
         }
     }
-    let mut unverified = UnverifiedCollector::new();
-    let fields = csv(&reader, 200, 12)?;
-    let settings = csv(&reader, 400, 0)?;
-    let storage = csv(&reader, 600, 2)?;
+    let fields = csv(&reader, 200, 12, &mut unverified)?;
+    let settings = csv(&reader, 400, 0, &mut unverified)?;
+    let storage = csv(&reader, 600, 2, &mut unverified)?;
     compare_reference(
         &fields,
         CSV0_REFERENCE.iter().copied(),
@@ -450,8 +525,8 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         "header.csv2",
         &mut unverified,
     );
-    let pool_start = far_pointer(&storage[0], "header.string_pool_start")?;
-    let pool_end = far_pointer(&storage[1], "header.string_pool_end")?;
+    let pool_start = far_pointer(&storage[0], "header.string_pool_start", &mut unverified)?;
+    let pool_end = far_pointer(&storage[1], "header.string_pool_end", &mut unverified)?;
     let pool_length = pool_end.checked_sub(pool_start).ok_or_else(|| {
         JwcError::unsupported(
             storage[1].offset,
@@ -459,11 +534,11 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
             "pool end precedes pool start",
         )
     })? as usize;
-    if pool_length > 0xffff {
+    if pool_length > JWC_MAX_TEXT_POOL_BYTES {
         return Err(JwcError::limit(
             storage[1].offset,
             "header.string_pool_end",
-            "text pool exceeds 65535 bytes",
+            "text pool exceeds 16 MiB",
         ));
     }
     let mut counts = [0; 5];
@@ -475,7 +550,7 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
             return Err(JwcError::limit(
                 fields[index].offset,
                 "header.entity_count",
-                "combined count exceeds 100000",
+                format!("combined count exceeds {JWC_MAX_ENTITIES}"),
             ));
         }
     }
@@ -493,20 +568,9 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         points: counts[3],
         temporary_points: counts[4],
     };
-    let paper = match fields[11].integer("header.paper")? {
-        0 => JwcPaper::A0,
-        1 => JwcPaper::A1,
-        2 => JwcPaper::A2,
-        3 => JwcPaper::A3,
-        4 => JwcPaper::A4,
-        _ => {
-            return Err(JwcError::unsupported(
-                fields[11].offset,
-                "header.paper",
-                "unverified paper code",
-            ))
-        }
-    };
+    let paper = JwcPaper::from_code(fields[11].integer("header.paper")?).ok_or_else(|| {
+        JwcError::unsupported(fields[11].offset, "header.paper", "unverified paper code")
+    })?;
     let coordinate_extent = match fields.get(30) {
         Some(field) => field.number("header.coordinate_extent")?,
         None => 518.,
@@ -522,6 +586,14 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
     let write_layer_group = (write >> 4) as u8;
     let write_layer = (write & 15) as u8;
     let layout = validate_layout(data, counts, pool_start, pool_length, fixed_header_size)?;
+    if layout.reference_base != layout.string_pool_start {
+        unverified.note(
+            JWC_ATTRIBUTE_UNVERIFIED,
+            "text.string_reference",
+            layout.text_records.byte_offset + 16,
+            "pool-relative offsets instead of far pointers",
+        );
+    }
     let mut diagnostics = Vec::new();
     let mut layer_groups: [JwcLayerGroup; 16] = std::array::from_fn(|_| JwcLayerGroup::default());
     let write_layers_offset = profile.write_layers_offset();
@@ -555,11 +627,15 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
         };
         let write = fixed[write_layers_offset + g];
         if write >> 4 != g as u8 {
-            return Err(JwcError::unsupported(
-                write_layers_offset + g,
+            // The reference writer packs (group << 4 | layer); some DOS files store
+            // the layer alone or leave the table zeroed. The low nibble is the write
+            // layer either way.
+            unverified.note(
+                JWC_ATTRIBUTE_UNVERIFIED,
                 "header.group.write_layer",
-                "packed group does not match its array index",
-            ));
+                write_layers_offset + g,
+                format!("{write:#04x}"),
+            );
         }
         group.write_layer = write & 15;
         group.name = reader.fixed_cp932(
@@ -635,11 +711,14 @@ pub fn parse_jwc_header(data: &[u8]) -> Result<JwcHeader, JwcError> {
                 (1608 + index, 1),
             ] {
                 if fixed[offset..offset + length].iter().any(|&b| b != 0) {
-                    return Err(JwcError::unsupported(
+                    // Slots past the declared count are uninitialized memory in
+                    // real DOS files; they are not drawn, so they are only reported.
+                    unverified.note(
+                        JWC_ATTRIBUTE_UNVERIFIED,
+                        "header.temporary_points.inactive",
                         offset,
-                        "header.temporary_points",
-                        "nonzero inactive temporary point slot",
-                    ));
+                        index.to_string(),
+                    );
                 }
             }
             continue;

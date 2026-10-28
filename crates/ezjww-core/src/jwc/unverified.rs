@@ -7,9 +7,9 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostics::{
-    Diagnostic, UnverifiedDiagnosticDetails, JWC_ATTRIBUTE_UNVERIFIED,
-    JWC_CURVE_MARKERS_UNVERIFIED, JWC_GROUP_SCALE_DEFAULTED, JWC_HEADER_SETTINGS_UNVERIFIED,
-    JWC_WRITE_SCALE_MISMATCH,
+    Diagnostic, UnverifiedDiagnosticDetails, JWC_ARC_ANGLE_NORMALIZED, JWC_ATTRIBUTE_UNVERIFIED,
+    JWC_CURVE_MARKERS_UNVERIFIED, JWC_ELLIPSE_AXES_SWAPPED, JWC_GROUP_SCALE_DEFAULTED,
+    JWC_HEADER_SETTINGS_UNVERIFIED, JWC_LINE_STYLE_DEFAULTED, JWC_WRITE_SCALE_MISMATCH,
 };
 
 const MAX_VALUES: usize = 8;
@@ -104,6 +104,30 @@ impl UnverifiedCollector {
                         entry.first_offset
                     ),
                 ),
+                JWC_ARC_ANGLE_NORMALIZED => (
+                    "info",
+                    "normalized",
+                    format!(
+                        "{} arc record(s) store angles outside [0, 360) degrees or a full-turn sweep; the angles were wrapped and full turns read as closed curves (first at byte {}; e.g. {examples}).",
+                        entry.count, entry.first_offset
+                    ),
+                ),
+                JWC_ELLIPSE_AXES_SWAPPED => (
+                    "warning",
+                    "normalized",
+                    format!(
+                        "{} arc record(s) store a flatness above one (the radius is the minor axis); the conversion swaps the axes so the same ellipse has a flatness of at most one (first at byte {}; e.g. {examples}).",
+                        entry.count, entry.first_offset
+                    ),
+                ),
+                JWC_LINE_STYLE_DEFAULTED => (
+                    "warning",
+                    "normalized",
+                    format!(
+                        "{} record(s) store line style 0, which is not a Jw_cad style number; the conversion draws them continuous (first at byte {}; e.g. {examples}).",
+                        entry.count, entry.first_offset
+                    ),
+                ),
                 UNTERMINATED_NAME_SLOT => (
                     "warning",
                     "retained",
@@ -128,6 +152,9 @@ impl UnverifiedCollector {
                         | JWC_CURVE_MARKERS_UNVERIFIED
                         | JWC_GROUP_SCALE_DEFAULTED
                         | JWC_WRITE_SCALE_MISMATCH
+                        | JWC_ARC_ANGLE_NORMALIZED
+                        | JWC_ELLIPSE_AXES_SWAPPED
+                        | JWC_LINE_STYLE_DEFAULTED
                 ) {
                     code
                 } else {

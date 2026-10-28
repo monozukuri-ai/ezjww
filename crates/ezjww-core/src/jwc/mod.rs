@@ -45,7 +45,11 @@ pub const JWC_SIGNATURE_VARIANT_OFFSET: usize = 22;
 pub const JWC_NAMES_SIZE: usize = 2304;
 /// Implementation resource limits, not claims about every JWC writer.
 pub const JWC_MAX_FILE_SIZE: usize = 64 * 1024 * 1024;
-pub const JWC_MAX_ENTITIES: usize = 100_000;
+/// Combined record count; the 64 MiB file limit bounds it anyway (a point record is 12 bytes).
+/// Real files reach 107,000 records (a 2.5 MB survey drawing).
+pub const JWC_MAX_ENTITIES: usize = 4_000_000;
+/// Declared text pool length; real files reach 88 KB (18,000 texts).
+pub const JWC_MAX_TEXT_POOL_BYTES: usize = 16 * 1024 * 1024;
 pub const JWC_MAX_TEXT_BYTES: usize = 256;
 
 /// Recognize the 13-byte family prefix, including unsupported or short files.

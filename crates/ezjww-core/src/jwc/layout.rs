@@ -14,9 +14,11 @@ pub struct JwcSection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct JwcLayout {
     pub fixed_header: JwcSection,
-    /// Far pointer (`segment << 16 | offset`) declared for the string pool;
-    /// text references are relative to this value.
+    /// Far pointer (`segment << 16 | offset`) declared for the string pool.
     pub string_pool_start: u32,
+    /// Value text string references are relative to: the declared far pointer in
+    /// the reference corpus, or 0 for writers that store pool-relative offsets.
+    pub reference_base: u32,
     pub lines: JwcSection,
     pub arcs: JwcSection,
     pub text_records: JwcSection,
@@ -72,11 +74,22 @@ pub(super) fn validate_layout(
     }
     let reader = Reader::new(data);
     let pool = reader.bytes(string_pool.byte_offset, pool_length, "string_pool")?;
+    // Text references normally repeat the pool's far pointer plus the string's
+    // offset; some DOS writers store the offset alone while declaring a nonzero
+    // pool segment. The first string starts the pool in every verified file, so
+    // the first reference tells the two forms apart.
+    let reference_base = match counts.texts {
+        0 => pool_start,
+        _ => match reader.u32(text_records.byte_offset + 16, "text.string_reference")? {
+            0 if pool_start != 0 => 0,
+            _ => pool_start,
+        },
+    };
     let mut cursor = 0;
     for index in 0..counts.texts as usize {
         let reference_offset = text_records.byte_offset + 24 * index + 16;
         let reference = reader.u32(reference_offset, "text.string_reference")?;
-        let relative = reference.wrapping_sub(pool_start) as usize;
+        let relative = reference.wrapping_sub(reference_base) as usize;
         if relative >= pool_length || relative < cursor {
             return Err(JwcError::invalid(
                 reference_offset,
@@ -126,6 +139,7 @@ pub(super) fn validate_layout(
             byte_length: fixed_header_size,
         },
         string_pool_start: pool_start,
+        reference_base,
         lines,
         arcs,
         text_records,

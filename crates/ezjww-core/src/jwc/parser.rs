@@ -8,7 +8,10 @@ use super::model::{
 use super::reader::Reader;
 use super::unverified::UnverifiedCollector;
 use super::{parse_jwc_header, JwcError, JwcHeader, JwcHeaderProfile, JwcSection};
-use crate::diagnostics::{JWC_ATTRIBUTE_UNVERIFIED, JWC_CURVE_MARKERS_UNVERIFIED};
+use crate::diagnostics::{
+    JWC_ARC_ANGLE_NORMALIZED, JWC_ATTRIBUTE_UNVERIFIED, JWC_CURVE_MARKERS_UNVERIFIED,
+    JWC_ELLIPSE_AXES_SWAPPED, JWC_LINE_STYLE_DEFAULTED,
+};
 use crate::Coord2D;
 
 /// Bits of the line flag word that encode curve-group boundaries
@@ -52,8 +55,18 @@ fn color(value: u16, offset: usize) -> Result<(), JwcError> {
 
 /// The low nibble is the line style number (1–9, JWW numbering); the high
 /// nibble carries attribute bits observed only in real files (e.g. `0x10`).
+/// Style 0 is not a Jw_cad number but occurs in real files; it is retained in
+/// the record and drawn continuous by the conversion.
 fn style(value: u8, offset: usize, unverified: &mut UnverifiedCollector) -> Result<(), JwcError> {
-    if !(1..=9).contains(&(value & 0x0f)) {
+    let number = value & 0x0f;
+    if number == 0 {
+        unverified.note(
+            JWC_LINE_STYLE_DEFAULTED,
+            "entity.pen_style",
+            offset,
+            value.to_string(),
+        );
+    } else if !(1..=9).contains(&number) {
         return Err(JwcError::unsupported(
             offset,
             "entity.pen_style",
@@ -107,17 +120,25 @@ fn source(reader: &Reader<'_>, spans: &[(usize, usize)]) -> Result<JwcEntitySour
     Ok(result)
 }
 
+/// Degrees × 65536, signed. The stored value may lie outside [0, 360): real files
+/// store 360 for a closed curve, sweeps past 360 and negative starts.
 fn angle(reader: &Reader<'_>, offset: usize) -> Result<f64, JwcError> {
     let raw = reader.u32(offset, "arc.angle")? as i32;
-    if !(0..360 * 65536).contains(&raw) {
-        return Err(JwcError::unsupported(
-            offset,
-            "arc.angle",
-            "angle outside verified [0, 360) degrees",
-        ));
-    }
     Ok(f64::from(raw) / 65536.)
 }
+
+/// Wrap a stored angle into [0, 360). Angles are periodic, so this changes no geometry.
+fn wrap_degrees(value: f64) -> f64 {
+    let wrapped = value.rem_euclid(360.);
+    if wrapped >= 360. {
+        0.
+    } else {
+        wrapped
+    }
+}
+
+/// One stored unit (1/65536 degree) of slack when a sweep is compared with a full turn.
+const ANGLE_UNIT_DEGREES: f64 = 1. / 65536.;
 
 fn arc(
     reader: &Reader<'_>,
@@ -142,15 +163,44 @@ fn arc(
         ));
     }
     if flatness_raw > 10000 {
-        return Err(JwcError::unsupported(
-            offset + 12,
+        // The stored radius is then the minor axis. The record keeps the stored
+        // value; the conversion swaps the axes (radius × flatness, 1 / flatness,
+        // tilt + 90°) so the ellipse is unchanged and the flatness is at most one.
+        unverified.note(
+            JWC_ELLIPSE_AXES_SWAPPED,
             "arc.flatness",
-            "flatness above one is unverified",
-        ));
+            offset + 12,
+            format!("{}", f64::from(flatness_raw) / 10000.),
+        );
     }
-    let start_angle_degrees = angle(reader, offset + 14)?;
-    let end_angle_degrees = angle(reader, offset + 18)?;
-    let tilt_angle_degrees = angle(reader, offset + 22)?;
+    let stored_start = angle(reader, offset + 14)?;
+    let stored_end = angle(reader, offset + 18)?;
+    let stored_tilt = angle(reader, offset + 22)?;
+    // The reference corpus only stored angles in [0, 360). Real files store 360
+    // for a closed curve, an end past 360 for arcs crossing the origin and
+    // negative starts; wrapping keeps the same endpoints. An end that is exactly
+    // one full turn from the start is the closed curve Jw_cad draws for it.
+    let closed_by_sweep =
+        ((stored_end - stored_start).abs() - 360.).abs() <= 2. * ANGLE_UNIT_DEGREES;
+    let start_angle_degrees = wrap_degrees(stored_start);
+    let end_angle_degrees = if closed_by_sweep {
+        start_angle_degrees
+    } else {
+        wrap_degrees(stored_end)
+    };
+    let tilt_angle_degrees = wrap_degrees(stored_tilt);
+    if closed_by_sweep
+        || [stored_start, stored_end, stored_tilt]
+            .iter()
+            .any(|a| !(0. ..360.).contains(a))
+    {
+        unverified.note(
+            JWC_ARC_ANGLE_NORMALIZED,
+            "arc.angle",
+            offset + 14,
+            format!("start={stored_start} end={stored_end} tilt={stored_tilt}"),
+        );
+    }
     // Equal angles denote a closed curve. The reference corpus only stored 0/0;
     // real files may store any equal pair.
     let is_full_circle = start_angle_degrees == end_angle_degrees;
@@ -209,7 +259,7 @@ fn text(
     // P2 has already validated reference ranges, contiguity, bounded NULs,
     // and the entire file layout. Scan only this pool, never the name slots.
     let reference = reader.u32(offset + 16, "text.string_reference")?;
-    let relative = reference.wrapping_sub(header.layout.string_pool_start()) as usize;
+    let relative = reference.wrapping_sub(header.layout.reference_base) as usize;
     let string_offset = header.layout.string_pool.byte_offset + relative;
     let remaining = header.layout.string_pool.byte_length - relative;
     let pool = reader.bytes(

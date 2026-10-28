@@ -28,6 +28,10 @@ class DiagnosticsCatalogTests(unittest.TestCase):
             "JWC_CURVE_MARKERS_UNVERIFIED",
             "JWC_GROUP_SCALE_DEFAULTED",
             "JWC_WRITE_SCALE_MISMATCH",
+            "JWC_ARC_ANGLE_NORMALIZED",
+            "JWC_ELLIPSE_AXES_SWAPPED",
+            "JWC_LINE_STYLE_DEFAULTED",
+            "JWS_SCHEMA_VERSION_USED",
         }
 
         self.assertEqual(tuple(sorted(set(ezjww.ALL_ISSUE_CODES))), ezjww.ALL_ISSUE_CODES)

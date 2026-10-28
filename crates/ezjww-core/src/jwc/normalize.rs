@@ -144,7 +144,11 @@ pub fn normalize_jwc_document(
     doc: &JwcDocument,
     space: JwcCoordinateSpace,
 ) -> Result<JwcNormalizedDocument, JwcConversionError> {
-    if doc.entities.len() > super::JWC_MAX_ENTITIES || doc.header.coordinate_extent != 518. {
+    // `csv0[30]` is the paper width in source units: 518 in the reference corpus
+    // and in most real files, 678 in files authored on another display mode. The
+    // paper always spans this many units, whatever its size.
+    let extent = doc.header.coordinate_extent;
+    if doc.entities.len() > super::JWC_MAX_ENTITIES || !extent.is_finite() || extent <= 0. {
         return Err(invalid(
             None,
             "unverified coordinate extent or excessive record count",
@@ -195,10 +199,15 @@ pub fn normalize_jwc_document(
             notice(None, "blocks", "derived", "The accepted profile completely consumes fixed entity arrays and name slots; it has no block-definition section. No block definitions are generated."),
         ],
     };
+    if extent != 518. {
+        report.notices.push(notice(None, "coordinate_extent", "derived", format!("The paper width spans {extent} source units (csv0[30]; 518 in the reference corpus); coordinates were scaled by paper width / {extent}.")));
+    }
     let mut entities = Vec::with_capacity(doc.entities.len());
     let mut next_group = 0;
     let mut open_group = None;
     let mut tilted_circular_arcs = 0_usize;
+    let mut swapped_ellipses = 0_usize;
+    let mut defaulted_styles = 0_usize;
     let mut defaulted_presets = std::collections::BTreeSet::new();
     for (index, record) in doc.entities.iter().enumerate() {
         let layer = match &record.data {
@@ -228,8 +237,8 @@ pub fn normalize_jwc_document(
         };
         let xy = |p: Coord2D| -> Result<Coord2D, JwcConversionError> {
             let result = Coord2D::new(
-                (p.x * width / 518. - width / 2.) * scale,
-                (p.y * width / 518. - height / 2.) * scale,
+                (p.x * width / extent - width / 2.) * scale,
+                (p.y * width / extent - height / 2.) * scale,
             );
             if !result.x.is_finite() || !result.y.is_finite() {
                 return Err(invalid(Some(index), "nonfinite coordinate"));
@@ -247,7 +256,12 @@ pub fn normalize_jwc_document(
             JwcEntityData::Line { attributes, .. } | JwcEntityData::Arc { attributes, .. } => {
                 // Low nibble = JWW-numbered line style; high-nibble attribute bits
                 // are retained in the source record and reported by the parser.
+                // Style 0 (seen in real files) has no Jw_cad pattern; draw it continuous.
                 base.pen_style = match attributes.pen_style & 0x0f {
+                    0 => {
+                        defaulted_styles += 1;
+                        1
+                    }
                     style @ 1..=9 => style,
                     _ => return Err(invalid(Some(index), "unknown stroke style")),
                 };
@@ -332,7 +346,6 @@ pub fn normalize_jwc_document(
                     || *radius <= 0.
                     || !flatness.is_finite()
                     || *flatness <= 0.
-                    || *flatness > 1.
                     || [
                         *start_angle_degrees,
                         *end_angle_degrees,
@@ -344,8 +357,37 @@ pub fn normalize_jwc_document(
                 {
                     return Err(invalid(Some(index), "unverified arc geometry"));
                 }
+                // A flatness above one means the stored radius is the minor axis.
+                // Rotating the frame by 90° makes the major axis the radius: the
+                // ellipse is unchanged, the flatness becomes 1 / f, and the
+                // parametric angles measured in the frame shift by −90°.
+                let (radius, flatness, start_angle_degrees, end_angle_degrees, tilt_angle_degrees) =
+                    if *flatness > 1. {
+                        swapped_ellipses += 1;
+                        (
+                            radius * flatness,
+                            1. / flatness,
+                            (start_angle_degrees - 90.).rem_euclid(360.),
+                            (end_angle_degrees - 90.).rem_euclid(360.),
+                            (tilt_angle_degrees + 90.).rem_euclid(360.),
+                        )
+                    } else {
+                        (
+                            *radius,
+                            *flatness,
+                            *start_angle_degrees,
+                            *end_angle_degrees,
+                            *tilt_angle_degrees,
+                        )
+                    };
+                let (start_angle_degrees, end_angle_degrees, tilt_angle_degrees) = (
+                    &start_angle_degrees,
+                    &end_angle_degrees,
+                    &tilt_angle_degrees,
+                );
+                let flatness = &flatness;
                 let p = xy(*center)?;
-                let radius = radius * width / 518. * scale;
+                let radius = radius * width / extent * scale;
                 if !radius.is_finite() {
                     return Err(invalid(Some(index), "radius overflow"));
                 }
@@ -460,6 +502,12 @@ pub fn normalize_jwc_document(
     }
     if tilted_circular_arcs != 0 {
         report.notices.push(notice(None, "arc.tilt", "derived", format!("{tilted_circular_arcs} circular arc(s) store a nonzero tilt; their start angle was rotated by the tilt, as the angles are measured in the tilted frame.")));
+    }
+    if swapped_ellipses != 0 {
+        report.notices.push(notice(None, "arc.flatness", "derived", format!("{swapped_ellipses} elliptical arc(s) store a flatness above one; their axes were swapped (radius × flatness, 1 / flatness, tilt + 90°, angles − 90°) so the same ellipse has a flatness of at most one.")));
+    }
+    if defaulted_styles != 0 {
+        report.notices.push(notice(None, "line_style", "default", format!("{defaulted_styles} record(s) store line style 0, which is not a Jw_cad style number; they were drawn continuous (style 1).")));
     }
     Ok(JwcNormalizedDocument {
         entities,
