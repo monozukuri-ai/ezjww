@@ -1,9 +1,11 @@
 //! Strict Python adapter for the shared writer input decoder.
-use ezjww_core::{to_jww_bytes as encode, JwwDocument};
+use ezjww_core::writer::input::DocumentBuilder;
+use ezjww_core::{to_jww_bytes as encode, JwwDocument, JwwWriteDocument};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
 use serde_json::Value;
+use std::collections::HashSet;
 
 /// Where a value sits in the input, rendered only for an error message. Building
 /// the `document.entities[i].base.layer` string for every value of a drawing
@@ -83,15 +85,103 @@ fn value(input: &Bound<'_, PyAny>, path: &InputPath<'_>, depth: usize) -> PyResu
 }
 
 fn bytes(document: &Bound<'_, PyDict>) -> PyResult<Vec<u8>> {
-    encode(
-        &ezjww_core::writer::input::from_value(value(
+    let parsed = match streamed(document) {
+        Some(parsed) => parsed,
+        // Every error, and any other shape: the whole-document decoder reports it.
+        None => ezjww_core::writer::input::from_value(value(
             document.as_any(),
             &InputPath::Root("document"),
             0,
         )?)
         .map_err(|e| PyValueError::new_err(e.to_string()))?,
-    )
-    .map_err(|e| PyValueError::new_err(e.to_string()))
+    };
+    encode(&parsed).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// The write document decoded one list element at a time (`DocumentBuilder`).
+/// As one `Value` tree, the input of a drawing of 840,000 entities took 1.6 GB
+/// next to the caller's dicts. `None` on any error or unusual shape, which the
+/// whole-document decoder then reports as before.
+fn streamed(document: &Bound<'_, PyDict>) -> Option<JwwWriteDocument> {
+    // block_defs, entities, images: the order in which pens are allocated
+    let mut lists: [Option<Bound<'_, PyList>>; 3] = [None, None, None];
+    let mut options = None;
+    for (key, item) in document.iter() {
+        let slot = match key.extract::<String>().ok()?.as_str() {
+            "options" => {
+                options = Some(item);
+                continue;
+            }
+            "block_defs" => 0,
+            "entities" => 1,
+            "images" => 2,
+            _ => return None,
+        };
+        lists[slot] = Some(item.downcast_into::<PyList>().ok()?);
+    }
+    lists[1].as_ref()?;
+    let root = InputPath::Root("document");
+    let options = value(&options?, &InputPath::Key(&root, "options"), 1).ok()?;
+    let mut used = HashSet::new();
+    for list in lists.iter().flatten() {
+        scan_pens(list.as_any(), &mut used, 1);
+    }
+    let mut builder = DocumentBuilder::new(options, used).ok()?;
+    for (slot, key) in ["block_defs", "entities", "images"].into_iter().enumerate() {
+        let Some(list) = &lists[slot] else {
+            continue;
+        };
+        let at = InputPath::Key(&root, key);
+        for (i, item) in list.iter().enumerate() {
+            let element = value(&item, &InputPath::Index(&at, i), 2).ok()?;
+            match slot {
+                0 => builder.push_block_def(element),
+                1 => builder.push_entity(element),
+                _ => builder.push_image(element),
+            }
+            .ok()?;
+        }
+    }
+    builder.finish().ok()
+}
+
+/// `ezjww_core::writer::input::scan_pens` over the Python input: each
+/// `base.pen_color` that `value` turns into an unsigned integer up to u16::MAX.
+fn scan_pens(input: &Bound<'_, PyAny>, used: &mut HashSet<u16>, depth: usize) {
+    if depth > 64 {
+        return; // `value` rejects the input
+    }
+    if let Ok(items) = input.downcast::<PyList>() {
+        for item in items.iter() {
+            scan_pens(&item, used, depth + 1);
+        }
+        return;
+    }
+    let Ok(items) = input.downcast::<PyDict>() else {
+        return;
+    };
+    let py = input.py();
+    if let Ok(Some(base)) = items.get_item(pyo3::intern!(py, "base")) {
+        if let Ok(base) = base.downcast::<PyDict>() {
+            if let Ok(Some(pen)) = base.get_item(pyo3::intern!(py, "pen_color")) {
+                if pen.is_instance_of::<PyInt>() && !pen.is_instance_of::<PyBool>() {
+                    if let Ok(pen) = pen.extract::<u64>() {
+                        if let Ok(pen) = u16::try_from(pen) {
+                            used.insert(pen);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (key, item) in items.iter() {
+        // Only lists and dicts hold pens; the key is compared for those alone.
+        if (item.is_instance_of::<PyList>() || item.is_instance_of::<PyDict>())
+            && !key.eq(pyo3::intern!(py, "options")).unwrap_or(false)
+        {
+            scan_pens(&item, used, depth + 1);
+        }
+    }
 }
 
 fn parsed(document: &Bound<'_, PyDict>) -> PyResult<JwwDocument> {

@@ -128,6 +128,31 @@ def test_color_allocation_respects_existing_pens_and_overflow():
         d.to_jww_bytes()
 
 
+def test_colors_get_pens_in_document_order_while_entities_are_decoded_one_by_one():
+    # Block definitions take free slots before entities, and a pen used further
+    # down the entity list is never given to another color.
+    d = ezjww.new()
+    m = d.modelspace()
+    m.add_line((0, 0), (1, 1), color=0x1D2E3F)
+    m.add_line((0, 0), (1, 1), jwwattribs={"pen_color": 118})
+    scratch = ezjww.new().modelspace()
+    d.add_block("B", [scratch.add_line((0, 0), (1, 0), color=0x2A3B4C)])
+    parsed = d.source_document
+    assert parsed["block_defs"][0]["entities"][0]["base"]["pen_color"] == 117
+    assert [e["base"]["pen_color"] for e in parsed["entities"]] == [119, 118]
+    colors = parsed["header"]["palette"]["extended_colors"]
+    assert (colors[17], colors[19]) == (0x2A3B4C, 0x1D2E3F)
+
+
+def test_unconvertible_values_are_reported_before_field_errors():
+    d = ezjww.new()
+    m = d.modelspace()
+    m.add_line((0, 0), (1, 1))["unexpected"] = 1
+    m.add_line((0, 0), (2, 2))["start_x"] = object()
+    with pytest.raises(ValueError, match=r"^document\.entities\[1\]\.start_x: expected a dict"):
+        d.to_jww_bytes()
+
+
 @pytest.mark.parametrize("color", [10, 16, 99, 357])
 def test_reserved_color_numbers_are_rejected_for_lines(color):
     d = ezjww.new()

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- JWW writing from Python: `to_jww_bytes` (and with it a new drawing's
+  `to_jww_bytes`, `saveas`, `source_document` and `to_dxf`) decodes the input
+  one list element at a time instead of first turning the whole document into
+  one JSON tree. The
+  tree took 750 MB and 1.6 GB on top of the caller's dicts for drawings of
+  380,000 and 840,000 entities; the peak now rises by 120 MB and 250 MB, and
+  the conversion is about 15 % faster. Pens for RGB colors are allocated in the same
+  order (block definitions, entities, images), so the output is unchanged; on
+  any error the whole document is decoded as before, so every error message
+  is the same too. The shared decoder gains `writer::input::DocumentBuilder`
+  and `scan_pens` for adapters that convert their input element by element.
+  (0.7.8.)
 - JWW writing: the path of each input value (`document.entities[i].base.layer`)
   is rendered only for an error message. `to_jww_bytes`, `to_write_document` and
   the writer's color allocation built that string for every value, which was
