@@ -283,16 +283,26 @@ pub fn to_jww_bytes(document: &JwwWriteDocument) -> Result<Vec<u8>, JwwWriteErro
     for entity in &document.entities {
         entities::write(&mut archive, entity)?;
     }
-    archive.count(document.block_defs.len(), "block_defs")?;
-    for definition in &document.block_defs {
-        entities::block_definition(&mut archive, definition)?;
+    write_tail(&mut archive, &document.block_defs, &document.images)?;
+    Ok(archive.into_bytes())
+}
+
+/// What follows the entities: the block definitions, then the images.
+fn write_tail(
+    archive: &mut archive::ArchiveWriter,
+    block_defs: &[BlockDef],
+    images: &[EmbeddedImage],
+) -> Result<(), JwwWriteError> {
+    archive.count(block_defs.len(), "block_defs")?;
+    for definition in block_defs {
+        entities::block_definition(archive, definition)?;
     }
     // Version-700 image archive: count, then name / size / bytes per image.
-    archive.u32(document.images.len() as u32);
-    for image in &document.images {
+    archive.u32(images.len() as u32);
+    for image in images {
         archive.cstring(&image.name, "images.name")?;
         archive.u32(image.data.len() as u32);
         archive.bytes(&image.data);
     }
-    Ok(archive.into_bytes())
+    Ok(())
 }

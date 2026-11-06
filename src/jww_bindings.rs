@@ -1,6 +1,6 @@
 //! Strict Python adapter for the shared writer input decoder.
-use ezjww_core::writer::input::DocumentBuilder;
-use ezjww_core::{to_jww_bytes as encode, JwwDocument, JwwWriteDocument};
+use ezjww_core::writer::input::DocumentEncoder;
+use ezjww_core::{to_jww_bytes as encode, JwwDocument};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
@@ -85,24 +85,26 @@ fn value(input: &Bound<'_, PyAny>, path: &InputPath<'_>, depth: usize) -> PyResu
 }
 
 fn bytes(document: &Bound<'_, PyDict>) -> PyResult<Vec<u8>> {
-    let parsed = match streamed(document) {
-        Some(parsed) => parsed,
-        // Every error, and any other shape: the whole-document decoder reports it.
-        None => ezjww_core::writer::input::from_value(value(
+    if let Some(bytes) = streamed(document) {
+        return Ok(bytes);
+    }
+    // Every error, and any other shape: the whole-document decoder reports it.
+    encode(
+        &ezjww_core::writer::input::from_value(value(
             document.as_any(),
             &InputPath::Root("document"),
             0,
         )?)
         .map_err(|e| PyValueError::new_err(e.to_string()))?,
-    };
-    encode(&parsed).map_err(|e| PyValueError::new_err(e.to_string()))
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// The write document decoded one list element at a time (`DocumentBuilder`).
-/// As one `Value` tree, the input of a drawing of 840,000 entities took 1.6 GB
-/// next to the caller's dicts. `None` on any error or unusual shape, which the
-/// whole-document decoder then reports as before.
-fn streamed(document: &Bound<'_, PyDict>) -> Option<JwwWriteDocument> {
+/// The JWW file encoded one list element at a time (`DocumentEncoder`). As one
+/// `Value` tree and a list of entities, the input of a drawing of 840,000
+/// entities took 1.6 GB next to the caller's dicts. `None` on any error or
+/// unusual shape, which the whole-document path then reports as before.
+fn streamed(document: &Bound<'_, PyDict>) -> Option<Vec<u8>> {
     // block_defs, entities, images: the order in which pens are allocated
     let mut lists: [Option<Bound<'_, PyList>>; 3] = [None, None, None];
     let mut options = None;
@@ -126,7 +128,7 @@ fn streamed(document: &Bound<'_, PyDict>) -> Option<JwwWriteDocument> {
     for list in lists.iter().flatten() {
         scan_pens(list.as_any(), &mut used, 1);
     }
-    let mut builder = DocumentBuilder::new(options, used).ok()?;
+    let mut encoder = DocumentEncoder::new(options, used).ok()?;
     for (slot, key) in ["block_defs", "entities", "images"].into_iter().enumerate() {
         let Some(list) = &lists[slot] else {
             continue;
@@ -135,14 +137,14 @@ fn streamed(document: &Bound<'_, PyDict>) -> Option<JwwWriteDocument> {
         for (i, item) in list.iter().enumerate() {
             let element = value(&item, &InputPath::Index(&at, i), 2).ok()?;
             match slot {
-                0 => builder.push_block_def(element),
-                1 => builder.push_entity(element),
-                _ => builder.push_image(element),
+                0 => encoder.push_block_def(element),
+                1 => encoder.push_entity(element),
+                _ => encoder.push_image(element),
             }
             .ok()?;
         }
     }
-    builder.finish().ok()
+    encoder.finish().ok()
 }
 
 /// `ezjww_core::writer::input::scan_pens` over the Python input: each

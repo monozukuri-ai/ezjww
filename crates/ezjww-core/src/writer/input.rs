@@ -125,36 +125,53 @@ pub fn from_value(mut value: Value) -> Result<JwwWriteDocument, JwwWriteError> {
     })
 }
 
-/// `from_value` for a document whose lists arrive one element at a time, so the
-/// caller never holds the whole input as one `Value` tree (a drawing of 840,000
-/// entities took 1.6 GB as a tree).
+/// `to_jww_bytes(&from_value(document))` for a document whose lists arrive one
+/// element at a time. Each entity is encoded when it arrives, so neither the
+/// input as one `Value` tree nor the decoded entities are ever held: for a
+/// drawing of 840,000 entities the peak rose by 1.6 GB and now by 85 MB.
 ///
 /// Push the `block_defs`, then the `entities`, then the `images`, each list in
 /// order: the order in which `from_value` allocates the pens of RGB colors. A
-/// document that `from_value` accepts gives the same `JwwWriteDocument`. Each
-/// element is checked when it arrives, so of several errors in a document
-/// another one than the one `from_value` reports may come first.
-pub struct DocumentBuilder {
+/// document that `from_value` and `to_jww_bytes` accept gives the same bytes.
+/// Each element is checked when it arrives, so of several errors in a document
+/// another one than the one those report may come first.
+pub struct DocumentEncoder {
     options: Value,
+    /// `options` as decoded at the start, for the checks of each entity; the
+    /// header is written in `finish` from the options with the final palette.
+    checked: JwwWriteOptions,
     colors: ColorAllocator,
     block_defs: Vec<BlockDef>,
-    entities: Vec<Entity>,
     images: Vec<EmbeddedImage>,
+    /// The archive from the first entity on: the entities as they arrive, then
+    /// the block definitions and images. The header writes no archive objects,
+    /// so the class and object numbers here do not depend on it.
+    body: super::archive::ArchiveWriter,
+    entities: usize,
+    /// `def_number` of each top-level BLOCK entity, for the block checks.
+    block_numbers: Vec<u32>,
+    /// Texts that place an image, checked against the images in `finish`.
+    image_texts: Vec<(String, Entity)>,
     /// 0 = block definitions, 1 = entities, 2 = images: the list being pushed.
     list: u8,
 }
 
-impl DocumentBuilder {
+impl DocumentEncoder {
     /// `options` is the document's `options`; `used` holds the pens of every
     /// element of the document's lists (`scan_pens`), which allocated pens avoid.
     pub fn new(options: Value, used: HashSet<u16>) -> Result<Self, JwwWriteError> {
         let colors = ColorAllocator::new(used, options.get("palette"))?;
+        let checked = self::options(&options)?;
         Ok(Self {
             options,
+            checked,
             colors,
             block_defs: Vec::new(),
-            entities: Vec::new(),
             images: Vec::new(),
+            body: super::archive::ArchiveWriter::new(),
+            entities: 0,
+            block_numbers: Vec::new(),
+            image_texts: Vec::new(),
             list: 0,
         })
     }
@@ -164,17 +181,30 @@ impl DocumentBuilder {
         let i = self.block_defs.len();
         let at = At::Key(&At::Root("document"), "block_defs");
         self.colors.apply(&mut value, &At::Index(&at, i))?;
-        self.block_defs.push(block_def(&value, i)?);
+        let definition = block_def(&value, i)?;
+        for (j, item) in definition.entities.iter().enumerate() {
+            let path = format!("block_defs[{i}].entities[{j}]");
+            super::validate::entity(item, &path, &self.checked)?;
+            self.keep_image_text(item, path);
+        }
+        self.block_defs.push(definition);
         Ok(())
     }
 
     pub fn push_entity(&mut self, mut value: Value) -> Result<(), JwwWriteError> {
         self.enter(1, "entities")?;
-        let i = self.entities.len();
+        let i = self.entities;
         let at = At::Key(&At::Root("document"), "entities");
         self.colors.apply(&mut value, &At::Index(&at, i))?;
-        self.entities
-            .push(entity(&value, &format!("entities[{i}]"))?);
+        let path = format!("entities[{i}]");
+        let item = entity(&value, &path)?;
+        super::validate::entity(&item, &path, &self.checked)?;
+        if let Entity::Block(block) = &item {
+            self.block_numbers.push(block.def_number);
+        }
+        super::entities::write(&mut self.body, &item)?;
+        self.keep_image_text(&item, path);
+        self.entities += 1;
         Ok(())
     }
 
@@ -187,7 +217,9 @@ impl DocumentBuilder {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<JwwWriteDocument, JwwWriteError> {
+    /// The JWW file: the header and the entity count in front of the encoded
+    /// entities, then the block definitions and images.
+    pub fn finish(mut self) -> Result<Vec<u8>, JwwWriteError> {
         if let Some(palette) = self.colors.allocated_palette() {
             let options = self
                 .options
@@ -195,12 +227,28 @@ impl DocumentBuilder {
                 .ok_or_else(|| invalid("options", "expected an object"))?;
             options.insert("palette".into(), palette);
         }
-        Ok(JwwWriteDocument {
-            options: options(&self.options)?,
-            entities: self.entities,
-            block_defs: self.block_defs,
-            images: self.images,
-        })
+        let options = options(&self.options)?;
+        super::validate::write_options(&options)?;
+        super::validate::blocks(&self.block_defs, self.block_numbers.iter().copied())?;
+        super::validate::images(&self.images)?;
+        for (path, text) in &self.image_texts {
+            super::validate::image_reference(text, path, &self.images)?;
+        }
+        super::write_tail(&mut self.body, &self.block_defs, &self.images)?;
+        let mut head = super::archive::ArchiveWriter::new();
+        super::header::write(&mut head, &options)?;
+        head.count(self.entities, "entities")?;
+        let mut bytes = self.body.into_bytes();
+        bytes.splice(0..0, head.into_bytes());
+        Ok(bytes)
+    }
+
+    fn keep_image_text(&mut self, item: &Entity, path: String) {
+        if let Entity::Text(text) = item {
+            if text.image_reference().is_some() {
+                self.image_texts.push((path, item.clone()));
+            }
+        }
     }
 
     fn enter(&mut self, list: u8, name: &str) -> Result<(), JwwWriteError> {
@@ -294,7 +342,7 @@ fn allocate_colors(value: &mut Value) -> Result<(), JwwWriteError> {
 
 /// Adds every `base.pen_color` in `value` that is an unsigned integer up to
 /// `u16::MAX`, at any depth except under `options` keys, to `used`: the pens
-/// that `from_value` and `DocumentBuilder` never give another color.
+/// that `from_value` and `DocumentEncoder` never give another color.
 pub fn scan_pens(value: &Value, used: &mut HashSet<u16>) {
     if let Some(p) = value
         .get("base")
@@ -787,47 +835,53 @@ mod tests {
     }
 
     #[test]
-    fn builder_decodes_like_from_value() {
+    fn encoder_writes_what_to_jww_bytes_writes() {
         let mut doc = new_document();
         doc["block_defs"] = json!([{
-            "base": line(1, None)["base"], "number": 0, "is_referenced": false,
+            "base": line(1, None)["base"], "number": 0, "is_referenced": true,
             "name": "B", "entities": [line(1, Some(0x2A3B4C))],
         }]);
         doc["entities"] = json!([
             line(1, Some(0x1D2E3F)),
             line(118, None),
+            {
+                "type": "BLOCK", "base": line(1, None)["base"], "ref_x": 5.0, "ref_y": 6.0,
+                "scale_x": 1.0, "scale_y": 1.0, "rotation": 0.0, "def_number": 0,
+            },
             line(1, Some(0x2A3B4C)),
         ]);
         let expected = from_value(doc.clone()).unwrap();
-
-        let mut used = HashSet::new();
-        scan_pens(&doc, &mut used);
-        let mut builder = DocumentBuilder::new(doc["options"].clone(), used).unwrap();
-        for value in doc["block_defs"].as_array().unwrap() {
-            builder.push_block_def(value.clone()).unwrap();
-        }
-        for value in doc["entities"].as_array().unwrap() {
-            builder.push_entity(value.clone()).unwrap();
-        }
-        let built = builder.finish().unwrap();
-        assert_eq!(built, expected);
         // The block definition takes the first free slot; 118 is used further down.
-        let pens: Vec<u16> = built
+        let pens: Vec<u16> = expected
             .entities
             .iter()
-            .map(|e| match e {
-                Entity::Line(line) => line.base.pen_color,
-                _ => unreachable!(),
+            .filter_map(|e| match e {
+                Entity::Line(line) => Some(line.base.pen_color),
+                _ => None,
             })
             .collect();
         assert_eq!(pens, [119, 118, 117]);
+
+        let mut used = HashSet::new();
+        scan_pens(&doc, &mut used);
+        let mut encoder = DocumentEncoder::new(doc["options"].clone(), used).unwrap();
+        for value in doc["block_defs"].as_array().unwrap() {
+            encoder.push_block_def(value.clone()).unwrap();
+        }
+        for value in doc["entities"].as_array().unwrap() {
+            encoder.push_entity(value.clone()).unwrap();
+        }
+        assert_eq!(
+            encoder.finish().unwrap(),
+            crate::to_jww_bytes(&expected).unwrap()
+        );
     }
 
     #[test]
-    fn builder_takes_the_lists_in_from_value_order() {
+    fn encoder_takes_the_lists_in_from_value_order() {
         let options = new_document()["options"].clone();
-        let mut builder = DocumentBuilder::new(options, HashSet::new()).unwrap();
-        builder.push_entity(line(1, None)).unwrap();
-        assert!(builder.push_block_def(json!({})).is_err());
+        let mut encoder = DocumentEncoder::new(options, HashSet::new()).unwrap();
+        encoder.push_entity(line(1, None)).unwrap();
+        assert!(encoder.push_block_def(json!({})).is_err());
     }
 }

@@ -1,6 +1,6 @@
 use super::{JwwWriteDocument, JwwWriteError};
 use crate::model::{
-    metadata_setting_from_text, parse_image_reference, EmbeddedImage, Entity, EntityBase,
+    metadata_setting_from_text, parse_image_reference, BlockDef, EmbeddedImage, Entity, EntityBase,
     IMAGE_TEXT_PREFIX,
 };
 use std::f64::consts::TAU;
@@ -24,7 +24,26 @@ fn string(value: &str, field: &str) -> Result {
 }
 
 pub(super) fn document(document: &JwwWriteDocument) -> Result {
-    let options = &document.options;
+    write_options(&document.options)?;
+    blocks(&document.block_defs, block_numbers(&document.entities))?;
+    images(&document.images)?;
+    for (index, item) in document.entities.iter().enumerate() {
+        let path = format!("entities[{index}]");
+        entity(item, &path, &document.options)?;
+        image_reference(item, &path, &document.images)?;
+    }
+    for (i, block) in document.block_defs.iter().enumerate() {
+        for (j, item) in block.entities.iter().enumerate() {
+            let path = format!("block_defs[{i}].entities[{j}]");
+            entity(item, &path, &document.options)?;
+            image_reference(item, &path, &document.images)?;
+        }
+    }
+    Ok(())
+}
+
+/// The header settings and tables: the first checks of `document`.
+pub(super) fn write_options(options: &super::JwwWriteOptions) -> Result {
     if options.version != 700 {
         return Err(JwwWriteError::UnsupportedVersion(options.version));
     }
@@ -77,25 +96,10 @@ pub(super) fn document(document: &JwwWriteDocument) -> Result {
             string(&layer.name, &format!("{path}.name"))?;
         }
     }
-    tables(options)?;
-    blocks(document)?;
-    images(&document.images)?;
-    for (index, item) in document.entities.iter().enumerate() {
-        let path = format!("entities[{index}]");
-        entity(item, &path, options)?;
-        image_reference(item, &path, &document.images)?;
-    }
-    for (i, block) in document.block_defs.iter().enumerate() {
-        for (j, item) in block.entities.iter().enumerate() {
-            let path = format!("block_defs[{i}].entities[{j}]");
-            entity(item, &path, options)?;
-            image_reference(item, &path, &document.images)?;
-        }
-    }
-    Ok(())
+    tables(options)
 }
 
-fn images(images: &[EmbeddedImage]) -> Result {
+pub(super) fn images(images: &[EmbeddedImage]) -> Result {
     let mut names = std::collections::HashSet::new();
     for (i, image) in images.iter().enumerate() {
         let path = format!("images[{i}]");
@@ -135,7 +139,7 @@ fn images(images: &[EmbeddedImage]) -> Result {
 /// An image placement that points into the archive (`%temp%`) must name an
 /// embedded image; Jw_cad would otherwise show an empty frame. External paths
 /// are links the user keeps alongside the drawing and pass unchanged.
-fn image_reference(entity: &Entity, path: &str, images: &[EmbeddedImage]) -> Result {
+pub(super) fn image_reference(entity: &Entity, path: &str, images: &[EmbeddedImage]) -> Result {
     let Entity::Text(text) = entity else {
         return Ok(());
     };
@@ -647,17 +651,26 @@ fn pattern(p: &crate::header::LineTypePattern) -> Result {
     )
 }
 
-fn blocks(document: &JwwWriteDocument) -> Result {
+/// `def_number` of each BLOCK entity in `entities`, in order.
+pub(super) fn block_numbers(entities: &[Entity]) -> impl Iterator<Item = u32> + '_ {
+    entities.iter().filter_map(|entity| match entity {
+        Entity::Block(b) => Some(b.def_number),
+        _ => None,
+    })
+}
+
+/// The block definitions, and the `def_number` of each top-level BLOCK entity.
+pub(super) fn blocks(block_defs: &[BlockDef], top_level: impl IntoIterator<Item = u32>) -> Result {
     use std::collections::{HashMap, HashSet};
     require(
-        document.block_defs.len() <= 10000,
+        block_defs.len() <= 10000,
         "block_defs",
         "at most 10000 definitions",
     )?;
     let mut defs = HashMap::new();
     let mut names = HashSet::new();
     let mut references = HashSet::new();
-    for (i, d) in document.block_defs.iter().enumerate() {
+    for (i, d) in block_defs.iter().enumerate() {
         require(
             defs.insert(d.number, i).is_none() && names.insert(&d.name),
             "block_defs",
@@ -675,27 +688,21 @@ fn blocks(document: &JwwWriteDocument) -> Result {
         )?;
         base(&d.base, "block_defs", false, false)?;
     }
-    let mut edges = vec![Vec::new(); document.block_defs.len()];
-    for (owner, entities) in std::iter::once((None, &document.entities)).chain(
-        document
-            .block_defs
-            .iter()
-            .enumerate()
-            .map(|(i, d)| (Some(i), &d.entities)),
-    ) {
-        for entity in entities {
-            if let Entity::Block(b) = entity {
-                let Some(&target) = defs.get(&b.def_number) else {
-                    return Err(JwwWriteError::invalid(
-                        "block.def_number",
-                        "missing block definition",
-                    ));
-                };
-                references.insert(b.def_number);
-                if let Some(owner) = owner {
-                    edges[owner].push(target);
-                }
-            }
+    let missing = || JwwWriteError::invalid("block.def_number", "missing block definition");
+    for number in top_level {
+        if !defs.contains_key(&number) {
+            return Err(missing());
+        }
+        references.insert(number);
+    }
+    let mut edges = vec![Vec::new(); block_defs.len()];
+    for (owner, d) in block_defs.iter().enumerate() {
+        for number in block_numbers(&d.entities) {
+            let Some(&target) = defs.get(&number) else {
+                return Err(missing());
+            };
+            references.insert(number);
+            edges[owner].push(target);
         }
     }
     fn depth(
@@ -726,7 +733,7 @@ fn blocks(document: &JwwWriteDocument) -> Result {
     }
     let mut active = vec![false; edges.len()];
     let mut memo = vec![0; edges.len()];
-    for (i, d) in document.block_defs.iter().enumerate() {
+    for (i, d) in block_defs.iter().enumerate() {
         require(
             d.is_referenced == references.contains(&d.number),
             "block_defs.is_referenced",

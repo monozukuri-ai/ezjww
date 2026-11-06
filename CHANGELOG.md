@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- JWW writing from Python: `to_jww_bytes` also encodes the input one entity at
+  a time, so the decoded entities are not held either; the header with the
+  final palette and the entity count go in front of the encoded entities at the
+  end. For drawings of 380,000 and 840,000 entities the peak now rises by
+  50 MB and 85 MB (0.7.8: 120 MB and 250 MB; 0.7.7: 750 MB and 1.6 GB), and the
+  conversion takes 1.5 s and 3.4 s (0.7.7: 1.9 s and 4.1 s). The output and
+  every error message are unchanged. `writer::input::DocumentEncoder`, whose
+  `finish` returns the JWW bytes, replaces 0.7.8's `DocumentBuilder`. (0.7.9.)
 - JWW writing from Python: `to_jww_bytes` (and with it a new drawing's
   `to_jww_bytes`, `saveas`, `source_document` and `to_dxf`) decodes the input
   one list element at a time instead of first turning the whole document into
