@@ -206,8 +206,11 @@ class Drawing:
         version: int = 700,
         paper_size: int = 3,
         memo: str = "",
+        share_bases: bool = False,
     ) -> "JwwDrawing":
-        return JwwDrawing(version=version, paper_size=paper_size, memo=memo)
+        return JwwDrawing(
+            version=version, paper_size=paper_size, memo=memo, share_bases=share_bases
+        )
 
     @classmethod
     def new_dxf(cls) -> "Drawing":
@@ -539,19 +542,31 @@ class Drawing:
 
 
 class JwwModelspace(Modelspace):
-    """Editable native entities for a new JWW; angles in raw ARC dicts are radians."""
+    """Editable native entities for a new JWW; angles in raw ARC dicts are radians.
+
+    With ``share_bases=True`` the entities added with the same attributes share
+    one ``base`` dict. Use it only when no entity's ``base`` is changed after the
+    entity is added: a change would reach every entity that shares the dict.
+    """
 
     def __init__(
         self,
         options: dict[str, Any],
         block_defs: list[dict[str, Any]] | None = None,
         images: list[dict[str, Any]] | None = None,
+        *,
+        share_bases: bool = False,
     ) -> None:
         super().__init__([])
         self._options = options
         self._block_defs = block_defs if block_defs is not None else []
         self._images = images if images is not None else []
         self.font_width_factors: dict[str, float] = {}
+        # base items -> the shared base dict (a dict per line was 270 bytes, and a
+        # drawing of 840,000 lines had 76 different ones)
+        self._shared_bases: dict[tuple[tuple[str, Any], ...], dict[str, Any]] | None = (
+            {} if share_bases else None
+        )
 
     def _input(self) -> dict[str, Any]:
         references = {
@@ -615,6 +630,13 @@ class JwwModelspace(Modelspace):
     ) -> dict[str, Any]:
         if color is not None:
             entity["color"] = color
+        shared = self._shared_bases
+        base = entity.get("base")
+        if shared is not None and isinstance(base, dict):
+            try:
+                entity["base"] = shared.setdefault(tuple(base.items()), base)
+            except TypeError:  # an attribute value that is not hashable keeps its own dict
+                pass
         self.entities.append(entity)
         return entity
 
@@ -1110,6 +1132,7 @@ class JwwDrawing(Drawing):
 
     Edit `options` and `modelspace().entities`; derived documents are snapshots.
     Rust validates every field on serialization, conversion or analysis.
+    `share_bases` is passed to the modelspace (see `JwwModelspace`).
     """
 
     def __init__(
@@ -1118,6 +1141,7 @@ class JwwDrawing(Drawing):
         version: int = 700,
         paper_size: int = 3,
         memo: str = "",
+        share_bases: bool = False,
     ) -> None:
         super().__init__(source_path=None, source_document={}, source_format="jww")
         document = _core.new_jww_document()
@@ -1125,7 +1149,9 @@ class JwwDrawing(Drawing):
         self._options.update(version=version, paper_size=paper_size, memo=memo)
         self.block_defs: list[dict[str, Any]] = []
         self._images: list[dict[str, Any]] = []
-        self._modelspace = JwwModelspace(self._options, self.block_defs, self._images)
+        self._modelspace = JwwModelspace(
+            self._options, self.block_defs, self._images, share_bases=share_bases
+        )
         self.to_jww_bytes()  # Constructor options must be valid immediately.
 
     @classmethod
@@ -1312,9 +1338,22 @@ def readfile(
     return Drawing.from_file(path, jwc_coordinates=jwc_coordinates)
 
 
-def new(*, version: int = 700, paper_size: int = 3, memo: str = "") -> JwwDrawing:
-    """Create a new native JWW drawing. Use new_dxf() for the old empty DXF view."""
-    return Drawing.new(version=version, paper_size=paper_size, memo=memo)
+def new(
+    *,
+    version: int = 700,
+    paper_size: int = 3,
+    memo: str = "",
+    share_bases: bool = False,
+) -> JwwDrawing:
+    """Create a new native JWW drawing. Use new_dxf() for the old empty DXF view.
+
+    ``share_bases=True`` lets entities added with the same attributes share one
+    ``base`` dict, for large drawings whose entities are not changed after they
+    are added (see `JwwModelspace`).
+    """
+    return Drawing.new(
+        version=version, paper_size=paper_size, memo=memo, share_bases=share_bases
+    )
 
 
 def new_dxf() -> Drawing:

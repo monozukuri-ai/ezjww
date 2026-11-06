@@ -38,7 +38,11 @@ print(drawing.stats(), drawing.bbox())
 ```
 
 `new()` and `Drawing.new()` return a `JwwDrawing`, which is a subclass of `Drawing`.
-Constructor arguments are keyword-only: `version=700`, `paper_size=3`, `memo=""`.
+Constructor arguments are keyword-only: `version=700`, `paper_size=3`, `memo=""`,
+`share_bases=False`. With `share_bases=True`, entities added with the same
+attributes share one `base` dictionary (about 270 bytes less per entity); use it
+only when no entity's `base` is changed after the entity is added, since a change
+would reach every entity that shares it. Dimension members keep their own `base`.
 A new drawing has `source_format == "jww"` and `source_path is None`.
 
 `modelspace()` returns a persistent `JwwModelspace`. Its `entities` list and the

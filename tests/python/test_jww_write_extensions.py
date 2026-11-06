@@ -153,6 +153,32 @@ def test_unconvertible_values_are_reported_before_field_errors():
         d.to_jww_bytes()
 
 
+def test_shared_bases_write_the_same_drawing():
+    def build(share_bases):
+        d = ezjww.new(share_bases=share_bases)
+        m = d.modelspace()
+        attribs = {"layer": 2, "pen_color": 3}
+        entities = [
+            m.add_line((0, 0), (1, 1), jwwattribs=attribs),
+            m.add_line((0, 0), (2, 2), jwwattribs=attribs),
+            m.add_line((0, 0), (3, 3), jwwattribs={"layer": 4}),
+            m.add_solid((0, 0), (1, 0), (1, 1), (0, 1), color=0x123456, jwwattribs=attribs),
+            m.add_dimension((0, 0), (10, 0), "10", (2, 1), jwwattribs=attribs),
+        ]
+        return d, entities
+
+    shared, (a, b, c, solid, dimension) = build(True)
+    plain, (pa, pb, *_rest) = build(False)
+    assert shared.to_jww_bytes() == plain.to_jww_bytes()
+    assert a["base"] is b["base"] and a["base"] is not c["base"]
+    # A base changed before the entity is added (the solid's color pen) is shared as changed
+    assert solid["base"]["pen_color"] == 10 and solid["base"] is not a["base"]
+    # Dimension members keep their own base, so callers may still adjust them
+    points = dimension["aux_points"]
+    assert points[0]["base"] is not points[1]["base"]
+    assert pa["base"] is not pb["base"]
+
+
 @pytest.mark.parametrize("color", [10, 16, 99, 357])
 def test_reserved_color_numbers_are_rejected_for_lines(color):
     d = ezjww.new()

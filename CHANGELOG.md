@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- JWW writing from Python: `new(share_bases=True)` (and `JwwModelspace(...,
+  share_bases=True)`) lets the entities added with the same attributes share
+  one `base` dict, for large drawings whose entities are not changed after they
+  are added. A line was about 600 bytes, 270 of them its own `base`; a drawing
+  of 840,000 entities had 76 different ones, and the peak of converting a DWG
+  to it fell from 842 MB to 623 MB. The written file is the same. Dimension
+  members keep their own `base`. Off by default, so an entity's `base` can
+  still be changed without reaching other entities. (0.7.10.)
 - JWW writing from Python: `to_jww_bytes` also encodes the input one entity at
   a time, so the decoded entities are not held either; the header with the
   final palette and the entity count go in front of the encoded entities at the
