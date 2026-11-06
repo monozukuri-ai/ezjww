@@ -210,9 +210,26 @@ fn allocate_colors(value: &mut Value) -> Result<(), JwwWriteError> {
             }
         }
     }
+    /// Where a value sits, rendered only for an error message (the walk visits
+    /// every value of the document; formatting each path was most of its time).
+    #[derive(Clone, Copy)]
+    enum At<'a> {
+        Root(&'a str),
+        Index(&'a At<'a>, usize),
+        Key(&'a At<'a>, &'a str),
+    }
+    impl At<'_> {
+        fn render(&self) -> String {
+            match self {
+                At::Root(name) => (*name).to_owned(),
+                At::Index(parent, index) => format!("{}[{index}]", parent.render()),
+                At::Key(parent, key) => format!("{}.{key}", parent.render()),
+            }
+        }
+    }
     fn apply(
         v: &mut Value,
-        path: &str,
+        at: &At<'_>,
         used: &mut HashSet<u16>,
         palette: &mut crate::header::JwwPalette,
         changed: &mut bool,
@@ -229,7 +246,10 @@ fn allocate_colors(value: &mut Value) -> Result<(), JwwWriteError> {
             }) {
                 obj.remove("color");
                 let n = color.as_u64().filter(|v| *v <= 0xffffff).ok_or_else(|| {
-                    invalid(&format!("{path}.color"), "expected COLORREF 0..=0xffffff")
+                    invalid(
+                        &format!("{}.color", at.render()),
+                        "expected COLORREF 0..=0xffffff",
+                    )
                 });
                 let solid = matches!(
                     obj.get("type").and_then(Value::as_str),
@@ -247,7 +267,7 @@ fn allocate_colors(value: &mut Value) -> Result<(), JwwWriteError> {
                     } else {
                         let p = (117..=356).find(|p| !used.contains(p)).ok_or_else(|| {
                             invalid(
-                                &format!("{path}.color"),
+                                &format!("{}.color", at.render()),
                                 "no unused SXF palette slots; cannot approximate RGB",
                             )
                         })?;
@@ -259,18 +279,20 @@ fn allocate_colors(value: &mut Value) -> Result<(), JwwWriteError> {
                     let b = obj
                         .get_mut("base")
                         .and_then(Value::as_object_mut)
-                        .ok_or_else(|| invalid(&format!("{path}.base"), "RGB needs a base"))?;
+                        .ok_or_else(|| {
+                            invalid(&format!("{}.base", at.render()), "RGB needs a base")
+                        })?;
                     b.insert("pen_color".into(), Value::from(pen));
                 }
             }
             for (key, v) in obj.iter_mut() {
                 if key != "options" {
-                    apply(v, &format!("{path}.{key}"), used, palette, changed)?;
+                    apply(v, &At::Key(at, key), used, palette, changed)?;
                 }
             }
         } else if let Some(values) = v.as_array_mut() {
             for (i, v) in values.iter_mut().enumerate() {
-                apply(v, &format!("{path}[{i}]"), used, palette, changed)?;
+                apply(v, &At::Index(at, i), used, palette, changed)?;
             }
         }
         Ok(())
@@ -293,7 +315,13 @@ fn allocate_colors(value: &mut Value) -> Result<(), JwwWriteError> {
         ));
     }
     let mut changed = false;
-    apply(value, "document", &mut used, &mut palette, &mut changed)?;
+    apply(
+        value,
+        &At::Root("document"),
+        &mut used,
+        &mut palette,
+        &mut changed,
+    )?;
     if changed {
         value["options"]["palette"] = serde_json::to_value(palette).unwrap();
     }

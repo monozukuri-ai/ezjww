@@ -5,8 +5,28 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
 use serde_json::Value;
 
-fn value(input: &Bound<'_, PyAny>, path: &str, depth: usize) -> PyResult<Value> {
-    let invalid = |message: &str| PyValueError::new_err(format!("{path}: {message}"));
+/// Where a value sits in the input, rendered only for an error message. Building
+/// the `document.entities[i].base.layer` string for every value of a drawing
+/// with hundreds of thousands of entities was most of the conversion time.
+#[derive(Clone, Copy)]
+enum InputPath<'a> {
+    Root(&'a str),
+    Index(&'a InputPath<'a>, usize),
+    Key(&'a InputPath<'a>, &'a str),
+}
+
+impl InputPath<'_> {
+    fn render(&self) -> String {
+        match self {
+            InputPath::Root(name) => (*name).to_owned(),
+            InputPath::Index(parent, index) => format!("{}[{index}]", parent.render()),
+            InputPath::Key(parent, key) => format!("{}.{key}", parent.render()),
+        }
+    }
+}
+
+fn value(input: &Bound<'_, PyAny>, path: &InputPath<'_>, depth: usize) -> PyResult<Value> {
+    let invalid = |message: &str| PyValueError::new_err(format!("{}: {message}", path.render()));
     if depth > 64 {
         return Err(invalid("input nesting exceeds 64"));
     }
@@ -44,7 +64,7 @@ fn value(input: &Bound<'_, PyAny>, path: &str, depth: usize) -> PyResult<Value> 
         return items
             .iter()
             .enumerate()
-            .map(|(i, v)| value(&v, &format!("{path}[{i}]"), depth + 1))
+            .map(|(i, v)| value(&v, &InputPath::Index(path, i), depth + 1))
             .collect::<PyResult<Vec<_>>>()
             .map(Value::Array);
     }
@@ -54,7 +74,8 @@ fn value(input: &Bound<'_, PyAny>, path: &str, depth: usize) -> PyResult<Value> 
             let key = key
                 .extract::<String>()
                 .map_err(|_| invalid("expected string keys"))?;
-            out.insert(key.clone(), value(&v, &format!("{path}.{key}"), depth + 1)?);
+            let item = value(&v, &InputPath::Key(path, &key), depth + 1)?;
+            out.insert(key, item);
         }
         return Ok(Value::Object(out));
     }
@@ -63,8 +84,12 @@ fn value(input: &Bound<'_, PyAny>, path: &str, depth: usize) -> PyResult<Value> 
 
 fn bytes(document: &Bound<'_, PyDict>) -> PyResult<Vec<u8>> {
     encode(
-        &ezjww_core::writer::input::from_value(value(document.as_any(), "document", 0)?)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        &ezjww_core::writer::input::from_value(value(
+            document.as_any(),
+            &InputPath::Root("document"),
+            0,
+        )?)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?,
     )
     .map_err(|e| PyValueError::new_err(e.to_string()))
 }
@@ -145,7 +170,7 @@ fn to_write_document(
         source.del_item("block_def_names")?;
     }
     let report = ezjww_core::writer::to_write_document(
-        value(source.as_any(), "document", 0)?,
+        value(source.as_any(), &InputPath::Root("document"), 0)?,
         skip_unsupported,
     )
     .map_err(|e| PyValueError::new_err(e.to_string()))?;

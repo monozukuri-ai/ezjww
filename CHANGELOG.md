@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- JWW writing: the path of each input value (`document.entities[i].base.layer`)
+  is rendered only for an error message. `to_jww_bytes`, `to_write_document` and
+  the writer's color allocation built that string for every value, which was
+  most of the time spent turning the input into the write document: for
+  drawings of 380,000 and 840,000 entities (converted from 5 MB and 3.6 MB
+  DWGs) it took 3.8 s and 7.9 s and now takes 2.1 s and 4.7 s. The output and
+  the error messages are unchanged. (0.7.7.)
 - JWC reading accepts the framing and value variants of real DOS-era files
   (23 of 23 production files that the reference-corpus rules rejected now read):
   a missing LF at bytes 199/399/599/799, a CSV block padded with spaces and no
