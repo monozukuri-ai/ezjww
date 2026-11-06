@@ -9,6 +9,15 @@ pub(super) struct ArchiveWriter {
     bytes: Vec<u8>,
     classes: HashMap<(&'static str, u16), u32>,
     next_pid: u32,
+    /// While `Some`, the offset of each entity base's `pen_color` as it is written.
+    pen_colors: Option<Vec<usize>>,
+}
+
+/// What `ArchiveWriter::rewind` restores.
+pub(super) struct Checkpoint {
+    len: usize,
+    classes: HashMap<(&'static str, u16), u32>,
+    next_pid: u32,
 }
 
 impl ArchiveWriter {
@@ -17,11 +26,44 @@ impl ArchiveWriter {
             bytes: Vec::new(),
             classes: HashMap::new(),
             next_pid: 1,
+            pen_colors: None,
         }
     }
 
     pub(super) fn into_bytes(self) -> Vec<u8> {
         self.bytes
+    }
+    pub(super) fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            len: self.bytes.len(),
+            classes: self.classes.clone(),
+            next_pid: self.next_pid,
+        }
+    }
+    /// Drops what was written after `checkpoint`, with the classes and PIDs it took.
+    pub(super) fn rewind(&mut self, checkpoint: Checkpoint) {
+        self.bytes.truncate(checkpoint.len);
+        self.classes = checkpoint.classes;
+        self.next_pid = checkpoint.next_pid;
+    }
+    /// Records the offset of each `pen_color` written until `take_pen_colors`.
+    pub(super) fn record_pen_colors(&mut self) {
+        self.pen_colors = Some(Vec::new());
+    }
+    pub(super) fn take_pen_colors(&mut self) -> Vec<usize> {
+        self.pen_colors.take().unwrap_or_default()
+    }
+    /// Called by the entity writer right before it writes a base's `pen_color`.
+    pub(super) fn pen_color_follows(&mut self) {
+        if let Some(offsets) = &mut self.pen_colors {
+            offsets.push(self.bytes.len());
+        }
+    }
+    pub(super) fn u16_at(&self, offset: usize) -> u16 {
+        u16::from_le_bytes([self.bytes[offset], self.bytes[offset + 1]])
+    }
+    pub(super) fn set_u16_at(&mut self, offset: usize, value: u16) {
+        self.bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
     }
     pub(super) fn bytes(&mut self, bytes: &[u8]) {
         self.bytes.extend_from_slice(bytes);

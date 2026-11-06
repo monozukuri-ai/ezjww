@@ -45,6 +45,21 @@ only when no entity's `base` is changed after the entity is added, since a chang
 would reach every entity that shares it. Dimension members keep their own `base`.
 A new drawing has `source_format == "jww"` and `source_path is None`.
 
+For drawings too large to hold as dictionaries, call `drawing.stream_entities()`
+before adding the entities: each modelspace entity is then checked and encoded
+when it is added (a line takes about 360 bytes as dictionaries and 49 in the
+file), and `modelspace().entities` stays empty. An entity the writer refuses is
+left out without raising; `drawing.refused_entities` lists `(index, reason)` for
+each, with the reason `to_jww_bytes()` would have raised. `to_jww_bytes()` or
+`saveas()` then writes the file once, with the options, block definitions and
+images as they are at that time, and gives the same bytes as the same drawing
+without streaming. The pens of RGB colors are chosen at that point, in the same
+order (block definitions first, even when they are added after the entities).
+Because an entity is written when it is added, it cannot be changed afterwards,
+and the conversions and analyses of the drawing (`to_dxf`, `source_document`,
+`bbox`, ...) are not available. If `to_jww_bytes()` raises for the options, a
+block definition or an image, correct it and call it again.
+
 `modelspace()` returns a persistent `JwwModelspace`. Its `entities` list and the
 dictionaries returned by the `add_*` methods are mutable. Entity geometry
 uses the native field names in the reader's `JwwEntity` schema. Each `jwwattribs`

@@ -179,6 +179,114 @@ def test_shared_bases_write_the_same_drawing():
     assert pa["base"] is not pb["base"]
 
 
+def _mixed_drawing(stream_after):
+    """A drawing with RGB colors everywhere, its block defined after the entities.
+
+    `stream_after`: None, or how many entities to add before stream_entities().
+    """
+    d = ezjww.new(share_bases=True)
+    m = d.modelspace()
+    image = d.embed_image("site.png", b"\x89PNG\r\n\x1a\n" + bytes(range(32)))
+    adds = [
+        lambda: m.add_line((0, 0), (1, 1), color=0x1D2E3F),
+        lambda: m.add_line((0, 0), (2, 2), jwwattribs={"pen_color": 118}),
+        lambda: m.add_arc((5, 5), 2.0, 10.0, 80.0, color=0x2A3B4C),
+        lambda: m.add_circle((5, 5), 1.0, color=0x000000),
+        lambda: m.add_point((3, 4), color=0x0A0B0C),
+        lambda: m.add_text("寸法 10", (1, 2), color=0x1D2E3F),
+        lambda: m.add_solid((0, 0), (1, 0), (1, 1), (0, 1), color=0x445566),
+        lambda: m.add_dimension(
+            (0, 0),
+            (10, 0),
+            "10",
+            (2, 1),
+            text_options={"jwwattribs": {"pen_style": 1}},
+            jwwattribs={"pen_style": 2, "layer": 3},
+        ),
+        lambda: m.add_ellipse((20, 20), 6.0, 0.5, tilt_angle=30.0, color=0x3E3F40),
+        lambda: m.add_image(image, (30, 30), 10.0, 5.0),
+        lambda: m.add_block_ref(0, (40, 40)),
+    ]
+    for i, add in enumerate(adds):
+        if i == stream_after:
+            d.stream_entities()
+        add()
+    # The block's colors take their pens first although it is defined last
+    block = ezjww.JwwModelspace(d.options)
+    block.add_line((0, 0), (5, 5), color=0x0A0B0C)
+    block.add_line((0, 0), (5, 0), color=0x5A5B5C)
+    d.add_block("B", block.entities)
+    return d
+
+
+@pytest.mark.parametrize("stream_after", [0, 4])
+def test_streamed_entities_write_the_same_drawing(stream_after):
+    streamed = _mixed_drawing(stream_after)
+    assert streamed.to_jww_bytes() == _mixed_drawing(None).to_jww_bytes()
+    assert streamed.modelspace().entities == []
+    assert streamed.refused_entities == []
+
+
+def test_streamed_entities_leave_out_what_the_writer_refuses():
+    def build(stream):
+        d = ezjww.new()
+        if stream:
+            d.stream_entities()
+        m = d.modelspace()
+        m.add_line((0, 0), (1, 1), color=0x1D2E3F)
+        if stream:
+            m.add_line((0, 0), (2, 2), jwwattribs={"pen_color": 357})
+            m.add_line((0, 0), (float("nan"), 2))
+        m.add_line((0, 0), (3, 3), color=0x2A3B4C)
+        return d
+
+    streamed = build(True)
+    assert streamed.to_jww_bytes() == build(False).to_jww_bytes()
+    (first, reason), (second, conversion) = streamed.refused_entities
+    assert (first, second) == (1, 2)
+    assert reason.startswith("entities[1].base.pen_color: expected pen color")
+    assert conversion == "document.entities[2].end_x: expected a finite number"
+
+
+def test_streamed_drawing_is_written_once_and_finish_can_be_retried():
+    def build(pen):
+        d = ezjww.new()
+        if pen is None:
+            d.stream_entities()
+        d.modelspace().add_line((0, 0), (1, 1), color=0x1D2E3F)
+        block = ezjww.JwwModelspace(d.options)
+        block.add_line((0, 0), (1, 0), jwwattribs={"pen_color": 357 if pen is None else pen})
+        d.add_block("B", block.entities)
+        return d
+
+    d = build(None)
+    with pytest.raises(ValueError, match=r"^block_defs\[0\]\.entities\[0\]\.base\.pen_color"):
+        d.to_jww_bytes()
+    d.block_defs[0]["entities"][0]["base"]["pen_color"] = 2
+    assert d.to_jww_bytes() == build(2).to_jww_bytes()
+    with pytest.raises(ValueError, match="takes no more entities"):
+        d.modelspace().add_line((0, 0), (1, 1))
+    with pytest.raises(ValueError, match="already finished"):
+        d.to_jww_bytes()
+    with pytest.raises(ValueError, match="streamed"):
+        d.source_document
+
+
+def test_dimension_points_keep_pen_style_one():
+    d = ezjww.new()
+    dimension = d.modelspace().add_dimension(
+        (0, 0),
+        (10, 0),
+        "10",
+        (2, 1),
+        text_options={"jwwattribs": {"pen_style": 1}},
+        jwwattribs={"pen_style": 2},
+    )
+    assert dimension["line"]["base"]["pen_style"] == 2
+    assert [p["base"]["pen_style"] for p in dimension["aux_points"]] == [1, 1, 1, 1]
+    d.to_jww_bytes()  # the points' pen style 2 was refused before
+
+
 @pytest.mark.parametrize("color", [10, 16, 99, 357])
 def test_reserved_color_numbers_are_rejected_for_lines(color):
     d = ezjww.new()

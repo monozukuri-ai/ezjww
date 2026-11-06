@@ -122,7 +122,10 @@ Dimensions use `CDataSunpou`, containing a LINE, TEXT, two auxiliary LINE slots 
 four POINT slots. Non-SXF dimensions may omit auxiliaries in the Python helper;
 unused slots are zero-filled. SXF mode 1 requires all six slots. Raw input always
 requires their full lengths. The helper sets LINE/outer flags `0x2000`, value TEXT
-`0x4010` and auxiliary POINT `0x0040`. Use `jwwattribs={"dimension": "line"}`,
+`0x4010` and auxiliary POINT `0x0040`. The members take the helper's `jwwattribs`,
+except that the auxiliary points keep pen style 1, the only one points support,
+and the value TEXT takes `text_options["jwwattribs"]` over them (a text also
+supports pen style 1 only). Use `jwwattribs={"dimension": "line"}`,
 `"value_text"` or `"aux"` for individual elements; conflicting flags are errors.
 Supported text dimension-setting bits are `0x3ffa`, with mutually exclusive
 rounding/prefix-suffix choices validated. The caller supplies the displayed value;

@@ -1,5 +1,5 @@
 //! Strict Python adapter for the shared writer input decoder.
-use ezjww_core::writer::input::DocumentEncoder;
+use ezjww_core::writer::input::{DocumentEncoder, EntityStream};
 use ezjww_core::{to_jww_bytes as encode, JwwDocument};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -147,6 +147,83 @@ fn streamed(document: &Bound<'_, PyDict>) -> Option<Vec<u8>> {
     encoder.finish().ok()
 }
 
+/// The entities of a new JWW encoded one at a time as Python adds them
+/// (`EntityStream`), so that no one holds all of them as dicts; see
+/// `JwwDrawing.stream_entities`. Each dict is converted with the path it has in
+/// `to_jww_bytes`'s input, so the messages are the same.
+#[pyclass(module = "ezjww._core")]
+struct JwwEntityStream {
+    stream: EntityStream,
+}
+
+#[pymethods]
+impl JwwEntityStream {
+    #[new]
+    fn new(options: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let root = InputPath::Root("document");
+        let options = value(options, &InputPath::Key(&root, "options"), 1)?;
+        EntityStream::new(&options)
+            .map(|stream| Self { stream })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Writes one entity dict. Returns None, or the reason the writer refused
+    /// it (it is then not written). Raises once the stream is closed.
+    fn push(&mut self, py: Python<'_>, entity: &Bound<'_, PyAny>) -> PyResult<Option<String>> {
+        self.stream
+            .check_open()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let root = InputPath::Root("document");
+        let list = InputPath::Key(&root, "entities");
+        let index = self.stream.next_index();
+        let element = match value(entity, &InputPath::Index(&list, index), 2) {
+            Ok(element) => element,
+            Err(error) => {
+                self.stream.skip_entity();
+                return Ok(Some(error.value_bound(py).to_string()));
+            }
+        };
+        match self.stream.push_entity(element) {
+            Ok(()) => Ok(None),
+            Err(error) if self.stream.is_closed() => Err(PyValueError::new_err(error.to_string())),
+            Err(error) => Ok(Some(error.to_string())),
+        }
+    }
+
+    /// The JWW file of the written entities with these options, block
+    /// definitions and images. On ValueError nothing changed: correct the input
+    /// and call it again.
+    fn finish<'py>(
+        &mut self,
+        py: Python<'py>,
+        options: &Bound<'py, PyAny>,
+        block_defs: &Bound<'py, PyList>,
+        images: &Bound<'py, PyList>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let root = InputPath::Root("document");
+        let options = value(options, &InputPath::Key(&root, "options"), 1)?;
+        let error = |e: ezjww_core::JwwWriteError| PyValueError::new_err(e.to_string());
+        // One element at a time: all block definitions as `Value` trees at
+        // once took 300 MB more than their dicts for a CAXA drawing.
+        let mut used = HashSet::new();
+        scan_pens(block_defs.as_any(), &mut used, 1);
+        scan_pens(images.as_any(), &mut used, 1);
+        let mut finisher = self.stream.finisher(options, used).map_err(error)?;
+        let at = InputPath::Key(&root, "block_defs");
+        for (i, item) in block_defs.iter().enumerate() {
+            let element = value(&item, &InputPath::Index(&at, i), 2)?;
+            finisher.push_block_def(element).map_err(error)?;
+        }
+        let at = InputPath::Key(&root, "images");
+        for (i, item) in images.iter().enumerate() {
+            let element = value(&item, &InputPath::Index(&at, i), 2)?;
+            finisher.push_image(element).map_err(error)?;
+        }
+        let bytes = finisher.finish().map_err(error)?;
+        Ok(PyBytes::new_bound(py, &bytes))
+    }
+}
+
 /// `ezjww_core::writer::input::scan_pens` over the Python input: each
 /// `base.pen_color` that `value` turns into an unsigned integer up to u16::MAX.
 fn scan_pens(input: &Bound<'_, PyAny>, used: &mut HashSet<u16>, depth: usize) {
@@ -273,6 +350,7 @@ pub(super) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(new_jww_document, m)?)?;
     m.add_function(wrap_pyfunction!(to_write_document, m)?)?;
     m.add_function(wrap_pyfunction!(to_jww_bytes, m)?)?;
+    m.add_class::<JwwEntityStream>()?;
     m.add_function(wrap_pyfunction!(jww_write_document_to_document, m)?)?;
     m.add_function(wrap_pyfunction!(jww_write_document_to_dxf, m)?)?;
     m.add_function(wrap_pyfunction!(jww_write_document_to_dxf_string, m)?)?;

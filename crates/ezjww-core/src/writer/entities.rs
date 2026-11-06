@@ -95,6 +95,7 @@ pub(super) fn write(archive: &mut ArchiveWriter, entity: &Entity) -> Result<(), 
 fn base(archive: &mut ArchiveWriter, base: &EntityBase) {
     archive.u32(base.group);
     archive.u8(base.pen_style);
+    archive.pen_color_follows();
     for value in [
         base.pen_color,
         base.pen_width,

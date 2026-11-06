@@ -541,12 +541,36 @@ class Drawing:
         )
 
 
+class _EntityStream:
+    """A modelspace's entities encoded as they are added (stream_entities)."""
+
+    def __init__(self, options: dict[str, Any]) -> None:
+        self.native = _core.JwwEntityStream(options)
+        self.offered = 0
+        self.refused: list[tuple[int, str]] = []
+        # def_number of each written BLOCK entity, for is_referenced
+        self.block_numbers: set[Any] = set()
+        self.finished = False
+
+    def push(self, entity: dict[str, Any]) -> None:
+        if self.finished:
+            raise ValueError("the drawing was written; it takes no more entities")
+        reason = self.native.push(entity)
+        if reason is not None:
+            self.refused.append((self.offered, reason))
+        elif entity.get("type") == "BLOCK":
+            self.block_numbers.add(entity["def_number"])
+        self.offered += 1
+
+
 class JwwModelspace(Modelspace):
     """Editable native entities for a new JWW; angles in raw ARC dicts are radians.
 
     With ``share_bases=True`` the entities added with the same attributes share
     one ``base`` dict. Use it only when no entity's ``base`` is changed after the
     entity is added: a change would reach every entity that shares the dict.
+    After ``JwwDrawing.stream_entities()`` the entities are written as they are
+    added and ``entities`` stays empty.
     """
 
     def __init__(
@@ -567,8 +591,42 @@ class JwwModelspace(Modelspace):
         self._shared_bases: dict[tuple[tuple[str, Any], ...], dict[str, Any]] | None = (
             {} if share_bases else None
         )
+        self._stream: _EntityStream | None = None
+
+    def _start_stream(self) -> None:
+        if self._stream is not None:
+            raise ValueError("the entities are already streamed")
+        self._stream = _EntityStream(self._options)
+        entities = list(self.entities)
+        self.entities.clear()
+        for entity in entities:
+            self._stream.push(entity)
+
+    def _finish_stream(self) -> bytes:
+        stream = self._stream
+        assert stream is not None
+        references = set(stream.block_numbers)
+        references.update(
+            entity["def_number"]
+            for b in self._block_defs
+            for entity in b["entities"]
+            if entity.get("type") == "BLOCK"
+        )
+        definitions = [
+            dict(b, is_referenced=b["number"] in references) for b in self._block_defs
+        ]
+        data = stream.native.finish(
+            self._options, definitions, [dict(image) for image in self._images]
+        )
+        stream.finished = True
+        return data
 
     def _input(self) -> dict[str, Any]:
+        if self._stream is not None:
+            raise ValueError(
+                "the entities were streamed (stream_entities); only to_jww_bytes "
+                "and saveas can write them"
+            )
         references = {
             entity["def_number"]
             for entities in [self.entities, *(b["entities"] for b in self._block_defs)]
@@ -637,7 +695,10 @@ class JwwModelspace(Modelspace):
                 entity["base"] = shared.setdefault(tuple(base.items()), base)
             except TypeError:  # an attribute value that is not hashable keeps its own dict
                 pass
-        self.entities.append(entity)
+        if self._stream is not None:
+            self._stream.push(entity)
+        else:
+            self.entities.append(entity)
         return entity
 
     def add_line(
@@ -675,24 +736,42 @@ class JwwModelspace(Modelspace):
         jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
         """Angles are degrees: start [0, 360), CCW sweep (0, 360)."""
+        return self._append(
+            self._arc(
+                center, radius, start_angle, sweep_angle, flatness, tilt_angle, jwwattribs
+            ),
+            color,
+        )
+
+    def _arc(
+        self,
+        center: tuple[float, float],
+        radius: float,
+        start_angle: float,
+        sweep_angle: float,
+        flatness: float,
+        tilt_angle: float,
+        jwwattribs: Mapping[str, int | str] | None,
+        *,
+        full: bool = False,
+    ) -> dict[str, Any]:
+        """The ARC dict of add_arc, or with `full` the CIRCLE one, not yet added
+        (a streamed entity is written when it is added, so it is complete then)."""
         if any(isinstance(v, bool) for v in (start_angle, sweep_angle, tilt_angle)):
             raise ValueError("Arc angles must be numbers, not bool.")
         x, y = center
-        return self._append(
-            {
-                "type": "ARC",
-                "base": self._base(jwwattribs),
-                "center_x": x,
-                "center_y": y,
-                "radius": radius,
-                "start_angle": math.radians(start_angle),
-                "arc_angle": math.radians(sweep_angle),
-                "tilt_angle": math.radians(tilt_angle),
-                "flatness": flatness,
-                "is_full_circle": False,
-            },
-            color,
-        )
+        return {
+            "type": "CIRCLE" if full else "ARC",
+            "base": self._base(jwwattribs),
+            "center_x": x,
+            "center_y": y,
+            "radius": radius,
+            "start_angle": math.radians(start_angle),
+            "arc_angle": math.radians(sweep_angle),
+            "tilt_angle": math.radians(tilt_angle),
+            "flatness": flatness,
+            "is_full_circle": full,
+        }
 
     def add_circle(
         self,
@@ -702,11 +781,9 @@ class JwwModelspace(Modelspace):
         color: int | None = None,
         jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
-        circle = self.add_arc(
-            center, radius, 0.0, 360.0, color=color, jwwattribs=jwwattribs
+        return self._append(
+            self._arc(center, radius, 0.0, 360.0, 1.0, 0.0, jwwattribs, full=True), color
         )
-        circle.update(type="CIRCLE", is_full_circle=True)
-        return circle
 
     def add_point(
         self,
@@ -858,7 +935,11 @@ class JwwModelspace(Modelspace):
             not isinstance(e, dict) for e in entities
         ):
             raise ValueError("entities must be a list of dictionaries")
-        self.entities.extend(entities)
+        if self._stream is not None:
+            for entity in entities:
+                self._stream.push(entity)
+        else:
+            self.entities.extend(entities)
 
     def add_ellipse(
         self,
@@ -873,19 +954,19 @@ class JwwModelspace(Modelspace):
         jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
         """Angles are degrees in the rotated major/minor-axis coordinate system."""
-        arc = self.add_arc(
-            center,
-            radius,
-            start_angle,
-            sweep_angle,
-            flatness=flatness,
-            tilt_angle=tilt_angle,
-            color=color,
-            jwwattribs=jwwattribs,
+        return self._append(
+            self._arc(
+                center,
+                radius,
+                start_angle,
+                sweep_angle,
+                flatness,
+                tilt_angle,
+                jwwattribs,
+                full=sweep_angle == 360.0,
+            ),
+            color,
         )
-        if sweep_angle == 360.0:
-            arc.update(type="CIRCLE", is_full_circle=True)
-        return arc
 
     def add_solid(
         self,
@@ -1011,7 +1092,12 @@ class JwwModelspace(Modelspace):
         text_options: Mapping[str, Any] | None = None,
         jwwattribs: Mapping[str, int | str] | None = None,
     ) -> dict[str, Any]:
-        """Create a native dimension, with two auxiliary lines and four point slots."""
+        """Create a native dimension, with two auxiliary lines and four point slots.
+
+        The members take `jwwattribs`, except that the points keep pen style 1,
+        the only one points support (with a dashed line they were refused). The
+        value text takes `text_options["jwwattribs"]` over `jwwattribs`.
+        """
         lines = list(aux_lines or [])
         points = list(aux_points or [])
         if len(lines) > 2 or len(points) > 4:
@@ -1059,7 +1145,7 @@ class JwwModelspace(Modelspace):
                 "aux_points": [
                     member(
                         scratch.add_point(
-                            p, jwwattribs=dict(attributes, dimension="aux")
+                            p, jwwattribs=dict(attributes, dimension="aux", pen_style=1)
                         )
                     )
                     for p in points
@@ -1133,6 +1219,7 @@ class JwwDrawing(Drawing):
     Edit `options` and `modelspace().entities`; derived documents are snapshots.
     Rust validates every field on serialization, conversion or analysis.
     `share_bases` is passed to the modelspace (see `JwwModelspace`).
+    For drawings too large to hold as dicts, see `stream_entities`.
     """
 
     def __init__(
@@ -1268,7 +1355,30 @@ class JwwDrawing(Drawing):
         self._images.append({"name": stored, "data": payload})
         return reference
 
+    def stream_entities(self) -> None:
+        """Write the modelspace entities as they are added instead of keeping them.
+
+        Each entity is checked and encoded when it is added, so a large drawing
+        is never held as dicts (a line takes about 360 bytes as dicts and 49
+        in the file); `modelspace().entities` stays empty. An entity the writer
+        refuses is left out and listed in `refused_entities`, without raising.
+        `to_jww_bytes()` or `saveas()` then writes the file once, with the
+        options, block definitions and images as they are at that time: the
+        same bytes as without streaming for the entities that were written.
+        Entities can no longer be changed after they are added, and the
+        conversions and analyses of the drawing are not available.
+        """
+        self._modelspace._start_stream()
+
+    @property
+    def refused_entities(self) -> list[tuple[int, str]]:
+        """(index, reason) of each streamed entity that was left out."""
+        stream = self._modelspace._stream
+        return list(stream.refused) if stream is not None else []
+
     def to_jww_bytes(self) -> bytes:
+        if self._modelspace._stream is not None:
+            return self._modelspace._finish_stream()
         return _core.to_jww_bytes(self._modelspace._input())
 
     def saveas(self, output_path: str | Path) -> None:

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- JWW writing from Python: after `JwwDrawing.stream_entities()` the modelspace
+  entities are checked and encoded as they are added instead of being kept as
+  dicts, for drawings too large to hold: a line takes about 360 bytes as dicts
+  and 49 in the file. `to_jww_bytes()` (or `saveas()`) then writes the file
+  once, with the options, block definitions and images as they are at that
+  time. Converting DWGs of 1.93 million and 840,000 entities to JWW now peaks
+  at 757 MB and 354 MB instead of 1,323 MB and 621 MB. The bytes are those of
+  the same drawing without streaming: the pens of RGB colors are still chosen
+  among the pens of the whole document and in the order of `to_jww_bytes`
+  (block definitions first, also when they are added last), by writing a
+  placeholder and the pen over it at the end. An entity the writer refuses is
+  left out without raising and listed in `refused_entities`, with the message
+  `to_jww_bytes()` would have raised for it. A streamed entity cannot be
+  changed after it is added, and `to_dxf`, `source_document` and the analyses
+  are not available. The shared decoder gains `writer::input::EntityStream`
+  and `StreamFinisher`. (0.7.11.)
+- JWW writing from Python: `add_dimension` gives the auxiliary points pen
+  style 1, the only one points support; a dimension drawn with another line
+  style (`jwwattribs={"pen_style": 2}`) was refused. The value text still takes
+  `text_options["jwwattribs"]` over `jwwattribs`. (0.7.11.)
 - JWW writing from Python: `new(share_bases=True)` (and `JwwModelspace(...,
   share_bases=True)`) lets the entities added with the same attributes share
   one `base` dict, for large drawings whose entities are not changed after they
