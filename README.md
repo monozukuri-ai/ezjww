@@ -3,6 +3,8 @@
 `ezjww` reads Jw_cad drawings, creates JWW files and converts drawings to DXF. Its Rust core is
 available through Python and TypeScript/WebAssembly.
 
+> 日本語: Jw_cad の図面（JWW・JWC・JWS）を Python と TypeScript で読み、JWW を書き出し、DXF に変換するライブラリです。説明は[このページの下](#日本語)にあります。
+
 - Read JWW files, [JWS registered symbols](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWS_FORMAT.md), and a [limited binary JWC profile](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWC_FORMAT.md).
 - Create new version-700 JWW drawings with basic geometry and text (Python/TypeScript/Rust).
 - Read and write the images embedded in version-700 files (`^@BM` placements).
@@ -11,11 +13,9 @@ available through Python and TypeScript/WebAssembly.
 - Export ASCII DXF (AC1015 or AC1024) and render PNG/PDF previews.
 - Convert individual files or directories from the command line.
 
-This checkout prepares **0.5.0**, adding SXF color/line tables, solids, ellipses,
-dimensions, blocks and convenience APIs to the writer introduced in 0.4.0.
-Build from source until 0.5.0 is published.
-
-JWS reading is available in this source checkout. See the [JWS guide](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWS_FORMAT.md) for supported versions, coordinates and image limits.
+The writer also covers SXF color/line tables, solids, ellipses, dimensions and
+blocks; see [JWW writing](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWW_WRITE.md).
+For JWS files, the [JWS guide](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWS_FORMAT.md) lists supported versions, coordinates and image limits.
 
 ## Installation
 
@@ -289,6 +289,32 @@ is unknown and returned as `None` in Python or `null` in TypeScript.
 - [Audit codes and error handling](https://github.com/monozukuri-ai/ezjww/blob/main/docs/DIAGNOSTICS.md)
 - [JWW signature](https://github.com/monozukuri-ai/ezjww/blob/main/docs/JWW_SIGNATURE.md)
 - [Browser example](https://github.com/monozukuri-ai/ezjww/blob/main/packages/ezjww/examples/browser/README.md)
+
+## 日本語
+
+`ezjww` は、Jw_cad の図面（JWW・JWC・JWS）を Python と TypeScript から読み、JWW を書き出し、DXF に変換するライブラリです。中身は Rust で、Jw_cad 本体は要りません。
+
+- 読む: JWW、JWS（図形ファイル）、JWC（DOS 版の形式の一部）
+- 書く: JWW（バージョン 7.00）。線、円、円弧、楕円、点、文字、寸法、ソリッド、ブロック、画像
+- 変換する: DXF（AC1015 / AC1024）、PNG・PDF のプレビュー
+- 調べる: ヘッダー、レイヤ、要素の件数、外形、読み取りの診断
+
+```bash
+pip install ezjww
+```
+
+```python
+import ezjww
+
+drawing = ezjww.readfile("drawing.jww")  # JWW・JWC・JWS は中身から判別する
+print(drawing.stats())
+print(drawing.bbox())
+drawing.save_dxf("drawing.dxf", target_version="AC1024")
+```
+
+コマンドラインでは `ezjww to-dxf drawing.jww -o drawing.dxf`、フォルダごとなら `ezjww to-dxf-dir drawings -o dxf --recursive` で DXF にできます。
+
+関連するライブラリ: SXF（SFC・P21）は [ezsxf](https://github.com/monozukuri-ai/ezsxf)、DWG は [ezdwg](https://github.com/monozukuri-ai/ezdwg)、複数の形式を 1 つの中間表現で扱うなら [cad2d-ir](https://github.com/monozukuri-ai/cad2d-ir)。インストールせずにブラウザで JWW を開く・変換するなら [zumen-gate](https://zumen-gate.com) が使えます。
 
 ## License
 

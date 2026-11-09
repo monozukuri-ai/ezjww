@@ -1,7 +1,8 @@
 [project]
 name = "ezjww"
 dynamic = ["version"]
-description = "JWW/JWC reader, JWW writer and DXF converter powered by Rust"
+description = "Jw_cad JWW/JWC/JWS reader, JWW writer and DXF converter powered by Rust"
+keywords = ["jww", "jwc", "jws", "jw_cad", "jwcad", "cad", "dxf", "parser", "converter"]
 license = { file = "LICENSE" }
 readme = "README.md"
 authors = [
