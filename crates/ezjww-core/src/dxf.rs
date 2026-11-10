@@ -2005,16 +2005,19 @@ fn convert_arc(
         let mut major_radius = arc.radius;
         let mut minor_ratio = arc.flatness;
         let mut tilt_angle = arc.tilt_angle;
+        let mut start_param_angle = arc.start_angle;
 
         if minor_ratio > 1.0 {
             major_radius = arc.radius * arc.flatness;
             minor_ratio = 1.0 / arc.flatness;
             tilt_angle = arc.tilt_angle + PI / 2.0;
+            // The parameters are measured from the major axis, which moved by +90°.
+            start_param_angle -= PI / 2.0;
         }
 
         let major_axis_x = major_radius * tilt_angle.cos();
         let major_axis_y = major_radius * tilt_angle.sin();
-        let (span_start, span_end) = jww_arc_to_ccw_span(arc.start_angle, arc.arc_angle);
+        let (span_start, span_end) = jww_arc_to_ccw_span(start_param_angle, arc.arc_angle);
         let start_param = if arc.is_full_circle { 0.0 } else { span_start };
         let end_param = if arc.is_full_circle {
             2.0 * PI
@@ -2037,7 +2040,9 @@ fn convert_arc(
         })];
     }
 
-    let (start_angle, end_angle) = jww_arc_to_ccw_span(arc.start_angle, arc.arc_angle);
+    // JWW measures the angles in the tilted frame; DXF ARC has no tilt.
+    let (start_angle, end_angle) =
+        jww_arc_to_ccw_span(arc.start_angle + arc.tilt_angle, arc.arc_angle);
     vec![DxfEntity::Arc(DxfArc {
         layer,
         color,
@@ -3733,6 +3738,75 @@ mod tests {
                 assert!((arc.end_angle - 1.0).abs() < 1e-9);
             }
             other => panic!("expected ARC, got {:?}", other),
+        }
+    }
+
+    fn convert_single_arc(arc: Arc) -> DxfEntity {
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Arc(arc)],
+            images: Vec::new(),
+            block_defs: vec![],
+        };
+        convert_document(&doc).entities.remove(0)
+    }
+
+    fn test_arc(start_deg: f64, sweep_deg: f64, tilt_deg: f64, flatness: f64) -> Arc {
+        Arc {
+            base: EntityBase::default(),
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 10.0,
+            start_angle: start_deg.to_radians(),
+            arc_angle: sweep_deg.to_radians(),
+            tilt_angle: tilt_deg.to_radians(),
+            flatness,
+            is_full_circle: false,
+        }
+    }
+
+    #[test]
+    fn convert_document_rotates_circular_arc_by_tilt() {
+        match convert_single_arc(test_arc(10.0, 90.0, 30.0, 1.0)) {
+            DxfEntity::Arc(arc) => {
+                assert!((arc.start_angle - 40.0).abs() < 1e-9);
+                assert!((arc.end_angle - 130.0).abs() < 1e-9);
+            }
+            other => panic!("expected ARC, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_rotates_negative_sweep_circular_arc_by_tilt() {
+        match convert_single_arc(test_arc(0.0, -90.0, -90.0, 1.0)) {
+            DxfEntity::Arc(arc) => {
+                assert!((arc.start_angle - 180.0).abs() < 1e-9);
+                assert!((arc.end_angle - 270.0).abs() < 1e-9);
+            }
+            other => panic!("expected ARC, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_keeps_endpoints_when_swapping_ellipse_axes() {
+        // flatness 2: the JWW point at parameter t is (10 cos t, 20 sin t).
+        match convert_single_arc(test_arc(0.0, 90.0, 0.0, 2.0)) {
+            DxfEntity::Ellipse(e) => {
+                let point = |t: f64| {
+                    let (minor_x, minor_y) = (
+                        -e.major_axis_y * e.minor_ratio,
+                        e.major_axis_x * e.minor_ratio,
+                    );
+                    (
+                        e.major_axis_x * t.cos() + minor_x * t.sin(),
+                        e.major_axis_y * t.cos() + minor_y * t.sin(),
+                    )
+                };
+                let (start, end) = (point(e.start_param), point(e.end_param));
+                assert!((start.0 - 10.0).abs() < 1e-9 && start.1.abs() < 1e-9);
+                assert!(end.0.abs() < 1e-9 && (end.1 - 20.0).abs() < 1e-9);
+            }
+            other => panic!("expected ELLIPSE, got {:?}", other),
         }
     }
 

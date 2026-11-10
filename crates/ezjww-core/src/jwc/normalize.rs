@@ -391,9 +391,9 @@ pub fn normalize_jwc_document(
                 if !radius.is_finite() {
                     return Err(invalid(Some(index), "radius overflow"));
                 }
-                // The start/end angles are measured in the tilted frame. The shared
-                // DXF writer only applies the tilt to ellipses, so circular arcs fold
-                // it into the start angle (verified on real files by endpoint continuity).
+                // The start/end angles are measured in the tilted frame. Circular arcs
+                // fold the tilt into the start angle, so the normalized arc carries none
+                // (verified on real files by endpoint continuity).
                 let (start_angle, tilt_angle) = if *flatness == 1. {
                     if *tilt_angle_degrees != 0. && !*is_full_circle {
                         tilted_circular_arcs += 1;

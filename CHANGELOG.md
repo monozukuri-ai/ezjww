@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- DXF conversion of JWW: a circular arc with a nonzero tilt is written with the
+  tilt added to its start and end angles; the tilt was ignored and the arc was
+  drawn at the wrong position. A partial elliptical arc with a flatness above
+  one has its parameters shifted by −90° to follow the swapped axes. JWC
+  conversion already handled both and does not change.
 - JWW writing from Python: after `JwwDrawing.stream_entities()` the modelspace
   entities are checked and encoded as they are added instead of being kept as
   dicts, for drawings too large to hold: a line takes about 360 bytes as dicts
