@@ -3778,27 +3778,78 @@ mod tests {
         }
     }
 
-    #[test]
-    fn convert_document_keeps_endpoints_when_swapping_ellipse_axes() {
-        // flatness 2: the JWW point at parameter t is (10 cos t, 20 sin t).
-        match convert_single_arc(test_arc(0.0, 90.0, 0.0, 2.0)) {
+    fn dxf_ellipse_point(e: &super::DxfEllipse, t: f64) -> (f64, f64) {
+        let (minor_x, minor_y) = (
+            -e.major_axis_y * e.minor_ratio,
+            e.major_axis_x * e.minor_ratio,
+        );
+        (
+            e.center_x + e.major_axis_x * t.cos() + minor_x * t.sin(),
+            e.center_y + e.major_axis_y * t.cos() + minor_y * t.sin(),
+        )
+    }
+
+    /// The JWW definition: parameter `t` in the frame rotated by the tilt.
+    fn jww_arc_point(arc: &Arc, t: f64) -> (f64, f64) {
+        let (sin, cos) = arc.tilt_angle.sin_cos();
+        let (x, y) = (arc.radius * t.cos(), arc.radius * arc.flatness * t.sin());
+        (
+            arc.center_x + x * cos - y * sin,
+            arc.center_y + x * sin + y * cos,
+        )
+    }
+
+    /// Checks that the DXF ELLIPSE runs CCW over the same points as the JWW arc.
+    fn assert_ellipse_follows_jww_arc(arc: Arc) {
+        let near = |a: (f64, f64), b: (f64, f64)| {
+            assert!(
+                (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9,
+                "expected {b:?}, got {a:?}"
+            )
+        };
+        let (from, to) = if arc.arc_angle < 0.0 {
+            (arc.start_angle + arc.arc_angle, arc.start_angle)
+        } else {
+            (arc.start_angle, arc.start_angle + arc.arc_angle)
+        };
+        match convert_single_arc(arc.clone()) {
             DxfEntity::Ellipse(e) => {
-                let point = |t: f64| {
-                    let (minor_x, minor_y) = (
-                        -e.major_axis_y * e.minor_ratio,
-                        e.major_axis_x * e.minor_ratio,
-                    );
-                    (
-                        e.major_axis_x * t.cos() + minor_x * t.sin(),
-                        e.major_axis_y * t.cos() + minor_y * t.sin(),
-                    )
-                };
-                let (start, end) = (point(e.start_param), point(e.end_param));
-                assert!((start.0 - 10.0).abs() < 1e-9 && start.1.abs() < 1e-9);
-                assert!(end.0.abs() < 1e-9 && (end.1 - 20.0).abs() < 1e-9);
+                assert!((e.end_param - e.start_param - arc.arc_angle.abs()).abs() < 1e-9);
+                near(
+                    dxf_ellipse_point(&e, e.start_param),
+                    jww_arc_point(&arc, from),
+                );
+                near(dxf_ellipse_point(&e, e.end_param), jww_arc_point(&arc, to));
+                near(
+                    dxf_ellipse_point(&e, (e.start_param + e.end_param) / 2.0),
+                    jww_arc_point(&arc, (from + to) / 2.0),
+                );
             }
             other => panic!("expected ELLIPSE, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn convert_document_keeps_endpoints_when_swapping_ellipse_axes() {
+        assert_ellipse_follows_jww_arc(test_arc(0.0, 90.0, 0.0, 2.0));
+    }
+
+    #[test]
+    fn convert_document_keeps_tilted_ellipse_endpoints_when_swapping_axes() {
+        assert_ellipse_follows_jww_arc(test_arc(20.0, 120.0, 30.0, 2.0));
+        assert_ellipse_follows_jww_arc(test_arc(300.0, 100.0, 135.0, 3.0));
+    }
+
+    #[test]
+    fn convert_document_keeps_negative_sweep_ellipse_endpoints_when_swapping_axes() {
+        assert_ellipse_follows_jww_arc(test_arc(0.0, -90.0, 0.0, 2.0));
+        assert_ellipse_follows_jww_arc(test_arc(200.0, -250.0, 45.0, 3.0));
+    }
+
+    #[test]
+    fn convert_document_keeps_tilted_ellipse_endpoints_below_unit_flatness() {
+        assert_ellipse_follows_jww_arc(test_arc(20.0, 120.0, 30.0, 0.5));
+        assert_ellipse_follows_jww_arc(test_arc(200.0, -250.0, 45.0, 0.5));
     }
 
     #[test]
