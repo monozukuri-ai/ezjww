@@ -1960,21 +1960,12 @@ fn ellipse_point(solid: &CircleSolid, radius: f64, angle: f64) -> DxfVertex {
     } else {
         solid.flatness.abs()
     };
-    let mut major_radius = radius.abs();
-    let mut minor_ratio = flatness;
-    let mut tilt = solid.tilt_angle;
-
-    if minor_ratio > 1.0 {
-        major_radius *= minor_ratio;
-        minor_ratio = 1.0 / minor_ratio;
-        tilt += PI / 2.0;
-    }
-
-    let minor_radius = major_radius * minor_ratio;
-    let cos_tilt = tilt.cos();
-    let sin_tilt = tilt.sin();
-    let local_x = major_radius * angle.cos();
-    let local_y = minor_radius * angle.sin();
+    // A polyline needs no major/minor axis swap, so `angle` stays the JWW parameter
+    // in the tilted frame for any flatness.
+    let radius = radius.abs();
+    let (sin_tilt, cos_tilt) = solid.tilt_angle.sin_cos();
+    let local_x = radius * angle.cos();
+    let local_y = radius * flatness * angle.sin();
 
     DxfVertex {
         x: solid.center_x + local_x * cos_tilt - local_y * sin_tilt,
@@ -2005,16 +1996,19 @@ fn convert_arc(
         let mut major_radius = arc.radius;
         let mut minor_ratio = arc.flatness;
         let mut tilt_angle = arc.tilt_angle;
+        let mut start_param_angle = arc.start_angle;
 
         if minor_ratio > 1.0 {
             major_radius = arc.radius * arc.flatness;
             minor_ratio = 1.0 / arc.flatness;
             tilt_angle = arc.tilt_angle + PI / 2.0;
+            // The parameters are measured from the major axis, which moved by +90°.
+            start_param_angle -= PI / 2.0;
         }
 
         let major_axis_x = major_radius * tilt_angle.cos();
         let major_axis_y = major_radius * tilt_angle.sin();
-        let (span_start, span_end) = jww_arc_to_ccw_span(arc.start_angle, arc.arc_angle);
+        let (span_start, span_end) = jww_arc_to_ccw_span(start_param_angle, arc.arc_angle);
         let start_param = if arc.is_full_circle { 0.0 } else { span_start };
         let end_param = if arc.is_full_circle {
             2.0 * PI
@@ -2037,7 +2031,9 @@ fn convert_arc(
         })];
     }
 
-    let (start_angle, end_angle) = jww_arc_to_ccw_span(arc.start_angle, arc.arc_angle);
+    // JWW measures the angles in the tilted frame; DXF ARC has no tilt.
+    let (start_angle, end_angle) =
+        jww_arc_to_ccw_span(arc.start_angle + arc.tilt_angle, arc.arc_angle);
     vec![DxfEntity::Arc(DxfArc {
         layer,
         color,
@@ -3736,6 +3732,126 @@ mod tests {
         }
     }
 
+    fn convert_single_arc(arc: Arc) -> DxfEntity {
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::Arc(arc)],
+            images: Vec::new(),
+            block_defs: vec![],
+        };
+        convert_document(&doc).entities.remove(0)
+    }
+
+    fn test_arc(start_deg: f64, sweep_deg: f64, tilt_deg: f64, flatness: f64) -> Arc {
+        Arc {
+            base: EntityBase::default(),
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 10.0,
+            start_angle: start_deg.to_radians(),
+            arc_angle: sweep_deg.to_radians(),
+            tilt_angle: tilt_deg.to_radians(),
+            flatness,
+            is_full_circle: false,
+        }
+    }
+
+    #[test]
+    fn convert_document_rotates_circular_arc_by_tilt() {
+        match convert_single_arc(test_arc(10.0, 90.0, 30.0, 1.0)) {
+            DxfEntity::Arc(arc) => {
+                assert!((arc.start_angle - 40.0).abs() < 1e-9);
+                assert!((arc.end_angle - 130.0).abs() < 1e-9);
+            }
+            other => panic!("expected ARC, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_rotates_negative_sweep_circular_arc_by_tilt() {
+        match convert_single_arc(test_arc(0.0, -90.0, -90.0, 1.0)) {
+            DxfEntity::Arc(arc) => {
+                assert!((arc.start_angle - 180.0).abs() < 1e-9);
+                assert!((arc.end_angle - 270.0).abs() < 1e-9);
+            }
+            other => panic!("expected ARC, got {:?}", other),
+        }
+    }
+
+    fn dxf_ellipse_point(e: &super::DxfEllipse, t: f64) -> (f64, f64) {
+        let (minor_x, minor_y) = (
+            -e.major_axis_y * e.minor_ratio,
+            e.major_axis_x * e.minor_ratio,
+        );
+        (
+            e.center_x + e.major_axis_x * t.cos() + minor_x * t.sin(),
+            e.center_y + e.major_axis_y * t.cos() + minor_y * t.sin(),
+        )
+    }
+
+    /// The JWW definition: parameter `t` in the frame rotated by the tilt.
+    fn jww_arc_point(arc: &Arc, t: f64) -> (f64, f64) {
+        let (sin, cos) = arc.tilt_angle.sin_cos();
+        let (x, y) = (arc.radius * t.cos(), arc.radius * arc.flatness * t.sin());
+        (
+            arc.center_x + x * cos - y * sin,
+            arc.center_y + x * sin + y * cos,
+        )
+    }
+
+    /// Checks that the DXF ELLIPSE runs CCW over the same points as the JWW arc.
+    fn assert_ellipse_follows_jww_arc(arc: Arc) {
+        let near = |a: (f64, f64), b: (f64, f64)| {
+            assert!(
+                (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9,
+                "expected {b:?}, got {a:?}"
+            )
+        };
+        let (from, to) = if arc.arc_angle < 0.0 {
+            (arc.start_angle + arc.arc_angle, arc.start_angle)
+        } else {
+            (arc.start_angle, arc.start_angle + arc.arc_angle)
+        };
+        match convert_single_arc(arc.clone()) {
+            DxfEntity::Ellipse(e) => {
+                assert!((e.end_param - e.start_param - arc.arc_angle.abs()).abs() < 1e-9);
+                near(
+                    dxf_ellipse_point(&e, e.start_param),
+                    jww_arc_point(&arc, from),
+                );
+                near(dxf_ellipse_point(&e, e.end_param), jww_arc_point(&arc, to));
+                near(
+                    dxf_ellipse_point(&e, (e.start_param + e.end_param) / 2.0),
+                    jww_arc_point(&arc, (from + to) / 2.0),
+                );
+            }
+            other => panic!("expected ELLIPSE, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_keeps_endpoints_when_swapping_ellipse_axes() {
+        assert_ellipse_follows_jww_arc(test_arc(0.0, 90.0, 0.0, 2.0));
+    }
+
+    #[test]
+    fn convert_document_keeps_tilted_ellipse_endpoints_when_swapping_axes() {
+        assert_ellipse_follows_jww_arc(test_arc(20.0, 120.0, 30.0, 2.0));
+        assert_ellipse_follows_jww_arc(test_arc(300.0, 100.0, 135.0, 3.0));
+    }
+
+    #[test]
+    fn convert_document_keeps_negative_sweep_ellipse_endpoints_when_swapping_axes() {
+        assert_ellipse_follows_jww_arc(test_arc(0.0, -90.0, 0.0, 2.0));
+        assert_ellipse_follows_jww_arc(test_arc(200.0, -250.0, 45.0, 3.0));
+    }
+
+    #[test]
+    fn convert_document_keeps_tilted_ellipse_endpoints_below_unit_flatness() {
+        assert_ellipse_follows_jww_arc(test_arc(20.0, 120.0, 30.0, 0.5));
+        assert_ellipse_follows_jww_arc(test_arc(200.0, -250.0, 45.0, 0.5));
+    }
+
     #[test]
     fn convert_document_converts_negative_ellipse_sweep_to_short_ccw_span() {
         let base = EntityBase::default();
@@ -3876,6 +3992,83 @@ mod tests {
             }
             other => panic!("expected FILLED_POLYGON, got {:?}", other),
         }
+    }
+
+    fn partial_circle_solid(pen_style: u8, tilt_deg: f64, solid_mode: f64) -> CircleSolid {
+        CircleSolid {
+            base: EntityBase {
+                pen_style,
+                ..EntityBase::default()
+            },
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 10.0,
+            flatness: 2.0,
+            tilt_angle: tilt_deg.to_radians(),
+            start_angle: 0.0,
+            arc_angle: 90_f64.to_radians(),
+            solid_mode,
+            color: None,
+        }
+    }
+
+    fn convert_single_solid(solid: CircleSolid) -> Vec<DxfEntity> {
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::CircleSolid(solid)],
+            images: Vec::new(),
+            block_defs: vec![],
+        };
+        convert_document(&doc).entities
+    }
+
+    fn assert_vertex(point: &DxfVertex, x: f64, y: f64) {
+        assert!(
+            (point.x - x).abs() < 1e-9 && (point.y - y).abs() < 1e-9,
+            "expected ({x}, {y}), got ({}, {})",
+            point.x,
+            point.y
+        );
+    }
+
+    #[test]
+    fn convert_document_keeps_sector_solid_endpoints_above_unit_flatness() {
+        // flatness 2: the JWW point at parameter t is (10 cos t, 20 sin t).
+        match &convert_single_solid(partial_circle_solid(101, 0.0, 0.0))[..] {
+            [DxfEntity::FilledPolygon(polygon)] => {
+                assert_vertex(&polygon.points[0], 0.0, 0.0);
+                assert_vertex(&polygon.points[1], 10.0, 0.0);
+                assert_vertex(polygon.points.last().unwrap(), 0.0, 20.0);
+            }
+            other => panic!("expected one FILLED_POLYGON, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_rotates_solid_above_unit_flatness_by_tilt() {
+        let (sin, cos) = 30_f64.to_radians().sin_cos();
+        match &convert_single_solid(partial_circle_solid(101, 30.0, 0.0))[..] {
+            [DxfEntity::FilledPolygon(polygon)] => {
+                assert_vertex(&polygon.points[1], 10.0 * cos, 10.0 * sin);
+                assert_vertex(polygon.points.last().unwrap(), -20.0 * sin, 20.0 * cos);
+            }
+            other => panic!("expected one FILLED_POLYGON, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_keeps_ring_solid_endpoints_above_unit_flatness() {
+        let entities = convert_single_solid(partial_circle_solid(105, 0.0, 5.0));
+        let quad = |entity: &DxfEntity| match entity {
+            DxfEntity::FilledPolygon(polygon) => polygon.points.clone(),
+            other => panic!("expected FILLED_POLYGON, got {:?}", other),
+        };
+        let first = quad(&entities[0]);
+        assert_vertex(&first[0], 10.0, 0.0);
+        assert_vertex(&first[3], 5.0, 0.0);
+        let last = quad(entities.last().unwrap());
+        assert_vertex(&last[1], 0.0, 20.0);
+        assert_vertex(&last[2], 0.0, 10.0);
     }
 
     /// `DxfSolid` stores its corners in polygon traversal order, so walking `x1..x4` is the traversal.
