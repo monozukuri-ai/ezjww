@@ -7,6 +7,9 @@
   drawn at the wrong position. A partial elliptical arc with a flatness above
   one has its parameters shifted by −90° to follow the swapped axes. JWC
   conversion already handled both and does not change.
+- DXF conversion of JWW: a partial circle solid or ring solid with a flatness
+  above one keeps its JWW start and end points; the axes were swapped without
+  shifting the angles, so the filled region was rotated by 90°.
 - JWW writing from Python: after `JwwDrawing.stream_entities()` the modelspace
   entities are checked and encoded as they are added instead of being kept as
   dicts, for drawings too large to hold: a line takes about 360 bytes as dicts

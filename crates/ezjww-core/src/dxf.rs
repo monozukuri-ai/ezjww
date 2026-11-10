@@ -1960,21 +1960,12 @@ fn ellipse_point(solid: &CircleSolid, radius: f64, angle: f64) -> DxfVertex {
     } else {
         solid.flatness.abs()
     };
-    let mut major_radius = radius.abs();
-    let mut minor_ratio = flatness;
-    let mut tilt = solid.tilt_angle;
-
-    if minor_ratio > 1.0 {
-        major_radius *= minor_ratio;
-        minor_ratio = 1.0 / minor_ratio;
-        tilt += PI / 2.0;
-    }
-
-    let minor_radius = major_radius * minor_ratio;
-    let cos_tilt = tilt.cos();
-    let sin_tilt = tilt.sin();
-    let local_x = major_radius * angle.cos();
-    let local_y = minor_radius * angle.sin();
+    // A polyline needs no major/minor axis swap, so `angle` stays the JWW parameter
+    // in the tilted frame for any flatness.
+    let radius = radius.abs();
+    let (sin_tilt, cos_tilt) = solid.tilt_angle.sin_cos();
+    let local_x = radius * angle.cos();
+    let local_y = radius * flatness * angle.sin();
 
     DxfVertex {
         x: solid.center_x + local_x * cos_tilt - local_y * sin_tilt,
@@ -3950,6 +3941,83 @@ mod tests {
             }
             other => panic!("expected FILLED_POLYGON, got {:?}", other),
         }
+    }
+
+    fn partial_circle_solid(pen_style: u8, tilt_deg: f64, solid_mode: f64) -> CircleSolid {
+        CircleSolid {
+            base: EntityBase {
+                pen_style,
+                ..EntityBase::default()
+            },
+            center_x: 0.0,
+            center_y: 0.0,
+            radius: 10.0,
+            flatness: 2.0,
+            tilt_angle: tilt_deg.to_radians(),
+            start_angle: 0.0,
+            arc_angle: 90_f64.to_radians(),
+            solid_mode,
+            color: None,
+        }
+    }
+
+    fn convert_single_solid(solid: CircleSolid) -> Vec<DxfEntity> {
+        let doc = JwwDocument {
+            header: empty_header(),
+            entities: vec![Entity::CircleSolid(solid)],
+            images: Vec::new(),
+            block_defs: vec![],
+        };
+        convert_document(&doc).entities
+    }
+
+    fn assert_vertex(point: &DxfVertex, x: f64, y: f64) {
+        assert!(
+            (point.x - x).abs() < 1e-9 && (point.y - y).abs() < 1e-9,
+            "expected ({x}, {y}), got ({}, {})",
+            point.x,
+            point.y
+        );
+    }
+
+    #[test]
+    fn convert_document_keeps_sector_solid_endpoints_above_unit_flatness() {
+        // flatness 2: the JWW point at parameter t is (10 cos t, 20 sin t).
+        match &convert_single_solid(partial_circle_solid(101, 0.0, 0.0))[..] {
+            [DxfEntity::FilledPolygon(polygon)] => {
+                assert_vertex(&polygon.points[0], 0.0, 0.0);
+                assert_vertex(&polygon.points[1], 10.0, 0.0);
+                assert_vertex(polygon.points.last().unwrap(), 0.0, 20.0);
+            }
+            other => panic!("expected one FILLED_POLYGON, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_rotates_solid_above_unit_flatness_by_tilt() {
+        let (sin, cos) = 30_f64.to_radians().sin_cos();
+        match &convert_single_solid(partial_circle_solid(101, 30.0, 0.0))[..] {
+            [DxfEntity::FilledPolygon(polygon)] => {
+                assert_vertex(&polygon.points[1], 10.0 * cos, 10.0 * sin);
+                assert_vertex(polygon.points.last().unwrap(), -20.0 * sin, 20.0 * cos);
+            }
+            other => panic!("expected one FILLED_POLYGON, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn convert_document_keeps_ring_solid_endpoints_above_unit_flatness() {
+        let entities = convert_single_solid(partial_circle_solid(105, 0.0, 5.0));
+        let quad = |entity: &DxfEntity| match entity {
+            DxfEntity::FilledPolygon(polygon) => polygon.points.clone(),
+            other => panic!("expected FILLED_POLYGON, got {:?}", other),
+        };
+        let first = quad(&entities[0]);
+        assert_vertex(&first[0], 10.0, 0.0);
+        assert_vertex(&first[3], 5.0, 0.0);
+        let last = quad(entities.last().unwrap());
+        assert_vertex(&last[1], 0.0, 20.0);
+        assert_vertex(&last[2], 0.0, 10.0);
     }
 
     /// `DxfSolid` stores its corners in polygon traversal order, so walking `x1..x4` is the traversal.
