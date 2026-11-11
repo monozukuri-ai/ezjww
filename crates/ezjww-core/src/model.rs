@@ -42,7 +42,10 @@ impl Serialize for EmbeddedImage {
 }
 
 fn has_gz_suffix(name: &str) -> bool {
-    name.len() > 3 && name[name.len() - 3..].eq_ignore_ascii_case(".gz")
+    // compared as bytes: three bytes from the end of a name may be inside a
+    // multi-byte character, where a `str` cannot be cut
+    let bytes = name.as_bytes();
+    bytes.len() > 3 && bytes[bytes.len() - 3..].eq_ignore_ascii_case(b".gz")
 }
 
 fn strip_gz_suffix(name: &str) -> &str {

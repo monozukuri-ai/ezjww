@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Reading: an embedded image whose archive name ends in multi-byte characters
+  (`図面α`, a name without `.gz`) is read. The check for the `.gz` suffix cut
+  the name three bytes from its end as a `str`, which panics inside such a
+  character.
 - Reading: a drawing that places an image whose path has a multi-byte
   character across its sixth byte (`ab写真.bmp`, `C:\a\図面.jpg`) is read. The
   path was cut at the length of `%temp%` as a `str`, which panics inside such

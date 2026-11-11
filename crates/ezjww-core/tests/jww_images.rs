@@ -1,7 +1,7 @@
 use ezjww_core::{
     image_reference_content, parse_document, parse_document_with_diagnostics,
-    parse_image_reference, to_jww_bytes, writer::input, Coord2D, Entity, JwwWriteDocument,
-    IMAGE_DEFAULT_EXTRA, IMAGE_LIST_TRUNCATED,
+    parse_image_reference, to_jww_bytes, writer::input, Coord2D, EmbeddedImage, Entity,
+    JwwWriteDocument, IMAGE_DEFAULT_EXTRA, IMAGE_LIST_TRUNCATED,
 };
 use serde_json::json;
 
@@ -203,6 +203,26 @@ fn image_reference_parsing_keeps_unknown_parameters() {
         image_reference_content("%temp%a.bmp", 12.5, 7.0, &["0", "0"]),
         "^@BM%temp%a.bmp,12.5,7,0,0"
     );
+}
+
+#[test]
+fn archive_names_that_end_in_wide_characters_are_no_gzip() {
+    // Three bytes from the end of each name is inside a multi-byte character.
+    // Asking whether such an image is compressed panicked.
+    for name in ["図面α", "site×", "写真\u{1f4f7}"] {
+        let image = EmbeddedImage {
+            name: name.to_string(),
+            data: vec![1, 2, 3],
+        };
+        assert!(!image.is_compressed(), "{name}");
+        assert_eq!(image.reference_name(), name);
+    }
+    let image = EmbeddedImage {
+        name: "写真.BMP.GZ".to_string(),
+        data: Vec::new(),
+    };
+    assert!(image.is_compressed());
+    assert_eq!(image.reference_name(), "写真.BMP");
 }
 
 #[test]
