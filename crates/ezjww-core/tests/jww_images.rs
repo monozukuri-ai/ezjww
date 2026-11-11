@@ -204,3 +204,23 @@ fn image_reference_parsing_keeps_unknown_parameters() {
         "^@BM%temp%a.bmp,12.5,7,0,0"
     );
 }
+
+#[test]
+fn image_paths_with_wide_characters_across_the_prefix_length_are_read() {
+    // The sixth byte of each path (the length of "%temp%") is inside a
+    // multi-byte character. Reading such a drawing panicked.
+    for (path, file_name, embedded) in [
+        ("ab写真.bmp", "ab写真.bmp", false),
+        ("abcd写.bmp", "abcd写.bmp", false),
+        ("C:\\a\\図面：北側.jpg", "図面：北側.jpg", false),
+        ("%temp写.bmp", "%temp写.bmp", false),
+        ("%temp%写真.bmp", "写真.bmp", true),
+        ("%TEMP%dir\\図.bmp", "図.bmp", true),
+        ("%temp", "%temp", false),
+    ] {
+        let reference = parse_image_reference(&format!("^@BM{path},100,50")).unwrap();
+        assert_eq!(reference.path, path);
+        assert_eq!(reference.file_name, file_name, "{path}");
+        assert_eq!(reference.is_embedded(), embedded, "{path}");
+    }
+}

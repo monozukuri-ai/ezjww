@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Reading: a drawing that places an image whose path has a multi-byte
+  character across its sixth byte (`ab写真.bmp`, `C:\a\図面.jpg`) is read. The
+  path was cut at the length of `%temp%` as a `str`, which panics inside such
+  a character, so `read_document` and the conversions that read the entities
+  failed on the file.
 - DXF conversion of JWW: a circular arc with a nonzero tilt is written with the
   tilt added to its start and end angles; the tilt was ignored and the arc was
   drawn at the wrong position. A partial elliptical arc with a flatness above

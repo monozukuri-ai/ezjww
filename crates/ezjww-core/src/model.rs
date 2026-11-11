@@ -72,8 +72,22 @@ pub struct ImageReference {
 impl ImageReference {
     /// Whether the path points into the drawing's own archive (`%temp%`).
     pub fn is_embedded(&self) -> bool {
-        self.path.len() >= IMAGE_TEMP_PREFIX.len()
-            && self.path[..IMAGE_TEMP_PREFIX.len()].eq_ignore_ascii_case(IMAGE_TEMP_PREFIX)
+        strip_temp_prefix(&self.path).is_some()
+    }
+}
+
+/// The part of an image path after `%temp%` (in any case), or `None` when the
+/// path does not start with it. The prefix is compared as bytes: a path may
+/// have a multi-byte character across the length of the prefix, where a `str`
+/// cannot be cut.
+fn strip_temp_prefix(path: &str) -> Option<&str> {
+    let prefix = IMAGE_TEMP_PREFIX.as_bytes();
+    let head = path.as_bytes().get(..prefix.len())?;
+    if head.eq_ignore_ascii_case(prefix) {
+        // the head is ASCII, so the cut is between two characters
+        Some(&path[prefix.len()..])
+    } else {
+        None
     }
 }
 
@@ -112,13 +126,7 @@ pub fn image_reference_content(path: &str, width: f64, height: f64, extra: &[&st
 }
 
 fn image_file_name(path: &str) -> &str {
-    let rest = if path.len() >= IMAGE_TEMP_PREFIX.len()
-        && path[..IMAGE_TEMP_PREFIX.len()].eq_ignore_ascii_case(IMAGE_TEMP_PREFIX)
-    {
-        &path[IMAGE_TEMP_PREFIX.len()..]
-    } else {
-        path
-    };
+    let rest = strip_temp_prefix(path).unwrap_or(path);
     rest.rsplit(['\\', '/']).next().unwrap_or(rest)
 }
 
