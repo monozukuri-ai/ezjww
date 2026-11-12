@@ -2,7 +2,8 @@
 name = "ezjww-core"
 version.workspace = true
 edition = "2021"
-description = "JWW/JWC reader, JWW writer and DXF converter"
+description = "Jw_cad JWW/JWC/JWS reader, JWW writer and DXF converter"
+keywords = ["jww", "jw_cad", "cad", "dxf", "parser"]
 license = "MIT"
 repository = "https://github.com/monozukuri-ai/ezjww"
 

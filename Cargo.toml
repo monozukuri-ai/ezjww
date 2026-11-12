@@ -10,7 +10,7 @@ version = "0.7.13"
 name = "ezjww"
 version.workspace = true
 edition = "2021"
-description = "Python bindings for JWW/JWC reading, JWW writing and DXF conversion"
+description = "Python bindings for Jw_cad JWW/JWC/JWS reading, JWW writing and DXF conversion"
 license = "MIT"
 repository = "https://github.com/monozukuri-ai/ezjww"
 
