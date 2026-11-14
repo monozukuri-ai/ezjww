@@ -643,48 +643,47 @@ fn parse_block_def_list(
     text: &TextContext,
 ) -> (Vec<BlockDef>, Vec<DecodeDiagnostic>, Option<usize>) {
     let mut reader = Reader::with_text(data, base_offset, text);
-    // The block definition list is a CObList too, so its count follows
-    // CArchive::ReadCount (WORD, 0xFFFF escape). Older writers of this crate's
-    // fixtures used a plain DWORD; accept that layout when the two bytes after a
-    // WORD count are zero and a class tag follows.
-    let count = match read_count(&mut reader) {
-        Ok(v) => v,
-        Err(_) => return (Vec::new(), reader.into_decode_diagnostics(), None),
-    };
-    let plain_word_count = data.len() >= 6 && !(data[0] == 0xFF && data[1] == 0xFF);
-    if count > 0
-        && plain_word_count
-        && data[2] == 0
-        && data[3] == 0
-        && data[4] == 0xFF
-        && data[5] == 0xFF
-    {
-        // Legacy DWORD count layout: consume its high word.
-        if reader.skip(2).is_err() {
-            return (Vec::new(), reader.into_decode_diagnostics(), None);
+    // Grow only as definitions are read: an untrusted count must neither
+    // allocate memory up front nor cause a valid large list to be discarded.
+    let mut block_defs = Vec::new();
+    let mut expected_blocks = 0;
+    let result = (|| {
+        // CObList counts follow CArchive::ReadCount (WORD, 0xFFFF escape).
+        // Older fixtures used a plain DWORD; accept that layout when its high
+        // word is zero and a new-class tag follows.
+        let count = read_count(&mut reader)?;
+        expected_blocks = count;
+        let plain_word_count = data.len() >= 6 && !(data[0] == 0xFF && data[1] == 0xFF);
+        if count > 0
+            && plain_word_count
+            && data[2] == 0
+            && data[3] == 0
+            && data[4] == 0xFF
+            && data[5] == 0xFF
+        {
+            reader.skip(2)?;
         }
-    }
-
-    if count > 10_000 {
-        return (Vec::new(), reader.into_decode_diagnostics(), None);
-    }
-
-    let mut block_defs = Vec::<BlockDef>::with_capacity(count);
-    let mut complete = true;
-
-    for _ in 0..count {
-        match parse_block_def_with_tracking(&mut reader, version, table) {
-            Ok(Some(block_def)) => block_defs.push(block_def),
-            Ok(None) => {}
-            Err(_) => {
-                complete = false;
-                break;
+        // Every entry consumes at least an object tag. Even a corrupt count
+        // stops at EOF, so parsing work is bounded by the available input.
+        for _ in 0..count {
+            if let Some(block) = parse_block_def_with_tracking(&mut reader, version, table)? {
+                block_defs.push(block);
             }
         }
+        Ok::<_, JwwError>(())
+    })();
+    let used = reader.bytes_read();
+    let consumed = result.as_ref().ok().map(|()| used);
+    let mut diagnostics = reader.into_decode_diagnostics();
+    if let Err(error) = result {
+        diagnostics.push(DecodeDiagnostic::block_list_truncated(
+            base_offset + used,
+            expected_blocks,
+            block_defs.len(),
+            error.to_string(),
+        ));
     }
-
-    let consumed = complete.then_some(reader.bytes_read());
-    (block_defs, reader.into_decode_diagnostics(), consumed)
+    (block_defs, diagnostics, consumed)
 }
 
 /// Version-700 image archive: `DWORD count`, then per image a CString name,
@@ -1017,6 +1016,111 @@ mod tests {
         assert_eq!(validation.resolved_references, 1);
         assert!(validation.unresolved_def_numbers.is_empty());
         assert!(!validation.has_unresolved());
+    }
+
+    // Build the archive independently of the writer, including both ReadCount
+    // layouts and class references shared by all of the nested lists.
+    fn many_blocks_600(count: usize) -> (Vec<u8>, usize) {
+        let mut data = minimal_header_600();
+        data.extend_from_slice(&1u16.to_le_bytes());
+        append_new_class(&mut data, b"CDataSen"); // class PID 1
+        append_line_payload(&mut data, 0.0);
+        let block_offset = data.len();
+        if count < 0xFFFF {
+            data.extend_from_slice(&(count as u16).to_le_bytes());
+        } else {
+            data.extend_from_slice(&0xFFFFu16.to_le_bytes());
+            data.extend_from_slice(&(count as u32).to_le_bytes());
+        }
+        for index in 0..count {
+            if index == 0 {
+                append_new_class(&mut data, b"CDataList"); // class PID 3
+            } else {
+                data.extend_from_slice(&0x8003u16.to_le_bytes());
+            }
+            append_entity_base(&mut data);
+            data.extend_from_slice(&(index as u32).to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes()); // is_referenced
+            data.extend_from_slice(&0u32.to_le_bytes()); // CTime
+            let name = format!("B{index}");
+            data.push(name.len() as u8);
+            data.extend_from_slice(name.as_bytes());
+            data.extend_from_slice(&1u16.to_le_bytes()); // nested entity count
+            data.extend_from_slice(&0x8001u16.to_le_bytes()); // CDataSen
+            append_line_payload(&mut data, index as f64);
+        }
+        (data, block_offset)
+    }
+
+    #[test]
+    fn large_block_lists_preserve_definitions_and_nested_entities() {
+        for count in [10_000, 10_001, 65_534, 65_535, 84_745] {
+            let (data, _) = many_blocks_600(count);
+            let parsed = parse_document_with_diagnostics(&data).unwrap();
+            assert_eq!(parsed.document.entities.len(), 1);
+            assert_eq!(parsed.document.block_defs.len(), count, "count={count}");
+            for (index, block) in parsed.document.block_defs.iter().enumerate() {
+                assert_eq!(block.number, index as u32);
+                assert_eq!(block.name, format!("B{index}"));
+                assert_eq!(block.entities.len(), 1);
+                let Entity::Line(line) = &block.entities[0] else {
+                    panic!("expected line in block {index}");
+                };
+                assert_eq!(line.start_x, index as f64);
+            }
+            // The minimal v600 header omits optional names. Its heuristic
+            // decoding may report header strings, independently of the body.
+            assert!(parsed.diagnostics.iter().all(|diagnostic| {
+                diagnostic
+                    .decode_details()
+                    .is_some_and(|details| details.field.starts_with("header."))
+            }));
+        }
+    }
+
+    #[test]
+    fn corrupt_block_count_keeps_definitions_without_allocating_from_count() {
+        let (data, offset) = many_blocks_600(1);
+        let mut corrupt = data[..offset].to_vec();
+        corrupt.extend_from_slice(&0xFFFFu16.to_le_bytes());
+        corrupt.extend_from_slice(&u32::MAX.to_le_bytes());
+        corrupt.extend_from_slice(&data[offset + 2..]);
+        let parsed = parse_document_with_diagnostics(&corrupt).unwrap();
+        assert_eq!(parsed.document.entities.len(), 1);
+        assert_eq!(parsed.document.block_defs.len(), 1);
+        let diagnostic = parsed.diagnostics.last().unwrap();
+        assert_eq!(diagnostic.code, crate::diagnostics::BLOCK_LIST_TRUNCATED);
+        assert_eq!(diagnostic.severity, "error");
+        let details = diagnostic.block_list_details().unwrap();
+        assert_eq!(details.expected_blocks, u32::MAX as usize);
+        assert_eq!(details.parsed_blocks, 1);
+        assert_eq!(details.byte_offset, corrupt.len());
+        assert!(details.error.contains("unexpected EOF"));
+        assert!(parsed.document.images.is_empty());
+    }
+
+    #[test]
+    fn truncated_block_count_and_record_are_diagnosed() {
+        let (data, offset) = many_blocks_600(1);
+        // Incomplete WORD, incomplete escaped DWORD, incomplete definition.
+        for (tail, expected) in [
+            (&[0xFF][..], 0),
+            (&[0xFF, 0xFF, 1][..], 0),
+            (&[1, 0, 0xFF, 0xFF, 0x58, 2][..], 1),
+        ] {
+            let mut corrupt = data[..offset].to_vec();
+            corrupt.extend_from_slice(tail);
+            let parsed = parse_document_with_diagnostics(&corrupt).unwrap();
+            assert_eq!(parsed.document.entities.len(), 1);
+            assert!(parsed.document.block_defs.is_empty());
+            let diagnostic = parsed.diagnostics.last().unwrap();
+            assert_eq!(diagnostic.code, crate::diagnostics::BLOCK_LIST_TRUNCATED);
+            let details = diagnostic.block_list_details().unwrap();
+            assert_eq!(details.expected_blocks, expected);
+            assert_eq!(details.parsed_blocks, 0);
+            assert!((offset..=corrupt.len()).contains(&details.byte_offset));
+            assert!(details.error.contains("unexpected EOF"));
+        }
     }
 
     // Regression coverage for the archive-wide class/PID table.

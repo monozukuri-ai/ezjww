@@ -4,6 +4,8 @@ pub const CP932_DECODE_REPLACED: &str = "CP932_DECODE_REPLACED";
 /// The ANSI strings of a JWW/JWS file were read as UTF-8 instead of CP932 (Jw_cad under Wine with a UTF-8 locale).
 pub const TEXT_ENCODING_DETECTED: &str = "TEXT_ENCODING_DETECTED";
 pub const ENTITY_LIST_TRUNCATED: &str = "ENTITY_LIST_TRUNCATED";
+/// The block definition list could not be read to its end; earlier definitions are kept.
+pub const BLOCK_LIST_TRUNCATED: &str = "BLOCK_LIST_TRUNCATED";
 /// The version-700 image archive could not be read to its end; images read before the error are kept.
 pub const IMAGE_LIST_TRUNCATED: &str = "IMAGE_LIST_TRUNCATED";
 /// JWC header CSV settings differ from the reference corpus; retained as raw text.
@@ -44,6 +46,19 @@ pub struct TruncationDiagnosticDetails {
     pub expected_entities: usize,
     /// Entities that were parsed successfully before the error.
     pub parsed_entities: usize,
+    /// The parser error that stopped the read.
+    pub error: String,
+}
+
+/// Details of a block definition list that could not be read to its end.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BlockListDiagnosticDetails {
+    /// Absolute byte offset at which parsing stopped.
+    pub byte_offset: usize,
+    /// Block count announced by the file; zero if the count could not be read.
+    pub expected_blocks: usize,
+    /// Definitions that were read before the error.
+    pub parsed_blocks: usize,
     /// The parser error that stopped the read.
     pub error: String,
 }
@@ -92,6 +107,7 @@ pub struct EncodingDiagnosticDetails {
 pub enum DiagnosticDetails {
     Decode(DecodeDiagnosticDetails),
     Truncation(TruncationDiagnosticDetails),
+    BlockList(BlockListDiagnosticDetails),
     Unverified(UnverifiedDiagnosticDetails),
     ImageList(ImageListDiagnosticDetails),
     Encoding(EncodingDiagnosticDetails),
@@ -207,6 +223,31 @@ impl Diagnostic {
         }
     }
 
+    pub(crate) fn block_list_truncated(
+        byte_offset: usize,
+        expected_blocks: usize,
+        parsed_blocks: usize,
+        error: impl Into<String>,
+    ) -> Self {
+        let error = error.into();
+        Self {
+            code: BLOCK_LIST_TRUNCATED.to_string(),
+            severity: "error".to_string(),
+            message: format!(
+                "JWW block definition list could not be read to its end: kept {parsed_blocks} of \
+                 {expected_blocks} announced blocks, stopped at byte {byte_offset} ({error}). \
+                 The image archive after the truncated list was not read."
+            ),
+            action: "skipped".to_string(),
+            details: DiagnosticDetails::BlockList(BlockListDiagnosticDetails {
+                byte_offset,
+                expected_blocks,
+                parsed_blocks,
+                error,
+            }),
+        }
+    }
+
     pub(crate) fn image_list_truncated(
         byte_offset: usize,
         expected_images: usize,
@@ -285,7 +326,14 @@ impl Diagnostic {
         }
     }
 
-    /// Truncation details when this diagnostic reports a truncated entity list.
+    /// Details when this diagnostic reports a partially read block definition list.
+    pub fn block_list_details(&self) -> Option<&BlockListDiagnosticDetails> {
+        match &self.details {
+            DiagnosticDetails::BlockList(details) => Some(details),
+            _ => None,
+        }
+    }
+
     /// Details when this diagnostic reports a partially read image archive.
     pub fn image_list_details(&self) -> Option<&ImageListDiagnosticDetails> {
         match &self.details {
@@ -294,6 +342,7 @@ impl Diagnostic {
         }
     }
 
+    /// Truncation details when this diagnostic reports a truncated entity list.
     pub fn truncation_details(&self) -> Option<&TruncationDiagnosticDetails> {
         match &self.details {
             DiagnosticDetails::Truncation(details) => Some(details),

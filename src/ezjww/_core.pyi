@@ -228,6 +228,12 @@ class UnverifiedDiagnosticDetails(TypedDict):
     count: int
     values: list[str]
 
+class BlockListDiagnosticDetails(TypedDict):
+    byte_offset: int
+    expected_blocks: int
+    parsed_blocks: int
+    error: str
+
 class ImageListDiagnosticDetails(TypedDict):
     byte_offset: int
     expected_images: int
@@ -248,6 +254,7 @@ class DecodeDiagnostic(TypedDict):
     details: (
         DecodeDiagnosticDetails
         | TruncationDiagnosticDetails
+        | BlockListDiagnosticDetails
         | UnverifiedDiagnosticDetails
         | ImageListDiagnosticDetails
         | EncodingDiagnosticDetails

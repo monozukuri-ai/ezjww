@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- JWW reading: retain block definition lists above 10,000 entries, including
+  escaped DWORD counts, instead of silently returning no definitions (#17).
+  Memory grows with definitions actually read rather than the announced count.
+  Incomplete block lists now report `BLOCK_LIST_TRUNCATED`, preserving earlier
+  definitions and skipping the following image archive.
 - Reading: an embedded image whose archive name ends in multi-byte characters
   (`図面α`, a name without `.gz`) is read. The check for the `.gz` suffix cut
   the name three bytes from its end as a `str`, which panics inside such a

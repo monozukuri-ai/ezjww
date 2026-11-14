@@ -23,9 +23,10 @@ pub use writer::{to_jww_bytes, JwwWriteDocument, JwwWriteError, JwwWriteOptions}
 
 pub use cad::{detect_file_format, parse_cad_document, read_cad_document_from_file, CadDocument};
 pub use diagnostics::{
-    DecodeDiagnostic, DecodeDiagnosticDetails, Diagnostic, DiagnosticDetails,
-    EncodingDiagnosticDetails, ImageListDiagnosticDetails, TruncationDiagnosticDetails,
-    CP932_DECODE_REPLACED, ENTITY_LIST_TRUNCATED, IMAGE_LIST_TRUNCATED, TEXT_ENCODING_DETECTED,
+    BlockListDiagnosticDetails, DecodeDiagnostic, DecodeDiagnosticDetails, Diagnostic,
+    DiagnosticDetails, EncodingDiagnosticDetails, ImageListDiagnosticDetails,
+    TruncationDiagnosticDetails, BLOCK_LIST_TRUNCATED, CP932_DECODE_REPLACED,
+    ENTITY_LIST_TRUNCATED, IMAGE_LIST_TRUNCATED, TEXT_ENCODING_DETECTED,
 };
 pub use dxf::{
     convert_document, convert_document_with_options, document_to_string,

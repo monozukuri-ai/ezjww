@@ -1092,6 +1092,12 @@ fn decode_diagnostic_to_pydict<'py>(
             details.set_item("parsed_entities", truncation.parsed_entities)?;
             details.set_item("error", &truncation.error)?;
         }
+        DiagnosticDetails::BlockList(blocks) => {
+            details.set_item("byte_offset", blocks.byte_offset)?;
+            details.set_item("expected_blocks", blocks.expected_blocks)?;
+            details.set_item("parsed_blocks", blocks.parsed_blocks)?;
+            details.set_item("error", &blocks.error)?;
+        }
         DiagnosticDetails::Unverified(unverified) => {
             details.set_item("field", &unverified.field)?;
             details.set_item("byte_offset", unverified.byte_offset)?;

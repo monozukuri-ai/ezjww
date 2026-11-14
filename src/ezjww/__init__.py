@@ -43,6 +43,7 @@ from ezjww._core import (
 )
 from ezjww.diagnostics import (
     ALL_ISSUE_CODES,
+    BLOCK_LIST_TRUNCATED,
     CP932_DECODE_REPLACED,
     ENTITY_LIST_TRUNCATED,
     IMAGE_LIST_TRUNCATED,
@@ -57,6 +58,7 @@ from ezjww.plot import plot_dxf_document, plot_jww
 
 __all__ = [
     "ALL_ISSUE_CODES",
+    "BLOCK_LIST_TRUNCATED",
     "Drawing",
     "JwwDrawing",
     "JwwModelspace",

@@ -20,6 +20,7 @@ class DiagnosticsCatalogTests(unittest.TestCase):
             "CP932_DECODE_REPLACED",
             "TEXT_ENCODING_DETECTED",
             "ENTITY_LIST_TRUNCATED",
+            "BLOCK_LIST_TRUNCATED",
             "IMAGE_LIST_TRUNCATED",
             "UNRESOLVED_BLOCK_REFERENCES",
             "UNSUPPORTED_DXF_ENTITIES",

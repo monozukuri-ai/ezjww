@@ -232,6 +232,13 @@ export interface UnverifiedDiagnosticDetails {
   values: string[];
 }
 
+export interface BlockListDiagnosticDetails {
+  byte_offset: number;
+  expected_blocks: number;
+  parsed_blocks: number;
+  error: string;
+}
+
 export interface ImageListDiagnosticDetails {
   byte_offset: number;
   expected_images: number;
@@ -247,6 +254,7 @@ export interface DecodeDiagnostic {
   details:
     | DecodeDiagnosticDetails
     | TruncationDiagnosticDetails
+    | BlockListDiagnosticDetails
     | UnverifiedDiagnosticDetails
     | ImageListDiagnosticDetails;
 }
